@@ -1,371 +1,378 @@
-# RepoRead Agent Redesign Spec
+# RepoRead Agent 重设计 Spec
 
-> Date: 2026-04-07
-> Status: Draft approved in chat, written for review
-> Scope: Redesign the current RepoRead product/engineering/agent docs around a lighter, claude-code-like local reading agent architecture
-> Target docs:
+> 日期：2026-04-07
+> 状态：已在对话中达成设计共识，现整理为正式书面 spec
+> 范围：围绕更轻量、更接近 `claude-code` 的本地代码阅读代理，重写当前 RepoRead 的产品、工程与 Agent 设计文档
+> 目标文档：
 > - `docs/prd.md`
 > - `docs/design.md`
 > - `docs/agent-architecture.md`
 
 ---
 
-## 1. Goal
+## 1. 目标
 
-RepoRead should stop drifting toward a heavy multi-agent, RAG-centric research system and instead become a high-quality local code reading and technical book generation tool.
+RepoRead 不应该继续往“重多 Agent、重 RAG、重研究系统”的方向漂移，而应该收敛成一个高质量、本地优先、以代码阅读和技术书写作为核心能力的系统。
 
-The new direction is:
+新的总方向是：
 
-- local-first
-- quality-first
-- single main control loop
-- lightweight file-based storage
-- real-time local retrieval
-- isolated independent review
-- minimal user-facing configurability
+- 本地优先
+- 质量优先
+- 单主控循环
+- 轻量文件存储
+- 实时本地检索
+- 独立审稿
+- 用户侧最小化配置
 
-This spec is the design source of truth for the next doc rewrite.
-
----
-
-## 2. Core Product Thesis
-
-RepoRead is not "an AI wiki generator with lots of agents".
-
-RepoRead is:
-
-- a local repository reading workbench
-- a system that writes a technical book-like wiki in strict reading order
-- a system that answers follow-up code questions using human-like local retrieval
-- a system that treats review as an independent second opinion, not as self-polishing
-
-The experience target is closer to `claude-code` doing deep local code reading than to a classic RAG app.
+这份 spec 是下一轮重写主文档时的设计依据。
 
 ---
 
-## 3. Primary Architecture
+## 2. 核心产品判断
 
-### 3.1 Main Structure
+RepoRead 不是“一个带很多 Agent 的 AI Wiki 生成器”。
 
-RepoRead should adopt:
+RepoRead 应当是：
 
-`single main loop + two delegation primitives + deterministic validators`
+- 一个本地仓库阅读工作台
+- 一个按严格阅读顺序生成技术书式 Wiki 的系统
+- 一个通过更像人类工程师的本地检索方式回答代码问题的系统
+- 一个把审稿视为独立第二意见，而不是主控自我润色的系统
 
-There should not be many peer top-level agents like `CatalogAgent`, `PageWriterAgent`, `ChatAgent`, `ResearchSynthesizerAgent`, and so on.
+它的体感目标更接近 `claude-code` 做深度本地代码阅读，而不是一个传统 RAG 应用。
 
-Instead:
+---
 
-- one main control agent implementation drives the whole system
-- that main agent runs in different modes:
+## 3. 主体架构
+
+### 3.1 总体结构
+
+RepoRead 应采用：
+
+`单主循环 + 两种委派原语 + 确定性校验器`
+
+不再保留大量并列的一等 Agent，例如：
+
+- `CatalogAgent`
+- `PageWriterAgent`
+- `ChatAgent`
+- `ResearchSynthesizerAgent`
+
+等这类互相平行的主体。
+
+正确做法是：
+
+- 只有一个主控 Agent 实现负责主线推进
+- 这个主控 Agent 运行在不同 mode 下：
   - `catalog`
   - `page`
   - `ask`
   - `research`
-- delegation is narrow and explicit
-- deterministic validators remain separate from the agent
+- 委派是窄而明确的
+- 确定性校验器始终独立于主控 Agent
 
-### 3.2 Why
+### 3.2 这样做的原因
 
-This keeps:
+这样可以保留：
 
-- continuity across chapters
-- a strong "author writing a book" mental model
-- a simpler runtime
-- less context fragmentation
-- less architectural bloat
+- 章节连续性
+- “作者在写一本书”的强心智
+- 更简单的 runtime
+- 更少的上下文碎片
+- 更低的架构膨胀风险
 
-It also better matches how strong coding agents actually feel in use: one main thread of reasoning, with targeted delegation only when needed.
+这也更接近真正好用的 coding agent 的工作方式：一条主推理链，必要时才做局部委派。
 
 ---
 
-## 4. Delegation Semantics
+## 4. 委派语义
 
-RepoRead should support exactly two delegation semantics.
+RepoRead 只保留两种委派语义。
 
 ### 4.1 `fork worker`
 
-Purpose:
+用途：
 
-- page-internal parallel retrieval
-- section-level evidence gathering
-- local sub-summary generation
-- narrow, non-overlapping inspection tasks
+- 单页内部并行取证
+- 小节级证据收集
+- 局部子总结
+- 窄范围、不重叠的检查任务
 
-Properties:
+性质：
 
-- inherits parent context
-- inherits parent system framing
-- receives a short directive, not a full briefing
-- does not own final judgment
-- does not write final page output
-- does not recursively delegate
-- returns a compact structured report
+- 继承父上下文
+- 继承父 system framing
+- 只接收 directive，不接收完整 briefing
+- 不拥有最终判断权
+- 不写最终页面
+- 不允许递归委派
+- 只返回紧凑的结构化局部结果
 
-Use cases:
+典型使用场景：
 
-- inspect 3 candidate files in parallel
-- summarize 3 subsections independently
-- compare 2 implementation branches inside one page
-- gather evidence for several claims before drafting
+- 并行检查 3 个候选文件
+- 独立总结 3 个小节的证据
+- 对单页里的 2 条实现链路做并行比对
+- 为若干结论并行收集证据
 
 ### 4.2 `fresh reviewer`
 
-Purpose:
+用途：
 
-- independent technical review
-- isolated second opinion
-- factual challenge to the main agent draft
-- occasional independent verification beyond the provided evidence pack
+- 独立技术审稿
+- 隔离式第二意见
+- 对主控初稿做事实挑战
+- 在必要时做独立复核
 
-Properties:
+性质：
 
-- new session
-- no inherited chain-of-thought or running context
-- receives a complete briefing
-- allowed to re-run local retrieval
-- outputs only review results, not replacement authorship
+- 全新会话
+- 不继承主控的思维链和运行上下文
+- 收到完整 briefing
+- 允许重新执行本地检索
+- 只输出 review 结果，不接管作者角色
 
-Use cases:
+典型使用场景：
 
-- review a completed page draft
-- challenge unsupported conclusions
-- detect omissions, contradictions, or weak evidence
-- validate whether a page matches chapter scope
+- 审核某一页初稿
+- 质疑无证据结论
+- 查找遗漏、矛盾或证据薄弱点
+- 判断页面是否跑偏章节边界
 
-### 4.3 Explicit Non-Goal
+### 4.3 明确非目标
 
-RepoRead should not become a general "agent swarm" product.
+RepoRead 不应变成一个通用“Agent Swarm 产品”。
 
-There is no need to expose a large team of productized named agents. The runtime should stay centered on:
+没有必要暴露一大批产品化命名 Agent。runtime 的核心应始终围绕：
 
 - `main.author`
 - `fork.worker`
 - `fresh.reviewer`
 
-Optionally later:
+后续如有必要，可再增加：
 
 - `fresh.researcher`
 
-But that is a later extension, not a core V1 requirement.
+但这是后续增强，不是当前核心设计。
 
 ---
 
-## 5. Page Generation Model
+## 5. 页面生成模型
 
-### 5.1 Global Order
+### 5.1 全局顺序
 
-Page generation must be strictly serial.
+页面生成必须严格串行。
 
-After catalog creation:
+Catalog 完成后，顺序应为：
 
-`Page 1 -> review -> validate -> Page 2 -> review -> validate -> ...`
+`第 1 页 -> review -> validate -> 第 2 页 -> review -> validate -> ...`
 
-There should be no cross-page parallel generation.
+不允许跨页并行生成。
 
-### 5.2 Reason
+### 5.2 原因
 
-The wiki should behave like a book manuscript:
+Wiki 应当像一本书稿：
 
-- earlier chapters establish shared concepts
-- later chapters can reference earlier chapters
-- recommendations and cross-links should grow from already-written material
-- structure should improve as the book progresses
+- 前文建立概念
+- 后文承接前文
+- 推荐阅读和交叉链接建立在已完成页面之上
+- 整体结构会随着书稿推进而逐步稳定
 
-### 5.3 Allowed Parallelism
+### 5.3 允许的并行范围
 
-Parallelism is only allowed inside a single page.
+并行只允许发生在单页内部。
 
-Examples:
+例如：
 
-- multiple evidence searches
-- multiple file inspections
-- multiple subsection evidence digests
-- multiple narrow comparison tasks
+- 多路证据搜索
+- 多文件检查
+- 多个小节的证据摘要
+- 多个窄范围比较任务
 
-The main agent remains the only writer and integrator for the page.
+主控 Agent 始终是唯一写作者和整合者。
 
 ---
 
-## 6. Retrieval Philosophy
+## 6. 检索理念
 
-### 6.1 Hard Decision
+### 6.1 硬决策
 
-RepoRead should not use:
+RepoRead 不使用：
 
 - RAG
-- embeddings
-- vector retrieval
+- embedding
+- 向量检索
 - SQLite
-- heavy prebuilt code indexes
+- 重型预构建代码索引
 
-### 6.2 Retrieval Model
+### 6.2 检索模型
 
-RepoRead should use:
+RepoRead 使用：
 
-`lightweight manifests + real-time local retrieval`
+`轻量清单 + 实时本地检索`
 
-The manifests act like a library card catalog. They help navigation and orientation, but they do not replace direct reading of source material.
+清单像图书馆目录卡片，只负责帮助导航和定位，不替代直接阅读源材料。
 
-### 6.3 Real-Time Retrieval Sources
+### 6.3 实时检索来源
 
-Primary retrieval should come from local tools such as:
+主检索来源应是本地工具：
 
 - `rg`
 - `find`
 - `git`
-- file window reads
-- already-generated page markdown
+- 窗口化文件读取
+- 已生成页面 Markdown
 
-The system should feel like a careful engineer reading a local codebase, not like a semantic retrieval product.
+整个系统的体感应当更像一个认真读本地代码仓库的工程师，而不是一个语义召回产品。
 
 ---
 
-## 7. Lightweight Manifest Policy
+## 7. 轻量清单策略
 
-Only minimal file-based manifests should be stored.
+持久化只保留最轻量的文件型清单。
 
-### 7.1 Allowed Persistent Artifacts
+### 7.1 允许的持久化产物
 
 - `wiki.json`
 - `pages/<slug>.md`
 - `pages/<slug>.meta.json`
-- page or version citation manifest
+- 页面级或版本级 citations 清单
 - `version.json`
 - `current.json`
 - `job-state.json`
-- review summaries
-- ndjson logs
+- review 摘要
+- ndjson 日志
 
-### 7.2 Manifest Responsibilities
+### 7.2 清单职责
 
-These manifests are allowed to support:
+这些清单允许承担：
 
-- navigation
-- reading order
-- page metadata
-- chapter relationships
-- citation mapping
-- recovery and resume
-- version browsing
+- 导航
+- 阅读顺序
+- 页面元数据
+- 章节关系
+- 引用映射
+- 恢复与续跑
+- 版本浏览
 
-They should not become hidden code indexes.
+它们不应偷偷演变成代码索引。
 
-### 7.3 Explicit Limits
+### 7.3 明确限制
 
-Do not add:
+不要加入：
 
-- symbol databases
-- code chunk databases
-- vector stores
-- SQLite FTS search layers
-- large generated code indexes
+- 符号数据库
+- 代码 chunk 数据库
+- 向量存储
+- SQLite FTS 搜索层
+- 大型生成式代码索引
 
-The system should trust model reasoning plus live local retrieval.
+系统应更多相信模型能力加实时本地检索，而不是额外的检索基础设施。
 
 ---
 
-## 8. Tool System
+## 8. 工具体系
 
-### 8.1 Tool Philosophy
+### 8.1 工具设计原则
 
-RepoRead should reuse proven coding-agent tool ideas and names as much as possible.
+RepoRead 应尽量复用成熟 coding agent 已经验证过的工具心智和命名。
 
-Do not invent a parallel vocabulary unless RepoRead has a domain-specific reason.
+除非 RepoRead 有很强的领域理由，否则不要重新发明一套平行术语。
 
-### 8.2 Preferred Core Tool Set
+### 8.2 推荐核心工具集
 
-The baseline should be drawn from `claude-code`, `codex`, `opencode`, and `oh-my-openagent`, then trimmed for RepoRead's read-only scope.
+基线工具应来自 `claude-code`、`codex`、`opencode`、`oh-my-openagent`，再按 RepoRead 的只读边界做裁剪。
 
-Recommended high-frequency tools:
+建议的高频工具：
 
 - `Read`
 - `Grep`
-- `Glob` or `Find`
+- `Glob` 或 `Find`
 - `Bash`
 - `Git`
 - `Agent`
 - `Task`
 - `SendMessage`
 
-RepoRead-specific domain helpers may include:
+RepoRead 自己的轻域工具可增加：
 
 - `PageRead`
 - `CitationOpen`
 
-### 8.3 Tool Priority
+### 8.3 工具优先级
 
-The normal retrieval path should be:
+正常检索路径应为：
 
-1. page manifests and current page context
+1. 当前页与页面清单
 2. `Grep`
 3. `Find` / `Glob`
 4. `Read`
 5. `Git`
-6. `Bash` as controlled fallback
+6. `Bash` 作为受控兜底
 
-`Bash` should not be the primary abstraction. It is a fallback shell around local read operations.
+`Bash` 不应是主抽象，只是本地只读操作的兜底壳。
 
-### 8.4 Tool Reuse Principle
+### 8.4 工具复用原则
 
-If a mature implementation already exists in the reference repos and fits RepoRead's boundary, prefer copying or adapting it over redesigning from scratch.
+如果参考仓库里已经有成熟实现，并且符合 RepoRead 边界，就优先复制或改造，不重新设计。
 
-RepoRead should optimize for leverage, not originality.
-
----
-
-## 9. Parallelism Rules
-
-### 9.1 Parallelism Principle
-
-Parallelism exists to reduce local evidence collection latency inside one page, not to turn RepoRead into a distributed authoring swarm.
-
-### 9.2 Allowed Parallelism
-
-Allowed:
-
-- multiple fork workers launched for non-overlapping page-local subtasks
-- multiple read/search tool calls in one step when independent
-
-Not allowed:
-
-- two agents writing different pages at once
-- two agents reviewing and authoring the same page simultaneously
-- duplicated exploration by both main agent and a delegated worker
-
-### 9.3 Anti-Duplication Rule
-
-Once the main agent delegates a narrow search or inspection task, it should not redo the same search itself unless the first result failed or returned insufficient evidence.
-
-This rule should be written into the agent behavior docs explicitly.
+RepoRead 应优先追求杠杆，而不是原创性。
 
 ---
 
-## 10. Review Model
+## 9. 并行规则
 
-### 10.1 Human Team Analogy
+### 9.1 并行原则
 
-RepoRead should model page production more like a technical book team:
+并行存在的目的是缩短单页内部证据收集时间，而不是把 RepoRead 做成一个分布式写书集群。
 
-- `Author`: main agent
-- `Technical Reviewer`: fresh reviewer
-- `Copy/Structure Checker`: deterministic validators
-- `Editor/Publisher`: final packager
+### 9.2 允许的并行
 
-### 10.2 Reviewer Inputs
+允许：
 
-The fresh reviewer should receive:
+- 为单页内互不依赖的子任务并发拉起多个 `fork worker`
+- 在一步内并行发起多个独立的读/搜任务
 
-- page title
-- chapter position
-- global book summary
-- current page draft
-- current page citations
+不允许：
+
+- 同时写不同页面
+- 同时由两个 Agent 写同一页
+- 主控和已委派 worker 做完全重叠的探索
+
+### 9.3 反重复原则
+
+一旦主控已经把某个窄搜索或检查任务委派出去，除非该任务失败或证据不足，否则主控不应自己再完整重复同样的搜索。
+
+这一点需要明确写进 Agent 行为规范。
+
+---
+
+## 10. 审稿模型
+
+### 10.1 人类团队类比
+
+RepoRead 的单页生产过程应更像一个技术书写作团队：
+
+- `Author`：主控 Agent
+- `Technical Reviewer`：fresh reviewer
+- `Copy/Structure Checker`：确定性校验器
+- `Editor/Publisher`：最终整理与发布
+
+### 10.2 Reviewer 输入
+
+fresh reviewer 应收到：
+
+- 页面标题
+- 章节位置
+- 全书摘要
+- 当前页草稿
+- 当前页 citations
 - covered files
-- explicit review questions
+- 明确的审稿问题
 
-### 10.3 Reviewer Output Contract
+### 10.3 Reviewer 输出契约
 
-The reviewer should return a compact structured result, for example:
+reviewer 应返回紧凑结构化结果，例如：
 
 - `verdict`
 - `blockers`
@@ -374,71 +381,73 @@ The reviewer should return a compact structured result, for example:
 - `scope_violations`
 - `suggested_revisions`
 
-The reviewer is not the replacement author. The main agent owns revision.
+reviewer 不是替代作者，最终修稿责任仍在主控。
 
-### 10.4 Reviewer Permissions
+### 10.4 Reviewer 权限
 
-The reviewer must be allowed to independently re-check local evidence with the same read-only retrieval tools.
+reviewer 必须允许重新使用相同的本地只读检索工具独立复核。
 
-This is important to avoid:
+这样才能降低：
 
-- context contamination
-- author overconfidence
-- rubber-stamp review
+- 上下文污染
+- 主控过度自信
+- 审稿流于形式
 
 ---
 
-## 11. Model Configuration
+## 11. 模型配置
 
-### 11.1 User-Facing Configuration Must Stay Minimal
+### 11.1 用户侧配置必须保持克制
 
-Users should not be given a large configuration surface.
+不要给用户太大的配置面。
 
-Expose only role-level model configuration for:
+用户侧只暴露角色级模型配置：
 
 - `main.author`
 - `fork.worker`
 - `fresh.reviewer`
 
-Each role may define:
+每个角色只需要：
 
 - `model`
 - `fallback_models`
 
-Nothing more should be required for ordinary users.
+普通用户不需要再接触更多参数。
 
-### 11.2 Internal System-Owned Prompt Tuning
+### 11.2 系统内部维护模型级 Prompt 调优
 
-The system should maintain internal model-family prompt tuning profiles.
+系统应内部维护按模型家族的 prompt tuning profile。
 
-These profiles are not user-configurable.
+这层不对用户开放。
 
-They may adjust:
+它可以内部调整：
 
-- prompt append blocks
-- output framing
-- review strictness wording
-- tool-use reminders
-- verbosity constraints
-- formatting stabilization
+- prompt append
+- 输出框架
+- review 严格度措辞
+- tool-use 提示
+- 冗长抑制
+- 格式稳定性
 
-This keeps the system adaptive to model differences without becoming a user-facing tuning platform.
+这样既能适配不同模型差异，又不会把 RepoRead 变成一个复杂调参平台。
 
-### 11.3 Role-Specific Fallbacks
+### 11.3 角色级降级链
 
-Fallback chains must be role-local.
+fallback chain 必须是角色本地的。
 
-If `fresh.reviewer` fails, it should use the reviewer fallback chain, not silently inherit the author chain.
+例如：
 
-Likewise, `fork.worker` can have a cheaper or faster fallback path without changing the author behavior.
+- `fresh.reviewer` 失败时，应走 reviewer 自己的 fallback 链
+- `fork.worker` 可以走更便宜或更快的 fallback 链
+- 不能让 reviewer 静默继承 author 的降级策略
 
 ---
 
-## 12. CLI and Web Experience
+## 12. CLI 与 Web 体验
 
-### 12.1 CLI Role
+### 12.1 CLI 角色
 
-CLI is the entry and process surface:
+CLI 是入口与过程面板：
 
 - init/config/providers
 - generate/jobs
@@ -447,162 +456,163 @@ CLI is the entry and process surface:
 - doctor
 - versions
 
-CLI output should reflect a book-writing workflow:
+CLI 输出应反映“写一本书”的流程，例如：
 
-- writing current page
-- gathering evidence
-- reviewing page
-- revising draft
-- validating page
+- 正在写当前页
+- 正在收集证据
+- 正在审稿
+- 正在修订
+- 正在校验
 
-Not raw agent internals.
+而不是暴露一堆原始 Agent 内部术语。
 
-### 12.2 Web Role
+### 12.2 Web 角色
 
-Web is the long-form reading and follow-up interface:
+Web 是长时阅读与追问界面：
 
-- library/project shelf
-- version browsing
-- left sidebar book structure
-- main content reader
-- citations and source drawer
-- page-aware chat dock
+- 书架/项目列表
+- 版本浏览
+- 左侧目录树
+- 中间正文阅读
+- 引用与源码抽屉
+- 页面内 Chat Dock
 
-Search should first use manifests for quick structural hits, then fall through to live local search.
+搜索应先命中轻量清单，再按需回落到实时本地搜索。
 
-### 12.3 User Mental Model
+### 12.3 用户心智
 
-Users should experience RepoRead as:
+用户应把 RepoRead 感知成：
 
-- reading a technical book
-- opening source citations when needed
-- asking follow-up questions in place
-- seeing when a page is under review or revised
+- 在读一本技术书
+- 在需要时展开源码引用
+- 在当前页面继续追问
+- 在看到“审稿中 / 已修订 / 校验通过”这种贴近写作流程的状态
 
-Users should not need to understand `fork worker` or `fresh reviewer` vocabulary.
-
----
-
-## 13. Quality Policy
-
-### 13.1 No Hard Time Targets
-
-RepoRead should not commit to aggressive wall-clock generation targets.
-
-The docs should remove minute-based performance promises and replace them with:
-
-- quality-first language
-- resumable workflow guarantees
-- recoverable generation stages
-
-### 13.2 Publish Gates
-
-A page cannot be treated as publishable unless:
-
-- review passes or revisions are accepted
-- structure validation passes
-- citation validation passes
-- link validation passes
-
-### 13.3 Resume and Recovery
-
-Generation may take longer. That is acceptable.
-
-The system must therefore prioritize:
-
-- resumability
-- partial recovery
-- page-by-page progress persistence
-- clear restart points
+用户不需要理解 `fork worker` 和 `fresh reviewer` 这些内部术语。
 
 ---
 
-## 14. Testing Strategy
+## 13. 质量策略
 
-### 14.1 Core Test Focus
+### 13.1 不设硬性时间指标
 
-Testing should emphasize:
+RepoRead 不再对外承诺激进的墙钟时间目标。
 
-- serial page authoring behavior
-- page-internal fork retrieval integration
-- fresh reviewer isolation
-- deterministic validation gates
-- recovery after interruption
+文档里应移除分钟级生成承诺，改成：
 
-### 14.2 Required Test Layers
+- 质量优先
+- 可恢复
+- 可续跑
 
-- unit tests for tool wrappers, path guards, manifest persistence, and status recovery
-- integration tests for one-page generation, fork worker fan-out/fan-in, and reviewer loops
-- golden tests for catalog output, page output, reviewer output, and CLI ask formatting
-- end-to-end tests for `init -> generate -> interrupt -> resume -> browse -> ask`
+### 13.2 发布门槛
 
-### 14.3 Human Review Criteria
+一页页面只有在满足以下条件后，才可视为可发布：
 
-Human evaluation should focus on:
+- review 通过，或 review 问题已修订完成
+- 结构校验通过
+- 引用校验通过
+- 链接校验通过
 
-- whether chapter order reads naturally
-- whether later chapters genuinely build on earlier chapters
-- whether review catches real issues
-- whether retrieval feels local and grounded
-- whether Web/CLI feel like a technical book workflow rather than a generic agent dashboard
+### 13.3 恢复与续跑
+
+生成过程允许更慢，这是可接受的。
+
+因此系统必须更强调：
+
+- 可恢复
+- 可部分续跑
+- 页面级进度持久化
+- 清晰的重启点
 
 ---
 
-## 15. Required Changes To Existing Docs
+## 14. 测试策略
+
+### 14.1 测试重点
+
+测试重点应放在：
+
+- 串行页面写作行为
+- 页内 fork 并行取证后的整合
+- fresh reviewer 的隔离性
+- 确定性校验门槛
+- 中断后的恢复
+
+### 14.2 必要测试层级
+
+- 单元测试：工具封装、路径约束、清单落盘、状态恢复
+- 集成测试：单页生成、fork worker fan-out/fan-in、reviewer 闭环
+- Golden 测试：Catalog、单页输出、review 输出、CLI `ask` 输出格式
+- E2E：`init -> generate -> interrupt -> resume -> browse -> ask`
+
+### 14.3 人工验收重点
+
+人工评审时应重点关注：
+
+- 章节顺序是否自然
+- 后文是否真正建立在前文之上
+- reviewer 是否真的抓出了问题
+- 检索体感是否足够本地、足够 grounded
+- Web/CLI 是否更像一本技术书的阅读工作流，而不是一个通用 Agent 面板
+
+---
+
+## 15. 现有主文档需要的修改
 
 ### 15.1 `docs/prd.md`
 
-Rewrite to:
+需要重写为：
 
-- remove hard time targets
-- remove RAG framing
-- reframe the product as a local reading/writing system with independent review
-- state that generation is serial by page
-- state that quality and recoverability dominate speed
+- 去掉硬性时间指标
+- 去掉 RAG 叙事
+- 改成“本地阅读/写书系统 + 独立审稿”的产品定位
+- 明确页面按顺序串行生成
+- 明确质量和可恢复性高于速度
 
 ### 15.2 `docs/design.md`
 
-Rewrite to:
+需要重写为：
 
-- remove SQLite and heavy index assumptions
-- remove vector/semantic retrieval language
-- replace with lightweight manifests plus live local retrieval
-- define serial page pipeline and page-internal fork parallelism
-- define lightweight file storage as the primary persistence model
+- 去掉 SQLite 和重索引假设
+- 去掉向量/语义召回叙事
+- 改成“轻量清单 + 实时本地检索”
+- 定义串行页面流水线和页内 fork 并行
+- 明确以文件落盘作为主要持久化手段
 
 ### 15.3 `docs/agent-architecture.md`
 
-Rewrite to:
+需要重写为：
 
-- collapse many named agents into one main control loop
-- define only two delegation primitives: `fork worker` and `fresh reviewer`
-- define review as isolated, fresh-session technical review
-- define role-level model config with internal system-owned prompt tuning
-- define anti-duplication and delegation rules
-
----
-
-## 16. Non-Goals
-
-This redesign does not aim to:
-
-- maximize throughput
-- become a generalized multi-agent orchestration platform
-- expose advanced prompt tuning to users
-- rely on heavy retrieval infrastructure
-- optimize for novelty over reuse
+- 把大量命名 Agent 收敛成单主循环
+- 明确只保留两种委派原语：`fork worker`、`fresh reviewer`
+- 明确 review 是新会话、独立复核
+- 明确角色级模型与 fallback 配置
+- 明确系统内部维护模型级 prompt 调优，但不对用户开放
+- 明确反重复探索原则和委派规则
 
 ---
 
-## 17. Acceptance
+## 16. 非目标
 
-This redesign should be considered correctly implemented in the docs when:
+这次重设计不追求：
 
-1. the three core docs consistently describe one main control loop rather than many peer agents
-2. all SQLite/RAG/vector retrieval assumptions are removed
-3. strict serial page generation is explicit
-4. `fork worker` and `fresh reviewer` semantics are explicit
-5. role-level model/fallback config is explicit
-6. internal model-family prompt tuning exists in the design but is not user-facing
-7. tools are presented in reused coding-agent terminology
-8. hard time targets are replaced by quality-first wording
+- 吞吐最大化
+- 变成通用多 Agent 编排平台
+- 暴露高级 prompt 调优给用户
+- 依赖重型检索基础设施
+- 为了新颖性放弃成熟复用
+
+---
+
+## 17. 验收标准
+
+当且仅当以下条件成立时，这轮设计重构才算正确落进主文档：
+
+1. 三份核心文档一致描述“一个主控循环”，而不是很多并列主 Agent
+2. 所有 SQLite / RAG / 向量检索假设都被移除
+3. 严格串行页面生成被明确写出
+4. `fork worker` 与 `fresh reviewer` 的语义被明确写出
+5. 角色级模型与 fallback 配置被明确写出
+6. 模型级 prompt 调优存在于系统设计中，但不是用户可配置项
+7. 工具体系以复用成熟 coding agent 命名和心智为主
+8. 硬性时间指标被替换为质量优先表述
