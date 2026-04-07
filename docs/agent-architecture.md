@@ -20,7 +20,7 @@
 3. `catalog`、`page`、`ask`、`research` 四种 mode 分别如何执行。
 4. 哪些能力由确定性模块负责，哪些能力保留给模型。
 
-本版是 Task 5 的收敛版本，目标是把旧的多命名 agent 结构压缩为“单主循环 + 两种委派原语 + 确定性 validator”。详细 prompt 模板、细粒度失败恢复和三文档一致性校验留到后续任务，不在这里展开。
+本版是 Task 6 的收口版本，目标是在 Task 5 的收敛基础上补齐角色 prompt、失败处理与三文档术语一致性，保持“单主循环 + 两种委派原语 + 确定性 validator”的边界不扩张。
 
 ---
 
@@ -42,7 +42,7 @@ RepoRead 的 Agent 架构只保留以下结论：
 
 1. 只有一个主控 Agent 实现，名字统一为 `main.author`。
 2. 主控只在四种 mode 下工作：`catalog`、`page`、`ask`、`research`。
-3. 运行时只保留两种委派原语：`fork worker`、`fresh reviewer`。
+3. 运行时只保留两种委派原语：`fork.worker`、`fresh.reviewer`。
 4. 所有结构与发布校验都交给独立的确定性 `validator`，不再由 Agent 自行兜底解释。
 5. 页面生产必须严格串行，单页只能有一个写作者，跨页不能并行写作。
 6. 默认先读本地页面与引用，再扩展到仓库检索，最后才落到受限 shell。
@@ -63,7 +63,7 @@ RepoRead 的 Agent 架构只保留以下结论：
 ```text
 Deterministic Runtime
   - Repo Snapshot
-  - Local Retrieval Index
+  - 实时本地检索
   - validator
   - Publisher
   - Context Store
@@ -73,12 +73,12 @@ Main Control Loop
   - main.author
     - mode: catalog | page | ask | research
           │
-          ├─ fork worker
+          ├─ fork.worker
           │    - inherited context
           │    - narrow directive
           │    - structured partial result only
           │
-          └─ fresh reviewer
+          └─ fresh.reviewer
                - fresh session
                - full review briefing
                - review conclusion only
@@ -89,8 +89,8 @@ Main Control Loop
 | 角色 | 类型 | 职责 |
 | --- | --- | --- |
 | `main.author` | LLM | 唯一主控，负责规划、检索、写作、答问、研究与发布前决策 |
-| `fork worker` | LLM 委派原语 | 在继承父上下文的前提下完成局部检索、局部比对、局部摘要 |
-| `fresh reviewer` | LLM 委派原语 | 在新会话中独立审稿，只输出审稿结论，不参与重写 |
+| `fork.worker` | LLM 委派原语 | 在继承父上下文的前提下完成局部检索、局部比对、局部摘要 |
+| `fresh.reviewer` | LLM 委派原语 | 在新会话中独立审稿，只输出审稿结论，不参与重写 |
 | `validator` | 确定性模块 | 校验 `wiki.json`、页面结构、引用、链接、输出 schema |
 | `Publisher` | 确定性模块 | 版本落盘、摘要更新、索引刷新、状态变更 |
 | `Context Store` | 确定性模块 | 保存全书摘要、页面计划、已发布页面摘要、证据账本 |
@@ -110,9 +110,9 @@ Main Control Loop
 
 ## 4. 委派原语
 
-### 4.1 `fork worker`
+### 4.1 `fork.worker`
 
-`fork worker` 用于低风险、局部化、可并行的工作：
+`fork.worker` 用于低风险、局部化、可并行的工作：
 
 1. 继承父上下文，包括当前页面计划、局部证据、相关检索历史。
 2. 只接收窄 directive，例如“检查某个函数链路”“补 3 个缺失引用”“对比两个不重叠目录”。
@@ -135,9 +135,9 @@ type ForkWorkerResult = {
 }
 ```
 
-### 4.2 `fresh reviewer`
+### 4.2 `fresh.reviewer`
 
-`fresh reviewer` 用于独立审稿：
+`fresh.reviewer` 用于独立审稿：
 
 1. 不继承主控上下文。
 2. 必须收到完整 briefing。
@@ -153,8 +153,8 @@ type ForkWorkerResult = {
 
 | 工具 | 语义用途 |
 | --- | --- |
-| `Task` | 创建 `fork worker` |
-| `Agent` | 创建 `fresh reviewer` |
+| `Task` | 创建 `fork.worker` |
+| `Agent` | 创建 `fresh.reviewer` |
 | `SendMessage` | 向子任务发送窄 directive、补充 briefing 或收集结构化结果 |
 
 换言之，`Agent`、`Task`、`SendMessage` 只是 transport，不增加第三种 agent 角色。
@@ -174,8 +174,8 @@ RepoRead 核心工具固定为以下十项：
 | `Find` | 路径发现、目录过滤、文件候选收敛 |
 | `Git` | 提供 commit、分支、版本差异与只读历史信息 |
 | `Bash` | 仅限白名单的只读命令执行 |
-| `Agent` | 创建 `fresh reviewer` 会话 |
-| `Task` | 创建 `fork worker` 子任务 |
+| `Agent` | 创建 `fresh.reviewer` 会话 |
+| `Task` | 创建 `fork.worker` 子任务 |
 | `SendMessage` | 与子任务交换结构化消息 |
 | `PageRead` | 读取已发布页面及其页面元数据 |
 | `CitationOpen` | 从页面引用回跳到文件、页面或 commit 证据 |
@@ -200,7 +200,7 @@ RepoRead 核心工具固定为以下十项：
 允许：
 
 1. 单页内部多路检索，例如同一页面下并行查找不重叠的候选文件。
-2. 局部摘要，例如把多个不重叠证据段落交给 `fork worker` 分别归纳。
+2. 局部摘要，例如把多个不重叠证据段落交给 `fork.worker` 分别归纳。
 3. 互不重叠文件检查，例如对两个独立目录做覆盖性确认。
 
 禁止：
@@ -247,12 +247,12 @@ roles:
 2. 不再为 `catalog`、`page`、`ask`、`research` 单独配置不同 agent 名称。
 3. mode 选择由运行时决定，不由用户再额外声明角色。
 
-### 6.2 `prompt tuning profile`
+### 6.2 系统内建 prompt 调优
 
-系统按模型族维护 `prompt tuning profile`，而不是把 prompt 细节散落到各 mode：
+系统按模型族维护系统内建 prompt 调优，而不是把 prompt 细节散落到各 mode：
 
 ```ts
-type PromptTuningProfile = {
+type SystemPromptTuningProfile = {
   family: string
   reasoning_style: 'tight' | 'balanced' | 'long-form'
   tool_call_style: 'strict-json' | 'xml-like' | 'freeform-guarded'
@@ -299,13 +299,13 @@ type MainAuthorContext = {
 
 ### 6.4 子任务上下文边界
 
-`fork worker`：
+`fork.worker`：
 
 1. 继承父上下文。
 2. 只接收被裁剪过的局部范围。
 3. 只能返回局部结构化结果。
 
-`fresh reviewer`：
+`fresh.reviewer`：
 
 1. 不继承主控上下文。
 2. 必须收到完整审稿 briefing。
@@ -318,7 +318,7 @@ type MainAuthorContext = {
 
 1. 先使用角色主模型。
 2. 当前模型不满足工具调用或结构化输出要求时，按 `fallback_models` 顺序切换。
-3. 切换模型不会改变协议，只改变 `prompt tuning profile`。
+3. 切换模型不会改变协议，只改变系统内建 prompt 调优。
 4. 回退后仍失败时，由主控终止当前步骤并交给 `validator` 或上层状态机处理。
 
 ---
@@ -414,7 +414,7 @@ type WikiJson = {
 1. 任一时刻只允许一个当前页。
 2. 当前页未发布前，不得开启下一页写作。
 3. 同一页只能有一个作者，即 `main.author`。
-4. `fork worker` 可以补证据，但不能替代主控写完整草稿。
+4. `fork.worker` 可以补证据，但不能替代主控写完整草稿。
 
 ### 8.4 页面输出
 
@@ -475,7 +475,7 @@ type WikiJson = {
 1. 复用 `Ask Loop` 的前半段，先读当前页与引用。
 2. 形成研究问题和子问题列表。
 3. 对每个子问题做更长的本地检索链路。
-4. 用 `fork worker` 处理互不重叠的局部问题。
+4. 用 `fork.worker` 处理互不重叠的局部问题。
 5. 汇总并标注结论状态。
 6. 交给主控输出最终研究结果。
 
@@ -497,7 +497,7 @@ type WikiJson = {
 
 ### 11.1 审稿输入
 
-`fresh reviewer` 必须收到完整审稿 briefing。最少输入字段如下：
+`fresh.reviewer` 必须收到完整审稿 briefing。最少输入字段如下：
 
 ```ts
 type ReviewBriefing = {
@@ -551,7 +551,7 @@ type ReviewConclusion = {
 
 ### 11.3 审稿与改稿的边界
 
-`fresh reviewer`：
+`fresh.reviewer`：
 
 1. 可以重新检索。
 2. 可以指出需要补的证据。
@@ -615,33 +615,88 @@ type ValidationReport = {
 
 ## 13. Prompt 与协议边界
 
-本版只定义 Task 5 所需的协议边界，不展开 Task 6 的细节模板。
+本节定义三种角色的最小 prompt 模板与行为边界。系统内建 prompt 调优只能在措辞、压缩和工具调用风格上做模型族适配，不能改写这些角色职责。
 
-当前确定的只有三点：
+### 13.1 `main.author` prompt 角色
+
+`main.author` 的角色 prompt 必须固定表达以下职责：
+
+1. 你是唯一作者，也是唯一推进 `catalog`、`page`、`ask`、`research` 主线的角色。
+2. 你必须优先复用已发布页面、页面引用和实时本地检索结果，再决定是否继续扩展检索。
+3. 你只能基于已核实证据写作；没有证据支撑的内容必须删除、降级为推断，或标记待确认，禁止无证据扩写。
+4. 你可以委派 `fork.worker` 做局部取证，也可以调用 `fresh.reviewer` 做独立审稿，但不能把主控决策权交出去。
+5. 你负责维护页面计划、证据账本、恢复点和最终发布决策。
+
+### 13.2 `fork.worker` prompt 角色
+
+`fork.worker` 的角色 prompt 必须固定表达以下职责：
+
+1. 你只在主控给定的限定范围内执行证据搜索、局部总结或差异对比。
+2. 你必须优先复用主控提供的页面、引用、检索历史和局部计划，不得自行扩展主题。
+3. 你禁止重写页面、禁止改写页面计划、禁止产出完整章节草稿。
+4. 你禁止递归委派，所有未解决问题都必须回传给 `main.author`。
+5. 你的输出只能是结构化局部结果，包括命中证据、局部结论、未解问题和候选引用。
+
+### 13.3 `fresh.reviewer` prompt 角色
+
+`fresh.reviewer` 的角色 prompt 必须固定表达以下职责：
+
+1. 你在全新上下文中审稿，不继承作者会话，不默认相信作者结论。
+2. 你必须主动质疑证据不足、边界越界、过度自信、遗漏关键文件或机制的表述。
+3. 当 briefing 或引用不足以支持审稿结论时，你必须重新检索本地证据，而不是凭经验放行。
+4. 你只能输出审稿结论和修订建议，不能直接重写页面，也不能跳过审稿协议。
+5. 你的默认立场是先验证、再通过；证据不够时输出 `revise`，而不是做乐观假设。
+
+### 13.4 角色边界优先级
 
 1. prompt 角色只保留 `main.author`、`fork.worker`、`fresh.reviewer`。
-2. 具体措辞由 `prompt tuning profile` 按模型族适配。
-3. 审稿、loop、工具、输出 schema 的协议优先于措辞细节。
-
-本版明确不展开：
-
-1. 长篇 system prompt 模板。
-2. 复杂失败恢复细节。
-3. 三份文档之间的逐项一致性校验脚本。
+2. 审稿协议、loop 协议、工具边界、输出 schema 的优先级高于 prompt 措辞。
+3. 系统内建 prompt 调优只按模型族适配表达方式，不引入新角色、不放宽角色职责。
 
 ---
 
-## 14. V1 约束与非目标
+## 14. 失败处理与降级
 
-### 14.1 V1 必做
+### 14.1 模型失败与角色级降级
+
+1. `main.author`、`fork.worker`、`fresh.reviewer` 都只能沿各自 `fallback_models` 顺序降级，不能临时串用其他角色。
+2. 主模型出现认证失败、能力不足、结构化输出不合格、连续超时或连续工具调用失败时，必须记录失败原因后再切到该角色的下一个 fallback。
+3. 切换到 fallback 后，角色职责、输出 schema、检索顺序和审稿要求保持不变，只允许系统内建 prompt 调优随模型族切换。
+4. 某角色 fallback 链耗尽后，当前步骤进入失败态，并把失败原因、已完成证据和恢复点交回主状态机。
+
+### 14.2 工具失败与检索重试
+
+1. 工具失败时，主控或子任务必须保留失败上下文，包括当前 query、已探索范围、命中的候选路径和错误信息。
+2. 允许在同一职责边界内改写 query 后重试，例如缩小关键词、切换符号名、改走 `Find -> Read`，但不得借重试扩张主题。
+3. 工具失败不会清空已收集证据；失败前拿到的页面、引用、文件片段和账本条目必须保留。
+4. 若只读白名单 shell 失败，必须回退到更窄的内建工具链，而不是放宽工具权限。
+
+### 14.3 审稿失败与不可跳过规则
+
+1. `fresh.reviewer` 失败不允许跳过，页面不能在无审稿结论的情况下进入 `validator` 或 `publish`。
+2. 若 `fresh.reviewer` 主模型失败，必须先走该角色的 fallback 链；fallback 链耗尽时，当前页停留在审稿失败态，等待恢复或重试。
+3. 审稿结论为 `revise` 时，必须由 `main.author` 根据问题单补证、改稿并重新发起审稿，不能把旧结论视为已通过。
+
+### 14.4 页面失败与恢复点
+
+1. 页面任一阶段失败时，必须保留当前草稿、最近一次 `fresh.reviewer` 结果、证据账本和当前恢复点。
+2. 若失败发生在起草阶段，保留未发布草稿与当前页计划；若失败发生在审稿或校验阶段，同时保留对应 review 或 validation 结果。
+3. 已发布页面、已通过页面摘要和 `wiki.json` 不因单页失败而回退。
+4. 恢复时必须从最近稳定恢复点继续，默认优先复用已有草稿、review 结果与本地检索上下文，而不是整页重写。
+
+---
+
+## 15. V1 约束与非目标
+
+### 15.1 V1 必做
 
 1. 一个 `main.author` 主控。
-2. 两种委派原语：`fork worker`、`fresh reviewer`。
+2. 两种委派原语：`fork.worker`、`fresh.reviewer`。
 3. 独立 `validator`。
 4. `catalog`、`page`、`ask`、`research` 四个 loop 协议。
 5. 本地优先的页面和仓库检索顺序。
 
-### 14.2 明确不做
+### 15.2 明确不做
 
 1. 重新引入多命名写作者或研究者。
 2. 跨页并行写作。
