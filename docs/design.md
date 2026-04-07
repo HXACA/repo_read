@@ -59,12 +59,12 @@ RepoRead 是一个三包 monorepo，工程边界固定为 `packages/core`、`pac
 
 ```text
 packages/cli
-  - init / generate / ask / research / browse / doctor
+  - init / providers / generate / jobs / ask / doctor / versions / browse / research
           │
           ├──── consume core services and events
           │
 packages/web
-  - providers / jobs / wiki / search / research
+  - bookshelf / jobs / reader / chat / research / providers
           │
           ├──── consume core services and events
           │
@@ -90,7 +90,7 @@ Local Infrastructure
 | mode | 入口 | 核心目标 | 主要产物 |
 | --- | --- | --- | --- |
 | `catalog` | `generate` 内部阶段 | 建立仓库画像、章节树、页面顺序 | `wiki.json` 草案、首个页面指针 |
-| `page` | `generate` 内部阶段 | 生成单页、审稿、校验、写入版本草稿 | `pages/*.md`、`pages/*.meta.json`、`review/*.review.json` |
+| `page` | `generate` 内部阶段 | 生成单页、审稿、校验、写入版本草稿 | `pages/*.md`、`pages/*.meta.json`、`review/*.review.json`、`validation/*.validation.json` |
 | `ask` | CLI `ask` / Web Chat Dock | 基于当前页面和实时本地检索回答问题 | 流式回答、引用链、会话摘要 |
 | `research` | CLI `research` / Web Research | 多步证据归并、形成结论 | 研究计划、研究过程、结论与引用 |
 
@@ -175,15 +175,15 @@ repo-read/
 | 模块 | 职责 |
 | --- | --- |
 | `commands/init.ts` | 首次向导，完成项目绑定与 Provider 配置 |
-| `commands/config.ts` | 修改配置、查看角色映射、验证连通性 |
-| `commands/providers.ts` | 展示 Provider 健康状态和回退链 |
+| `commands/providers.ts` | 管理 Provider 凭证引用、角色模型映射、能力探测结果 |
 | `commands/generate.ts` | 发起任务、展示串行阶段和当前页面 |
 | `commands/jobs.ts` | 查看历史任务、恢复最近未完成页面 |
+| `commands/versions.ts` | 查看版本列表、切换阅读目标 |
 | `commands/browse.ts` | 启动本地 Web 服务并打印地址 |
 | `commands/ask.ts` | 终端问答、显示引用摘要 |
 | `commands/research.ts` | 深度研究终端模式 |
 | `commands/doctor.ts` | 环境和状态诊断 |
-| `components/` | 阶段时间线、页面进度表、引用摘要、错误面板 |
+| `components/` | 阶段时间线、页面进度表、引用摘要、错误面板、持续状态栏 |
 
 ### 4.3 `packages/web` 模块职责
 
@@ -192,10 +192,10 @@ repo-read/
 | `app/` | 页面路由与 API Route Handlers |
 | `features/providers/` | Provider 配置中心 |
 | `features/generate/` | 生成工作台与任务追踪 |
-| `features/projects/` | 项目首页、版本列表、版本比较 |
-| `features/wiki/` | Wiki 三栏阅读器、源码抽屉、版本切换 |
+| `features/projects/` | 项目书架页、项目概览、版本列表 |
+| `features/wiki/` | 版本阅读页、页面详情页、源码抽屉、版本切换 |
 | `features/search/` | 页面/文件/引用搜索 |
-| `features/chat/` | Chat Dock、会话管理、回答渲染 |
+| `features/chat/` | 页面级 Chat Dock、会话管理、回答渲染 |
 | `features/research/` | 研究计划、研究进展、结论视图 |
 | `server/` | SSE 适配、流式响应、服务端 view model 组装 |
 
@@ -276,29 +276,89 @@ V1 不在项目目录中持久化明文密钥。
 
 ## 6. 配置系统设计
 
-### 6.1 配置来源与优先级
+### 6.1 配置原则
+
+V1 的配置系统只暴露最小可用面，避免把运行时策略泄露成用户需要理解的内部开关。
+
+1. 用户只可配置角色级模型映射，不可按命令、阶段或页面分别指定模型。
+2. 唯一可配置角色固定为 `main.author`、`fork.worker`、`fresh.reviewer`。
+3. 每个角色只允许两个字段：`model` 与 `fallback_models`。
+4. 凭证按 Provider 维度保存为引用，不在角色配置里重复保存密钥。
+5. 系统按模型族维护 `prompt profile` 与 prompt 调优，不提供用户级 prompt 覆盖。
+6. 系统负责能力探测、路由选择、fallback 顺序与降级，不把这些策略下放给用户。
+
+### 6.2 配置来源与优先级
 
 优先级从高到低：
 
-1. CLI flag / Web 表单即时输入
-2. 项目配置
-3. 全局配置
-4. 环境变量默认值
+1. Web/CLI 当前操作的显式参数
+2. 项目级配置 `.reporead/projects/<project_slug>/project.json` 中的角色映射
+3. 全局配置中的 Provider 凭证引用与默认角色映射
+4. 环境变量提供的只读默认值
 
-### 6.2 `ResolvedConfig`
+这里的“显式参数”只允许覆盖目标项目、目标版本和是否执行 `resume`，不允许注入新的 prompt 文本或临时改写内部路由策略。
+
+### 6.3 用户可编辑配置模型
 
 ```ts
+type RoleModelConfig = {
+  model: string
+  fallback_models: string[]
+}
+
+type ProjectRoleConfig = {
+  'main.author': RoleModelConfig
+  'fork.worker': RoleModelConfig
+  'fresh.reviewer': RoleModelConfig
+}
+
+type ProviderCredentialConfig = {
+  provider: string
+  secretRef: string
+  baseUrl?: string
+  enabled: boolean
+}
+
+type UserEditableConfig = {
+  projectSlug: string
+  repoRoot: string
+  preset: 'quality' | 'balanced' | 'budget' | 'local-only'
+  providers: ProviderCredentialConfig[]
+  roles: ProjectRoleConfig
+}
+```
+
+约束如下：
+
+1. `main.author` 负责 catalog 与 page draft 的主写作路径。
+2. `fork.worker` 负责页内检索补证、结构修补、研究子任务等派生执行路径。
+3. `fresh.reviewer` 只负责独立审稿，不复用起草上下文。
+4. `fallback_models` 只声明候选顺序；真正是否可用由系统探测后决定。
+5. 用户看不到内部 prompt 模板，也不能对单角色追加自定义 system prompt。
+
+### 6.4 系统解析后的 `ResolvedConfig`
+
+```ts
+type ResolvedRoleRoute = {
+  role: 'main.author' | 'fork.worker' | 'fresh.reviewer'
+  primaryModel: string
+  fallbackModels: string[]
+  resolvedProvider: string
+  promptProfileId: string
+}
+
 type ResolvedConfig = {
   projectSlug: string
   repoRoot: string
   preset: 'quality' | 'balanced' | 'budget' | 'local-only'
-  roles: {
-    planner: ModelRef
-    writer: ModelRef
-    reviewer: ModelRef
-    chat: ModelRef
-    research: ModelRef
-  }
+  roles: Record<'main.author' | 'fork.worker' | 'fresh.reviewer', ResolvedRoleRoute>
+  providers: Array<{
+    provider: string
+    secretRef: string
+    baseUrl?: string
+    enabled: boolean
+    capabilities: ModelCapability[]
+  }>
   retrieval: {
     maxParallelReadsPerPage: number
     maxReadWindowLines: number
@@ -307,40 +367,68 @@ type ResolvedConfig = {
 }
 ```
 
-### 6.3 Provider 配置向导
+`ResolvedConfig` 由 `ProviderCenterService` 与 `ConfigResolver` 联合生成，不直接暴露给用户编辑。
 
-Provider 向导负责：
+### 6.5 Provider 配置向导
 
-1. 发现可用 Provider。
-2. 校验模型能力。
-3. 把模型绑定到角色，而不是绑到单命令。
-4. 输出当前预设下的最终运行摘要。
+Provider 向导只做四类事情：
 
-### 6.4 Provider 能力探测
+1. 发现本机可用 Provider，并为每个 Provider 建立凭证引用。
+2. 检查角色所选模型是否存在、是否可认证、是否满足对应角色能力。
+3. 生成最终角色路由摘要，明确主模型、fallback 链和当前命中的 `prompt profile`。
+4. 给出可执行建议，例如“`fresh.reviewer` 缺少 JSON schema 能力，请改用 fallback”。
+
+向导不提供：
+
+1. 自定义 prompt 编辑器。
+2. 针对 `generate/ask/research` 的单命令模型分配。
+3. 用户手动编排能力探测规则。
+
+### 6.6 Provider 能力探测与 fallback
 
 `ProviderCenterService` 对每个模型记录这些能力：
 
 ```ts
 type ModelCapability = {
+  model: string
+  provider: string
   supportsStreaming: boolean
   supportsToolCalls: boolean
   supportsJsonSchema: boolean
+  supportsLongContext: boolean
   supportsReasoningContent: boolean
-  maxContextWindow?: number
   isLocalModel: boolean
+  health: 'healthy' | 'degraded' | 'unavailable'
+  checkedAt: string
 }
 ```
 
-能力探测结果缓存到全局配置目录，避免每次启动重复探测。
+运行规则：
 
-### 6.5 预设定义
+1. `main.author` 至少需要流式输出、长上下文和稳定 Markdown 生成能力。
+2. `fork.worker` 至少需要工具调用或结构化输出能力，用于页内检索补证。
+3. `fresh.reviewer` 至少需要 JSON schema 或等价结构化输出能力，保证审稿结果可落盘。
+4. 系统先尝试角色的 `model`，能力不足、认证失败或运行报错时，按 `fallback_models` 顺序继续。
+5. 若主模型与 fallback 属于同一模型族，系统继续沿用同一 `prompt profile`；若跨模型族切换，则切到对应模型族的 `prompt profile`。
+6. 能力探测结果缓存到全局目录，避免每次启动重复探测；缓存过期或连续失败时强制重测。
 
-| 预设 | 路由策略 | 页内检索上限 | 典型用途 |
+### 6.7 Prompt profile 与预设
+
+系统内部按模型族维护 prompt 模板，例如 `gpt-5.x`、`claude-opus/sonnet`、`qwen-coder`、`gemini-pro`。每个模型族都有自己的 `prompt profile`，负责：
+
+1. system prompt 组织方式。
+2. 引用格式和结构化输出约束。
+3. 针对 catalog、page、review、ask、research 的细粒度 prompt 调优。
+4. token 预算、压缩策略与工具调用风格。
+
+预设只影响系统内部预算，不改变用户可编辑字段：
+
+| 预设 | 角色使用倾向 | 页内检索上限 | 典型用途 |
 | --- | --- | --- | --- |
-| `quality` | 规划/写作/审校分离，优先强模型 | 2 | 默认模式 |
-| `balanced` | 规划强模型，写作中档模型 | 3 | 一般仓库 |
-| `budget` | 尽量复用单模型，降低检索规模 | 2 | 成本敏感 |
-| `local-only` | 本地模型 + 关闭外部检索 | 1 | 离线环境 |
+| `quality` | 三角色分离，优先强模型 | 2 | 默认模式 |
+| `balanced` | `main.author` 强模型，`fork.worker` 中档模型 | 2 | 一般仓库 |
+| `budget` | 优先复用同一 Provider，缩短 fallback 链 | 2 | 成本敏感 |
+| `local-only` | 只使用本地可用 Provider | 1 | 离线环境 |
 
 ---
 
@@ -370,6 +458,8 @@ type ModelCapability = {
         │       └── review/
         │           ├── catalog.review.json
         │           └── <page_slug>.review.json
+        │       └── validation/
+        │           └── <page_slug>.validation.json
         └── versions/
             └── <version_id>/
                 ├── version.json
@@ -392,7 +482,8 @@ type ModelCapability = {
 | `projects/<project_slug>/jobs/<job_id>/job-state.json` | 任务状态机快照、当前阶段、当前页面、下一页指针、失败原因，是恢复的唯一准源 |
 | `projects/<project_slug>/jobs/<job_id>/events.ndjson` | append-only 事件日志，既用于 SSE 回放，也用于故障审计 |
 | `projects/<project_slug>/jobs/<job_id>/draft/<version_id>/...` | job 级草稿目录，`page_drafting` / `reviewing` / `validating` 全部写在这里；恢复时也从这里读取页面、meta 和 citations |
-| `projects/<project_slug>/jobs/<job_id>/review/*.review.json` | `fresh reviewer` 和校验器对 catalog / page 的独立结果，记录问题、结论和修订建议 |
+| `projects/<project_slug>/jobs/<job_id>/review/*.review.json` | `fresh reviewer` 对 catalog / page 的独立审稿结果，记录问题、结论和修订建议 |
+| `projects/<project_slug>/jobs/<job_id>/validation/*.validation.json` | 确定性 validator 的页级结果，记录结构/引用/Mermaid/链接校验明细 |
 | `projects/<project_slug>/versions/<version_id>/version.json` | 版本级元信息，记录 commit、发布时间、页面顺序、发布摘要和整体状态 |
 | `projects/<project_slug>/versions/<version_id>/wiki.json` | 目录树、页面顺序、章节摘要、页面间关系，是阅读导航的主清单 |
 | `projects/<project_slug>/versions/<version_id>/pages/*.md` | 最终发布页面正文 |
@@ -422,6 +513,7 @@ type PageMeta = {
     mermaidPassed: boolean
     citationsPassed: boolean
     linksPassed: boolean
+    summary: 'passed' | 'failed'
   }
 }
 ```
@@ -539,7 +631,7 @@ queued
   -> completed
 ```
 
-异常终态单独记录为 `failed` 或 `cancelled`，但不属于主成功路径。
+可恢复中断态单独记录为 `interrupted`；不可恢复异常终态记录为 `failed`，两者都不属于主成功路径。
 
 ### 9.2 `GenerationJob`
 
@@ -557,8 +649,8 @@ type GenerationJob = {
     | 'validating'
     | 'publishing'
     | 'completed'
+    | 'interrupted'
     | 'failed'
-    | 'cancelled'
   createdAt: string
   startedAt?: string
   finishedAt?: string
@@ -579,8 +671,8 @@ type GenerationJob = {
 | --- | --- | --- | --- |
 | `cataloging` | 项目路径、配置、仓库画像 | 页面顺序、`wiki.json` 草案、首个页面指针 | 最多 2 次重试，失败则任务终止 |
 | `page_drafting` | 当前页面计划、仓库、已有页面清单 | `draft/<version_id>/pages/*.md` 与 `draft/<version_id>/pages/*.meta.json` 初稿 | 失败留在当前页，不推进下一页 |
-| `reviewing` | 当前页草稿 | `review/*.review.json`，并把审稿摘要回写到 `draft/<version_id>/pages/*.meta.json` | 必须由 `fresh reviewer` 独立运行，失败留在当前页 |
-| `validating` | 审稿后的页面与引用 | 确定性 `ValidationReport`，并更新 `draft/<version_id>/...` 中对应文件 | 失败留在当前页，允许修复后重试 |
+| `reviewing` | 当前页草稿 | `review/*.review.json`，并把稳定审稿摘要回写到 `draft/<version_id>/pages/*.meta.json` | 必须由 `fresh reviewer` 独立运行，失败留在当前页 |
+| `validating` | 审稿后的页面与引用 | `validation/*.validation.json` 与稳定校验摘要，并更新 `draft/<version_id>/...` 中对应文件 | 失败留在当前页，允许修复后重试 |
 | `publishing` | 全部已验证页面、`draft/<version_id>/wiki.json`、`draft/<version_id>/version.json` | 原子提升到 `versions/<version_id>/...` 并更新 `current.json` | 任一步失败都回滚默认指针更新 |
 
 ### 9.4 严格串行页面流水线
@@ -661,7 +753,7 @@ type AskSession = {
 }
 ```
 
-`AskSession` 在 V1 中是内存态会话，不进入版本目录，也不写入项目长期清单。页面关闭、进程退出或用户显式清空后即可丢弃；只有 `research` 的结论性产物才持久化到 `research/`。
+`AskSession` 在 V1 中是进程内内存态会话，不进入版本目录，也不写入项目长期清单。浏览器刷新或 CLI 重连时，只要同一服务进程仍存活，就可以基于同一个 `sessionId` 继续消费内存事件缓冲区；进程退出、重启或用户显式清空后，ask 会话立即失效。只有 `research` 的结论性产物才持久化到 `research/`。
 
 ### 10.4 深度研究
 
@@ -679,70 +771,78 @@ V1 研究结果落盘到版本目录的 `research/` 中，便于回看。
 
 ## 11. Web 端详细设计
 
-### 11.1 路由
+### 11.1 设计心智
 
-| 路由 | 作用 |
-| --- | --- |
-| `/` | 首页，项目列表、最近任务、最近研究 |
-| `/settings/providers` | Provider 配置中心 |
-| `/generate` | 发起新任务、查看阶段进度 |
-| `/jobs/:jobId` | 单任务详情 |
-| `/projects/:project` | 项目概览 |
-| `/projects/:project/:version/:slug` | Wiki 页面 |
-| `/projects/:project/:version/search` | 搜索页 |
-| `/projects/:project/:version/compare` | 版本对比页 |
-| `/projects/:project/:version/research` | 研究工作区 |
+Web 端是阅读器心智，不是通用 Agent 控制台。
 
-### 11.2 Provider 配置中心
+1. 第一优先级是让用户稳定阅读版本化 Wiki、切换页面、查看引用和追踪任务。
+2. 第二优先级是围绕当前页面发起 `ask` 和 `research`，而不是暴露底层 Agent 内部思维过程。
+3. 任务过程只展示阶段、页级状态、审稿与校验结果，不展示噪声式工具日志瀑布。
 
-组件拆分：
+### 11.2 路由与页面职责
 
-| 组件 | 职责 |
-| --- | --- |
-| `PresetSelector` | 选择 `quality/balanced/budget/local-only` |
-| `ProviderCardList` | 展示已配置 Provider、状态与编辑入口 |
-| `SecretEditorDialog` | 新增或更新密钥 |
-| `RoleModelMatrix` | 按角色分配模型 |
-| `CapabilityProbePanel` | 连通性与能力测试 |
-| `FallbackChainEditor` | 为角色配置回退链 |
-| `ConfigSummary` | 输出“当前配置将如何运行”摘要 |
+| 路由 | 页面定位 | 核心内容 |
+| --- | --- | --- |
+| `/` | 首页 | 最近项目、最近任务、最近版本 |
+| `/projects` | 项目书架页 | 项目卡片、当前版本、最近一次生成状态 |
+| `/projects/:projectId` | 项目概览页 | 仓库画像、版本列表、最近 job、入口操作 |
+| `/projects/:projectId/versions/:versionId` | 版本阅读页 | 左侧导航、版本摘要、页面列表、版本切换 |
+| `/projects/:projectId/versions/:versionId/pages/:slug` | 页面页 | Markdown 正文、引用、源码抽屉、页面级 Chat Dock |
+| `/projects/:projectId/jobs/:jobId` | Job 详情页 | 阶段时间线、当前页、恢复入口、最近 review/validate 结果 |
+| `/projects/:projectId/versions/:versionId/search` | 搜索页 | 页面/文件/引用三种搜索视图 |
+| `/projects/:projectId/versions/:versionId/research` | 研究工作区 | 研究计划、进度、结论与引用 |
+| `/settings/providers` | Provider 配置中心 | Provider 凭证引用、角色模型与 fallback |
 
-### 11.3 生成工作台
+### 11.3 项目书架页
 
-组件拆分：
+项目书架页强调“我有哪些仓库、每个仓库当前读到哪一版、最近一次生成是否健康”。
+
+关键组件：
 
 | 组件 | 职责 |
 | --- | --- |
-| `RepoTargetCard` | 当前仓库与版本备注 |
-| `GenerationConfigPanel` | 语言、预设、排除规则 |
-| `StageTimeline` | 阶段视图 |
-| `PageQueueTable` | 串行页面进度视图 |
-| `FailurePanel` | 失败原因与恢复入口 |
-| `ToolActivityStream` | 当前工具摘要，不显示原始噪声日志 |
-| `JobSummaryCard` | Token、页数、错误数、持续时间 |
+| `ProjectBookshelfGrid` | 以卡片网格展示全部项目 |
+| `ProjectShelfCard` | 项目名、仓库路径、默认版本、最近 job 状态 |
+| `RecentActivityStrip` | 最近完成版本、最近中断任务、最近研究结果 |
+| `QuickActions` | 进入阅读、查看 Job、重新 generate |
 
 交互规则：
 
-1. 页面刷新后根据 `jobId` 恢复 SSE 订阅。
-2. 完成后跳转到新版本或停留在详情页。
-3. 任务失败或中断时展示“从最近未完成页面继续”入口。
+1. 首页与书架页都可以进入项目概览，但书架页保留阅读器风格的卡片布局。
+2. 卡片只展示高价值状态，不展示底层工具细节。
 
-### 11.4 Wiki 页面
+### 11.4 版本阅读页与页面页
 
-采用三栏结构：
+版本阅读页用于浏览某个版本的整体结构；页面页用于聚焦单页阅读。
+
+版本阅读页布局：
+
+1. 左侧 `VersionSidebar`
+   - `section/group/topic` 树
+   - 页面数量、最后生成时间
+   - 版本切换器
+2. 中间 `VersionOverview`
+   - `version.json` 摘要
+   - 章节概览
+   - 最近变更与研究入口
+3. 右侧 `ReaderUtilityRail`
+   - 搜索入口
+   - 最近阅读页面
+   - 最近问题摘要
+
+页面页布局：
 
 1. 左侧 `WikiSidebar`
-   - `section/group/topic` 树
-   - 搜索过滤
-   - 版本切换
+   - 当前版本导航树
+   - 页面间跳转
 2. 中间 `WikiContent`
-   - 页面头部
-   - Markdown 正文
-   - 相关页面
-3. 右侧 `WikiUtilityRail`
+   - `WikiPageHeader`
+   - `MarkdownPageRenderer`
+   - `RelatedPageList`
+3. 右侧 `PageUtilityRail`
    - TOC
-   - Source Drawer
-   - Chat Dock
+   - `SourceDrawer`
+   - `Chat Dock`
 
 关键组件：
 
@@ -750,30 +850,38 @@ V1 研究结果落盘到版本目录的 `research/` 中，便于回看。
 | --- | --- |
 | `WikiPageHeader` | 标题、摘要、版本、commit、生成时间 |
 | `MarkdownPageRenderer` | Markdown、Mermaid、引用芯片 |
-| `CitationChip` | 点击打开源码抽屉 |
-| `SourceDrawer` | 文件路径、行号、代码片段、复制 |
+| `CitationChip` | 点击后打开 `SourceDrawer` |
+| `SourceDrawer` | 文件路径、行号、代码片段、引用解释 |
 | `RelatedPageList` | 推荐阅读 |
-| `ChatDock` | 页面内问答和研究入口 |
+| `Chat Dock` | 围绕当前页面发起 ask/research，会话只保存在内存态 |
 
-### 11.5 搜索页
+页面级 `Chat Dock` 规则：
 
-支持三种搜索标签：
+1. 默认锚定当前页面 slug，把它作为 `ask` 的第一页上下文。
+2. 若问题超出当前页，服务端再触发页内检索或升级为 `research`。
+3. `Chat Dock` 刷新后只在同一服务进程仍存活时保留 ask 会话；进程重启后必须重新发起 ask。
+4. `Chat Dock` 不承担全局运维职责，不展示 job 控制按钮。
 
-1. 页面
-2. 文件
-3. 引用
+### 11.5 Job 详情页
 
-默认按页面聚合展示，并允许切换到代码视角。
+Job 详情页是长任务的观察面板，不是通用控制台。页面应包含：
 
-### 11.6 任务详情页
+1. `JobSummaryCard`
+   - job id、版本 id、当前 mode、当前阶段、当前页 slug
+2. `StageTimeline`
+   - `cataloging -> page_drafting -> reviewing -> validating -> publishing`
+3. `PageQueueTable`
+   - 每个页面的状态、最后更新时间、是否可 resume
+4. `ReviewValidationPanel`
+   - 最近一次 review 结论与最近一次 validate 结果
+5. `FailurePanel`
+   - 最近错误、恢复建议、`interrupt`/`resume` 轨迹
 
-`/jobs/:jobId` 应包含：
+交互规则：
 
-1. 阶段时间线。
-2. 页面任务表。
-3. 错误摘要。
-4. 从最近未完成页面恢复。
-5. 链接到生成出的版本。
+1. 页面刷新后根据 `jobId` 重新订阅 `/events`。
+2. 任务 `interrupt` 后仍保留时间线、草稿入口和恢复点。
+3. 任务成功后链接到新版本阅读页；失败或中断后停留在详情页。
 
 ---
 
@@ -781,67 +889,265 @@ V1 研究结果落盘到版本目录的 `research/` 中，便于回看。
 
 ### 12.1 命令矩阵
 
+V1 CLI 命令固定为 `init/providers/generate/jobs/ask/doctor/versions/browse/research`。
+
 | 命令 | 行为 | 关键选项 |
 | --- | --- | --- |
-| `repo-read init` | 创建项目级配置并引导 Provider 配置 | `--preset` |
-| `repo-read config` | 编辑或查看配置 | `--global`, `--project` |
-| `repo-read providers` | 展示 Provider 状态 | `--test`, `--json` |
-| `repo-read generate` | 发起任务 | `--resume`, `--clear`, `--note` |
-| `repo-read jobs` | 查看任务 | `--latest`, `--watch` |
-| `repo-read browse` | 启动本地 Web | `--port`, `--version` |
-| `repo-read ask` | 终端问答 | `--page`, `--version`, `--clear` |
-| `repo-read research` | 深度研究 | `--page`, `--version` |
-| `repo-read doctor` | 环境检查 | `--fix-hints`, `--json` |
-| `repo-read versions` | 版本列表 | `--project` |
+| `repo-read init` | 初始化项目绑定、默认预设、首次 Provider 引导 | `--preset`, `--repo` |
+| `repo-read providers` | 管理 Provider 凭证引用、角色模型、能力探测和 fallback 链 | `--test`, `--json`, `--project` |
+| `repo-read generate` | 发起新版本生成或从安全点 `resume` | `--resume`, `--note`, `--project` |
+| `repo-read jobs` | 查看历史 job、跟踪当前 job、输出恢复建议 | `--latest`, `--watch`, `--project` |
+| `repo-read ask` | 基于当前页或指定页发起终端问答 | `--page`, `--version`, `--clear` |
+| `repo-read doctor` | 检查配置、凭证、清单、恢复点与目录健康 | `--json`, `--project` |
+| `repo-read versions` | 展示版本列表、默认版本与发布状态 | `--project`, `--json` |
+| `repo-read browse` | 启动本地 Web 阅读器并定位到项目/版本/页面 | `--port`, `--project`, `--version`, `--page` |
+| `repo-read research` | 发起深度研究并输出结论与引用 | `--page`, `--version`, `--question` |
 
-### 12.2 输出设计
+### 12.2 持续可见输出
 
-`generate` 终端输出固定为四块：
+所有长命令都使用统一状态栏，持续显示四类核心信息：
 
-1. 任务摘要。
-2. 阶段时间线。
-3. 页面进度表。
-4. 最新错误/提示。
+1. 当前 mode，例如 `catalog`、`page`、`ask`、`research`
+2. 当前页 slug
+3. 当前阶段，例如 `page_drafting`、`reviewing`、`validating`
+4. 最近 review / validate 结果
 
-`ask` 输出固定为三块：
+具体形式：
 
-1. 上下文徽标。
-2. 流式答案。
-3. 引用摘要。
+1. 顶部 `CommandStatusBar` 常驻显示当前项目、版本、mode、当前页 slug。
+2. 中部主体按命令展示阶段时间线、回答流、研究进度或版本列表。
+3. 底部 `RecentChecksFooter` 固定显示最近一次审稿结论与最近一次结构校验状态。
 
-### 12.3 CLI 与 Web 的关系
+### 12.3 各命令输出约束
 
-1. CLI 是快速入口和运维界面。
-2. Web 是长时间阅读和研究界面。
-3. CLI 命令不直接实现业务逻辑，只调用 `packages/core` 服务。
+`generate` 输出固定为五块：
+
+1. 任务摘要
+2. 持续状态栏
+3. 阶段时间线
+4. 页面进度表
+5. 最新错误或恢复提示
+
+`jobs` 输出固定为四块：
+
+1. job 列表
+2. 当前 job 详情
+3. 最近 `interrupt` / `resume` 记录
+4. 恢复建议
+
+`ask` 输出固定为四块：
+
+1. 上下文徽标
+2. 持续状态栏
+3. 流式答案
+4. 引用摘要
+
+`research` 输出固定为四块：
+
+1. 研究计划
+2. 子问题进度
+3. 阶段性发现
+4. 最终结论与引用
+
+### 12.4 CLI 与 Web 的关系
+
+1. CLI 是快速入口、自动化入口和运维诊断界面。
+2. Web 是稳定阅读、版本切换、页面内问答和 Job 追踪界面。
+3. CLI 不实现独立业务逻辑，只编排 `packages/core` 的服务与事件订阅。
+4. `browse` 只是打开阅读器，不把 Web 变成第二套 CLI 控制台。
+5. Web 通过 HTTP API 进入运行时；CLI 直接调用 `packages/core` 服务，但必须复用同一 DTO、状态语义和事件模型。
 
 ---
 
 ## 13. API 与事件契约
 
-### 13.1 HTTP API
+### 13.1 API 设计原则
+
+1. Web 通过 HTTP API 进入核心运行时；CLI 直接调用 `packages/core` 服务。
+2. 两个入口层必须复用同一 DTO、状态语义和事件模型，不允许分叉出第二套协议。
+3. 生成、问答、研究的 Web 路由都挂在 `/api/projects/:projectId/...` 下，避免全局悬空 job。
+4. 长任务状态通过 SSE 事件流暴露，HTTP 请求只负责启动、恢复和读取快照。
+
+### 13.2 关键 HTTP API
+
+#### `POST /api/projects/:projectId/generate`
+
+作用：为指定项目创建新的 generate job。
+
+请求体：
+
+```ts
+type GenerateRequest = {
+  baseVersionId?: string
+  note?: string
+}
+```
+
+响应：
+
+```ts
+type GenerateResponse = {
+  jobId: string
+  versionId: string
+  status: 'queued' | 'cataloging'
+  eventStreamPath: string
+}
+```
+
+#### `POST /api/projects/:projectId/jobs/:jobId/resume`
+
+作用：从 `job-state.json` 指向的安全恢复点继续执行。
+
+请求体：
+
+```ts
+type ResumeJobRequest = {
+  forceFromStage?: 'cataloging' | 'page_drafting' | 'reviewing' | 'validating'
+}
+```
+
+响应：
+
+```ts
+type ResumeJobResponse = {
+  jobId: string
+  resumedFrom: {
+    stage: string
+    pageSlug?: string
+    checkpointAt: string
+  }
+  status: 'queued' | 'cataloging' | 'page_drafting' | 'reviewing' | 'validating'
+}
+```
+
+#### `GET /api/projects/:projectId/jobs/:jobId/events`
+
+作用：返回 job 级 SSE 事件流，用于 Web 详情页和 CLI `jobs --watch`。
+
+请求参数：
+
+```ts
+type JobEventsQuery = {
+  sinceEventId?: string
+  replay?: boolean
+}
+```
+
+输出为 `text/event-stream`，支持从 `events.ndjson` 回放。
+
+#### `POST /api/projects/:projectId/ask`
+
+作用：在当前版本、当前页面上下文下执行 `ask`。
+
+请求体：
+
+```ts
+type AskRequest = {
+  versionId: string
+  pageSlug?: string
+  question: string
+  sessionId?: string
+}
+```
+
+响应：
+
+```ts
+type AskAcceptedResponse = {
+  sessionId: string
+  mode: 'ask' | 'research'
+  eventStreamPath: string
+  status: 'streaming' | 'completed'
+}
+```
+
+#### `POST /api/projects/:projectId/research`
+
+作用：发起深度研究，必要时把结论写入 `versions/<versionId>/research/`。
+
+请求体：
+
+```ts
+type ResearchRequest = {
+  versionId: string
+  pageSlug?: string
+  question: string
+  maxSubQuestions?: number
+}
+```
+
+响应：
+
+```ts
+type ResearchAcceptedResponse = {
+  sessionId: string
+  status: 'planning' | 'running'
+  eventStreamPath: string
+}
+```
+
+#### `GET /api/projects/:projectId/ask/:sessionId/events`
+
+作用：返回 `ask` 会话的 SSE 事件流，供 Web Chat Dock、CLI `ask` 订阅。
+
+请求参数：
+
+```ts
+type AskEventsQuery = {
+  sinceEventId?: string
+  replay?: boolean
+}
+```
+
+语义约束：
+
+1. `POST /ask` 成功后，调用方必须连接 `eventStreamPath`，其值固定为 `/api/projects/:projectId/ask/:sessionId/events`。
+2. `sessionId` 是 ask 会话唯一标识；Web Chat Dock 刷新或 CLI 重连时，只要同一服务进程仍存活，就可用同一个 `sessionId` 继续连接。
+3. `replay=true` 或传入 `sinceEventId` 时，服务端只从同一服务进程存活期间的内存事件缓冲区补发缺失事件，再继续推送实时流。
+4. ask 事件不会落盘，也不承诺跨进程恢复；若进程重启，调用方必须重新创建 ask 会话。
+
+#### `GET /api/projects/:projectId/research/:sessionId/events`
+
+作用：返回 `research` 会话的 SSE 事件流，供 Web Research、CLI `research` 订阅。
+
+请求参数：
+
+```ts
+type ResearchEventsQuery = {
+  sinceEventId?: string
+  replay?: boolean
+}
+```
+
+语义约束：
+
+1. `POST /research` 成功后，调用方必须连接 `eventStreamPath`，其值固定为 `/api/projects/:projectId/research/:sessionId/events`。
+2. `sessionId` 是 research 会话唯一标识；研究进行中的事件回放依赖同一服务进程存活期间的内存事件缓冲区。
+3. 研究完成后的可回看能力以 `versions/<versionId>/research/` 下的结论产物为准，而不是承诺长期保留完整 SSE 事件流。
+4. `sinceEventId` 用于断线重连与增量回放；若进程重启，调用方应重新进入研究视图并读取已落盘结论。
+
+### 13.3 补充读取 API
 
 | 方法 | 路径 | 作用 |
 | --- | --- | --- |
-| `GET` | `/api/projects` | 项目列表 |
-| `GET` | `/api/projects/:project` | 项目概览 |
-| `GET` | `/api/projects/:project/versions/:version/wiki` | 导航树与版本信息 |
-| `GET` | `/api/projects/:project/versions/:version/pages/:slug` | 页面正文与元信息 |
-| `GET` | `/api/projects/:project/versions/:version/search` | 搜索 |
-| `GET` | `/api/projects/:project/versions/:version/source` | 源码片段读取 |
-| `POST` | `/api/config/providers/test` | 测试 Provider 与模型能力 |
-| `GET` | `/api/config/providers` | 读取当前配置摘要 |
-| `PUT` | `/api/config/providers` | 保存配置 |
-| `POST` | `/api/jobs` | 发起新任务 |
-| `GET` | `/api/jobs/:jobId` | 任务详情 |
-| `POST` | `/api/jobs/:jobId/cancel` | 取消任务 |
-| `POST` | `/api/jobs/:jobId/resume` | 从最近未完成页面继续 |
-| `POST` | `/api/chat/stream` | 流式问答 |
-| `POST` | `/api/research/stream` | 流式研究 |
+| `GET` | `/api/projects` | 项目书架页数据 |
+| `GET` | `/api/projects/:projectId` | 项目概览、默认版本、最近 job |
+| `GET` | `/api/projects/:projectId/versions` | 版本列表 |
+| `GET` | `/api/projects/:projectId/versions/:versionId` | 版本阅读页摘要 |
+| `GET` | `/api/projects/:projectId/versions/:versionId/pages/:slug` | 页面页数据 |
+| `GET` | `/api/projects/:projectId/versions/:versionId/search` | 页面/文件/引用搜索 |
+| `GET` | `/api/projects/:projectId/versions/:versionId/source` | 源码片段读取 |
+| `GET` | `/api/projects/:projectId/jobs/:jobId` | Job 详情快照 |
+| `GET` | `/api/projects/:projectId/jobs/:jobId/events` | Job 级 SSE 事件流 |
+| `POST` | `/api/projects/:projectId/jobs/:jobId/interrupt` | 中断当前长任务并写入恢复点 |
+| `POST` | `/api/projects/:projectId/jobs/:jobId/resume` | 从安全恢复点继续 job |
+| `GET` | `/api/projects/:projectId/ask/:sessionId/events` | ask SSE 事件流 |
+| `GET` | `/api/projects/:projectId/research/:sessionId/events` | research SSE 事件流 |
+| `GET` | `/api/config/providers` | 当前 Provider 摘要 |
+| `PUT` | `/api/config/providers` | 保存 Provider 凭证引用与角色模型配置 |
+| `POST` | `/api/config/providers/test` | 触发能力探测 |
 
-### 13.2 SSE 事件
-
-所有 SSE 事件遵循统一封装：
+### 13.4 统一事件封装
 
 ```ts
 type AppEvent<T = unknown> = {
@@ -849,23 +1155,49 @@ type AppEvent<T = unknown> = {
   channel: 'job' | 'chat' | 'research'
   type: string
   at: string
+  projectId: string
+  jobId?: string
+  versionId?: string
+  pageSlug?: string
   payload: T
 }
 ```
 
-关键事件类型：
+### 13.5 关键事件类型
 
-| Channel | 事件 |
-| --- | --- |
-| `job` | `job.started`, `stage.changed`, `page.started`, `page.reviewed`, `page.validated`, `job.completed` |
-| `chat` | `chat.started`, `chat.delta`, `chat.citation`, `chat.completed`, `chat.error` |
-| `research` | `research.plan`, `research.progress`, `research.finding`, `research.completed` |
+事件流至少包含以下类型：
+
+| Channel | 事件 | 说明 |
+| --- | --- | --- |
+| `job` | `job.started` | 新任务开始，写完初始 `job-state.json` 后发送 |
+| `job` | `catalog.completed` | `wiki.json` 草案与页面顺序已落盘 |
+| `job` | `page.drafting` | 当前页面进入起草阶段 |
+| `job` | `page.reviewed` | `fresh.reviewer` 结果已写入 `review/*.review.json` |
+| `job` | `page.validated` | 结构/引用/链接等校验已完成 |
+| `job` | `job.interrupted` | 任务被用户中断或进程停止，恢复点已保存 |
+| `job` | `job.resumed` | 任务从安全点继续执行 |
+| `job` | `job.completed` | 发布完成，默认版本指针已更新 |
+| `chat` | `chat.started` | 页面级问答开始 |
+| `chat` | `chat.delta` | 流式答案片段 |
+| `chat` | `chat.completed` | 问答完成并产出引用 |
+| `research` | `research.plan` | 研究计划生成 |
+| `research` | `research.progress` | 子问题推进 |
+| `research` | `research.completed` | 研究结论完成 |
+
+### 13.6 事件时序约束
+
+1. 所有 `job.*` 事件必须在对应状态落盘后发送。
+2. `page.reviewed` 之前必须已存在页草稿；`page.validated` 之前必须已存在 review 结果。
+3. `job.interrupted` 与 `job.resumed` 必须携带恢复阶段和当前页 slug，便于 CLI/Web 无歧义重建状态栏。
+4. `chat` 与 `research` 事件都必须使用各自的 `sessionId` 作为流标识；其中 ask 的 `sinceEventId` / `replay` 只在同一服务进程存活期间有效。
 
 ---
 
 ## 14. 校验、发布与恢复
 
-### 14.1 页面校验
+### 14.1 独立校验链
+
+结构、引用、链接校验必须独立运行，不能混入 `fresh.reviewer` 的 prompt 或依赖模型自由发挥。
 
 页面校验分四层：
 
@@ -874,27 +1206,68 @@ type AppEvent<T = unknown> = {
 3. Mermaid 校验
 4. 链接校验
 
+执行顺序固定为：
+
+```text
+review result
+  -> structure validator
+  -> citation validator
+  -> mermaid validator
+  -> link validator
+```
+
 任何一层失败都不能直接发布该页。
 
-### 14.2 发布门槛
+### 14.2 草稿、审稿结果与恢复点保留策略
+
+失败或中断时必须保留以下产物：
+
+1. `draft/<version_id>/pages/*.md`
+2. `draft/<version_id>/pages/*.meta.json`
+3. `draft/<version_id>/citations/*.citations.json`
+4. `review/*.review.json`
+5. `validation/*.validation.json`
+6. `job-state.json`
+7. `events.ndjson`
+
+保留规则：
+
+1. 审稿失败保留当前草稿与最后一次成功审稿结果。
+2. 校验失败保留当前草稿、最近一次 review 结果和 `validation/*.validation.json`。
+3. `interrupt` 不删除任何中间产物，只追加事件并更新恢复点。
+
+### 14.3 发布门槛
 
 发布时必须满足：
 
 1. `wiki.json` 结构合法。
 2. 成功页面都有 `.md` 与 `.meta.json`。
 3. 每个页面都有对应的 `citations/*.citations.json`。
-4. `version.json` 正确记录页面顺序、commit 和整体状态。
+4. 每个页面都至少完成一次独立 review 与一次独立 validate。
+5. `version.json` 正确记录页面顺序、commit、发布摘要和整体状态。
 
-### 14.3 恢复门槛
+发布策略：
+
+1. 只接受完整版本，禁止半版本发布。
+2. 发布前先对草稿版本做最终目录一致性检查。
+3. 只有 `publishing` 原子提升成功后，才更新 `current.json` 默认指针。
+
+### 14.4 恢复门槛与 `resume` 语义
 
 恢复任务时必须先检查：
 
 1. 配置是否发生不可兼容变化。
 2. Provider 是否仍可用。
 3. `job-state.json` 是否完整。
-4. 版本草稿目录是否被部分写坏。
+4. 草稿目录、review 目录与 `validation/` 目录是否一致。
+5. 最近恢复点引用的页文件是否仍存在。
 
-若任意一项失败，则提示从上一个安全阶段重启。
+`resume` 规则：
+
+1. 默认从 `job-state.json` 指向的最近安全阶段恢复。
+2. 若当前页仅完成 draft，则从 `reviewing` 开始；若 review 已完成但 validate 失败，则从 `validating` 开始。
+3. 若草稿目录损坏但 `wiki.json` 仍可用，则允许回退到 `cataloging` 重建草稿版本。
+4. 若安全检查失败，系统拒绝自动恢复，并提示用户新开 generate job。
 
 ---
 
@@ -902,26 +1275,31 @@ type AppEvent<T = unknown> = {
 
 ### 15.1 安全
 
-1. 所有路径都必须经过 repo root 约束，禁止越界读取。
-2. `bash_exec_ro` 只允许白名单命令。
-3. 页面和引用渲染时默认转义 HTML。
-4. 敏感配置只以掩码形式展示。
+1. 系统默认只读，不上传源码，不把仓库内容同步到远端存储。
+2. 所有路径都必须经过 repo root 约束，禁止越界读取。
+3. `bash_exec_ro` 只允许白名单命令。
+4. 页面和引用渲染时默认转义 HTML。
+5. 敏感配置只以掩码形式展示，密钥只以 Provider 维度的 `secretRef` 存在。
 
 ### 15.2 可靠性
 
-1. 所有任务状态变更必须落盘后再发事件。
-2. SSE 断连后可以基于 `Last-Event-ID` 或重新读取 `events.ndjson` 恢复。
-3. 生成任务必须支持取消，取消后不更新 `current.json`。
+1. 长任务允许慢，但必须可中断、可恢复。
+2. 所有任务状态变更必须先落盘再发事件。
+3. 只有 `job` SSE 断连后可以基于 `Last-Event-ID` 或重新读取 `events.ndjson` 恢复。
+4. 生成任务 `interrupt` 后不得更新 `current.json`，且必须保留草稿与 review/validate 结果。
+5. Web 刷新、CLI 重连和进程重启都应能从同一恢复点重建 `job` 状态；`ask` 仅支持同进程内存事件缓冲区重连，`research` 的长期回看依赖已落盘结论产物而不是流式过程恢复。
 
-### 15.3 性能
+### 15.3 性能与并发边界
 
-默认性能目标遵循 PRD 中“质量优先”的建议区间，不增加更激进目标。
+默认性能目标遵循 PRD 的“质量优先”，不为吞吐引入跨页并发。
 
 工程侧约束：
 
 1. 页面生成严格串行。
-2. 单次窗口化读取默认不超过 240 行。
-3. 单页内部实时本地检索并行上限遵循预设配置，默认最多 2 个子任务。
+2. 并行只用于页内检索，不用于跨页写作、跨页审稿或跨页发布。
+3. 单次窗口化读取默认不超过 240 行。
+4. 单页内部实时本地检索并行上限遵循预设配置，默认最多 2 个子任务。
+5. 任务事件与状态写盘采用 append/update 的轻量模式，不引入额外数据库。
 
 ---
 
@@ -929,13 +1307,15 @@ type AppEvent<T = unknown> = {
 
 ### 16.1 测试分层
 
+测试分层至少包含单元、Contract 测试、集成、Golden、E2E。
+
 | 层级 | 范围 | 关键内容 |
 | --- | --- | --- |
-| 单元测试 | config/providers/storage/policy/validators | schema、边界、错误分支 |
-| 集成测试 | generation/retrieval/ask/research | 本地 fixture 仓库、轻量清单、事件流 |
-| Golden 测试 | catalog/page/chat/research | 固定输入下的结构化输出与引用格式 |
-| UI 测试 | provider center / generate / wiki / chat | 页面状态与关键交互 |
-| E2E 测试 | init -> generate -> browse -> ask | 主链路闭环 |
+| 单元测试 | config/providers/storage/policy/validators | 三角色配置 schema、fallback 解析、独立校验器、恢复点判定 |
+| Contract 测试 | route handlers / DTO / SSE adapters | API DTO、SSE contract、job 事件顺序与 `events.ndjson` 回放、ask 进程内事件缓冲区失效语义、research 结论读取契约 |
+| 集成测试 | generation/retrieval/ask/research | 本地 fixture 仓库、轻量清单、job 事件流、ask/research 内存流差异、`interrupt`/`resume` |
+| Golden 测试 | catalog/page/chat/research | 固定输入下的页面结构、引用格式、事件序列与版本目录 |
+| E2E 测试 | CLI + Web 主链路 | `init -> generate -> interrupt -> resume -> browse -> ask` |
 
 ### 16.2 Fixture 仓库
 
@@ -947,24 +1327,37 @@ type AppEvent<T = unknown> = {
 4. `monorepo-mixed`
 5. `large-config-heavy-repo`
 
+其中 `monorepo-mixed` 必须覆盖多页面生成和页内检索补证，`large-config-heavy-repo` 必须覆盖长任务恢复与配置探测。
+
 ### 16.3 必测场景
 
-1. 首次配置向导成功完成。
-2. Provider 连通性失败时能给出明确错误。
-3. Catalog 输出不合法时进入修复。
+1. 首次配置向导成功完成，并正确生成 `main.author`、`fork.worker`、`fresh.reviewer` 角色映射。
+2. Provider 连通性失败或能力不足时，系统能自动切换到 `fallback_models` 并给出原因。
+3. Catalog 输出不合法时进入修复，不推进到下一页。
 4. 单页失败后任务停在当前页，并可从 `job-state.json` 恢复。
 5. 页面引用点击能打开源码抽屉。
 6. 文档可答问题不会触发高成本代码检索。
 7. `grep` 无命中时可降级到 `find / glob + read`。
-8. 任务中断后可恢复。
+8. 任务 `interrupt` 后保留草稿、review 与 validate 结果，并能 `resume`。
+9. Web 的书架页、版本阅读页、页面页、Job 详情页都能正确读取同一项目数据。
+10. CLI 持续状态栏始终显示 mode、当前页 slug、当前阶段和最近 review / validate 结果。
 
-### 16.4 发布验收清单
+### 16.4 E2E 与发布验收清单
+
+E2E 主链路必须覆盖：
+
+```text
+init -> generate -> interrupt -> resume -> browse -> ask
+```
+
+发布验收清单：
 
 1. 新项目从 `init` 到 `generate` 成功。
-2. 生成完成后 Web 可浏览、可切版本、可搜索。
-3. CLI `ask` 与 Web Chat Dock 都能输出引用。
-4. `doctor` 能识别不可用模型、清单损坏、恢复状态异常。
-5. 所有文档中没有 `TODO/TBD`。
+2. 任务被 `interrupt` 后可从安全点 `resume`。
+3. 生成完成后 Web 可浏览、可切版本、可搜索。
+4. CLI `ask` 与 Web Chat Dock 都能输出引用。
+5. `doctor` 能识别不可用模型、清单损坏、恢复状态异常。
+6. 所有文档中没有 `TODO/TBD`。
 
 ---
 
