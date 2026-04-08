@@ -33,8 +33,10 @@ export async function runGenerate(options: GenerateOptions): Promise<void> {
   console.log(`Starting generation for "${slug}"...`);
 
   // 2. Load and resolve config
-  const config = await loadProjectConfig(storage, slug);
-  if (!config) {
+  let config;
+  try {
+    config = await loadProjectConfig(storage.paths.projectDir(slug));
+  } catch {
     console.error(`No config found for project "${slug}". Run "repo-read init" first.`);
     process.exitCode = 1;
     return;
@@ -45,7 +47,7 @@ export async function runGenerate(options: GenerateOptions): Promise<void> {
   console.log(`Config resolved: preset=${resolvedConfig.preset}`);
 
   // 3. Gather API keys
-  const secretStore = new SecretStore();
+  const secretStore = new SecretStore({ backend: "env" });
   const apiKeys: Record<string, string> = {};
   for (const p of resolvedConfig.providers) {
     if (p.enabled) {

@@ -22,8 +22,10 @@ export async function runAsk(options: AskOptions): Promise<void> {
   const storage = new StorageAdapter(repoRoot);
 
   // Load config and create model
-  const config = await loadProjectConfig(storage, slug);
-  if (!config) {
+  let config;
+  try {
+    config = await loadProjectConfig(storage.paths.projectDir(slug));
+  } catch {
     console.error(`No config found for "${slug}". Run "repo-read init" first.`);
     process.exitCode = 1;
     return;
@@ -32,7 +34,7 @@ export async function runAsk(options: AskOptions): Promise<void> {
   const providerCenter = new ProviderCenter();
   const resolvedConfig = providerCenter.resolve(config);
 
-  const secretStore = new SecretStore();
+  const secretStore = new SecretStore({ backend: "env" });
   const apiKeys: Record<string, string> = {};
   for (const p of resolvedConfig.providers) {
     if (p.enabled) {

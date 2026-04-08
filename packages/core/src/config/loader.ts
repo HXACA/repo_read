@@ -4,7 +4,7 @@ import { AppError } from "../errors.js";
 import { parseUserEditableConfig } from "./schema.js";
 import type { UserEditableConfig } from "../types/config.js";
 
-export const CONFIG_FILENAME = "project.json";
+export const CONFIG_FILENAME = "config.json";
 
 export async function loadProjectConfig(projectDir: string): Promise<UserEditableConfig> {
   const configPath = path.join(projectDir, CONFIG_FILENAME);

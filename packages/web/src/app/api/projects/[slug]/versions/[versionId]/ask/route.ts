@@ -33,15 +33,17 @@ export async function POST(
     const storage = getStorage();
     const repoRoot = process.env.REPOREAD_ROOT ?? process.cwd();
 
-    const config = await loadProjectConfig(storage, slug);
-    if (!config) {
+    let config;
+    try {
+      config = await loadProjectConfig(storage.paths.projectDir(slug));
+    } catch {
       return NextResponse.json({ error: "Project config not found" }, { status: 404 });
     }
 
     const providerCenter = new ProviderCenter();
     const resolvedConfig = providerCenter.resolve(config);
 
-    const secretStore = new SecretStore();
+    const secretStore = new SecretStore({ backend: "env" });
     const apiKeys: Record<string, string> = {};
     for (const p of resolvedConfig.providers) {
       if (p.enabled) {

@@ -48,7 +48,8 @@ export class SecretStore {
   }
 
   private getFromEnv(key: string): string | null {
-    return process.env[`${ENV_PREFIX}${key}`] ?? null;
+    // Check prefixed name first, then the raw key name (e.g. ANTHROPIC_API_KEY)
+    return process.env[`${ENV_PREFIX}${key}`] ?? process.env[key] ?? null;
   }
 
   private async getFromKeychain(key: string): Promise<string | null> {
