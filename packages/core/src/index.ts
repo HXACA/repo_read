@@ -13,6 +13,17 @@ export type { CreateProjectInput } from "./project/index.js";
 export { profileRepo } from "./project/index.js";
 export { createAppEvent, EventWriter, EventReader } from "./events/index.js";
 export { JobStateManager } from "./generation/index.js";
+export {
+  JobEventEmitter, PageDrafter, ForkWorker, Publisher,
+  determineResumePoint, GenerationPipeline,
+  buildPageDraftSystemPrompt, buildPageDraftUserPrompt,
+  buildForkWorkerSystemPrompt, buildForkWorkerUserPrompt,
+} from "./generation/index.js";
+export type {
+  PageDraftResult, PageDrafterOptions, PageDraftPromptInput,
+  ForkWorkerResponse, ForkWorkerOptions, ForkWorkerInput,
+  ResumePoint, GenerationPipelineOptions, PipelineResult,
+} from "./generation/index.js";
 export { PathPolicy, validateBashCommand } from "./policy/index.js";
 export type { BashValidationResult } from "./policy/index.js";
 export {
@@ -25,3 +36,12 @@ export {
   persistCatalog, validateCatalog, createCatalogTools,
 } from "./catalog/index.js";
 export type { CatalogPlannerOptions, CatalogPlanResult } from "./catalog/index.js";
+
+export { FreshReviewer, buildReviewerSystemPrompt, buildReviewerUserPrompt } from "./review/index.js";
+export type { ReviewResult, FreshReviewerOptions } from "./review/index.js";
+
+export {
+  validatePage, validateStructure, validateCitations,
+  validateMermaid, validateLinks,
+} from "./validation/index.js";
+export type { PageValidationInput } from "./validation/index.js";
