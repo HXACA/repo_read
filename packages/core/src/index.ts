@@ -20,3 +20,8 @@ export {
   gitLog, gitShow, gitDiff,
   execBash, pageRead, citationOpen,
 } from "./tools/index.js";
+export {
+  CatalogPlanner, buildCatalogSystemPrompt, buildCatalogUserPrompt,
+  persistCatalog, validateCatalog, createCatalogTools,
+} from "./catalog/index.js";
+export type { CatalogPlannerOptions, CatalogPlanResult } from "./catalog/index.js";
