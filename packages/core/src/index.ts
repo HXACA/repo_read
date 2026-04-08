@@ -10,5 +10,6 @@ export { ProviderCenter, getStaticCapabilities, buildFallbackChain } from "./pro
 export { StoragePaths, StorageAdapter } from "./storage/index.js";
 export { ProjectModel } from "./project/index.js";
 export type { CreateProjectInput } from "./project/index.js";
+export { profileRepo } from "./project/index.js";
 export { createAppEvent, EventWriter, EventReader } from "./events/index.js";
 export { JobStateManager } from "./generation/index.js";
