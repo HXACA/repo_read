@@ -3,6 +3,7 @@ import Link from "next/link";
 import { StorageAdapter } from "@reporead/core";
 import type { WikiJson, PageMeta } from "@reporead/core";
 import { notFound } from "next/navigation";
+import { MarkdownRenderer } from "./markdown-renderer";
 import { ChatDock } from "./chat-dock";
 
 async function getPageData(slug: string, versionId: string, pageSlug: string) {
@@ -72,7 +73,7 @@ export default async function PageReader({
       )}
 
       <article className="prose prose-gray max-w-none dark:prose-invert">
-        <div dangerouslySetInnerHTML={{ __html: markdownToHtml(markdown) }} />
+        <MarkdownRenderer content={markdown} />
       </article>
 
       <nav className="mt-12 flex justify-between border-t border-gray-200 pt-6 dark:border-gray-700">
@@ -100,58 +101,4 @@ export default async function PageReader({
       <ChatDock slug={slug} versionId={versionId} pageSlug={pageSlug} />
     </main>
   );
-}
-
-/**
- * Simple markdown to HTML converter for server rendering.
- * Handles headings, paragraphs, code blocks, lists, bold, italic, links.
- * For V1, this is sufficient. A full parser (remark/rehype) can be added later.
- */
-function markdownToHtml(md: string): string {
-  let html = md
-    // Code blocks (must be first to avoid processing content inside)
-    .replace(/```(\w*)\n([\s\S]*?)```/g, (_match, lang, code) => {
-      const escaped = escapeHtml(code.trim());
-      return `<pre><code class="language-${lang || "text"}">${escaped}</code></pre>`;
-    })
-    // Inline code
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    // Headings
-    .replace(/^#### (.+)$/gm, "<h4>$1</h4>")
-    .replace(/^### (.+)$/gm, "<h3>$1</h3>")
-    .replace(/^## (.+)$/gm, "<h2>$1</h2>")
-    .replace(/^# (.+)$/gm, "<h1>$1</h1>")
-    // Bold and italic
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    // Links
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
-    // Unordered list items
-    .replace(/^- (.+)$/gm, "<li>$1</li>")
-    // Ordered list items
-    .replace(/^\d+\. (.+)$/gm, "<li>$1</li>");
-
-  // Wrap consecutive <li> items in <ul>
-  html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, "<ul>$1</ul>");
-
-  // Paragraphs: wrap non-tag lines separated by blank lines
-  html = html
-    .split("\n\n")
-    .map((block) => {
-      const trimmed = block.trim();
-      if (!trimmed) return "";
-      if (trimmed.startsWith("<")) return trimmed;
-      return `<p>${trimmed.replace(/\n/g, "<br>")}</p>`;
-    })
-    .join("\n");
-
-  return html;
-}
-
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
