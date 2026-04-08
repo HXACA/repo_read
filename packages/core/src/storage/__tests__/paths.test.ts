@@ -59,4 +59,28 @@ describe("StoragePaths", () => {
       "/home/user/repo/.reporead/projects/proj/jobs/job-1/validation/intro.validation.json",
     );
   });
+
+  it("builds draftCitationsJson path", () => {
+    expect(paths.draftCitationsJson("proj", "job-1", "v1", "overview")).toBe(
+      "/home/user/repo/.reporead/projects/proj/jobs/job-1/draft/v1/citations/overview.citations.json",
+    );
+  });
+
+  it("builds draftVersionJson path", () => {
+    expect(paths.draftVersionJson("proj", "job-1", "v1")).toBe(
+      "/home/user/repo/.reporead/projects/proj/jobs/job-1/draft/v1/version.json",
+    );
+  });
+
+  it("builds versionJson path", () => {
+    expect(paths.versionJson("proj", "v1")).toBe(
+      "/home/user/repo/.reporead/projects/proj/versions/v1/version.json",
+    );
+  });
+
+  it("builds versionCitationsJson path", () => {
+    expect(paths.versionCitationsJson("proj", "v1", "overview")).toBe(
+      "/home/user/repo/.reporead/projects/proj/versions/v1/citations/overview.citations.json",
+    );
+  });
 });

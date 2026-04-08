@@ -72,4 +72,20 @@ export class StoragePaths {
   versionPageMeta(slug: string, versionId: string, pageSlug: string): string {
     return path.join(this.versionDir(slug, versionId), "pages", `${pageSlug}.meta.json`);
   }
+
+  draftCitationsJson(slug: string, jobId: string, versionId: string, pageSlug: string): string {
+    return path.join(this.draftDir(slug, jobId, versionId), "citations", `${pageSlug}.citations.json`);
+  }
+
+  draftVersionJson(slug: string, jobId: string, versionId: string): string {
+    return path.join(this.draftDir(slug, jobId, versionId), "version.json");
+  }
+
+  versionJson(slug: string, versionId: string): string {
+    return path.join(this.versionDir(slug, versionId), "version.json");
+  }
+
+  versionCitationsJson(slug: string, versionId: string, pageSlug: string): string {
+    return path.join(this.versionDir(slug, versionId), "citations", `${pageSlug}.citations.json`);
+  }
 }

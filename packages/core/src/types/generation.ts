@@ -76,3 +76,18 @@ export type CitationRecord = {
   locator?: string;
   note?: string;
 };
+
+export type VersionJson = {
+  versionId: string;
+  projectSlug: string;
+  commitHash: string;
+  createdAt: string;
+  pageCount: number;
+  pages: Array<{
+    slug: string;
+    title: string;
+    order: number;
+    status: PageStatus;
+  }>;
+  summary: string;
+};
