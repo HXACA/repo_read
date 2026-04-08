@@ -23,4 +23,22 @@ describe("CLI program", () => {
     const genCmd = program.commands.find((c) => c.name() === "generate");
     expect(genCmd).toBeDefined();
   });
+
+  it("has browse command registered", () => {
+    const program = createProgram();
+    const cmd = program.commands.find((c) => c.name() === "browse");
+    expect(cmd).toBeDefined();
+  });
+
+  it("has jobs command registered", () => {
+    const program = createProgram();
+    const cmd = program.commands.find((c) => c.name() === "jobs");
+    expect(cmd).toBeDefined();
+  });
+
+  it("has versions command registered", () => {
+    const program = createProgram();
+    const cmd = program.commands.find((c) => c.name() === "versions");
+    expect(cmd).toBeDefined();
+  });
 });
