@@ -1,0 +1,6 @@
+{
+  "name": "mini-ts-app",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/index.ts"
+}

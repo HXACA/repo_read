@@ -47,4 +47,10 @@ describe("CLI program", () => {
     const cmd = program.commands.find((c) => c.name() === "ask");
     expect(cmd).toBeDefined();
   });
+
+  it("has research command registered", () => {
+    const program = createProgram();
+    const cmd = program.commands.find((c) => c.name() === "research");
+    expect(cmd).toBeDefined();
+  });
 });

@@ -5,6 +5,7 @@ import { runBrowse } from "./commands/browse.js";
 import { runJobs } from "./commands/jobs.js";
 import { runVersions } from "./commands/versions.js";
 import { runAsk } from "./commands/ask.js";
+import { runResearch } from "./commands/research.js";
 
 export function createProgram(): Command {
   const program = new Command();
@@ -70,6 +71,16 @@ export function createProgram(): Command {
     .option("-q, --question <text>", "Single question (non-interactive)")
     .action(async (opts) => {
       await runAsk({ dir: opts.dir, name: opts.name, page: opts.page, question: opts.question });
+    });
+
+  program
+    .command("research")
+    .description("Deep research on a codebase topic")
+    .requiredOption("-t, --topic <text>", "Research topic")
+    .option("-d, --dir <path>", "Repository root directory", process.cwd())
+    .option("-n, --name <slug>", "Project slug name")
+    .action(async (opts) => {
+      await runResearch({ dir: opts.dir, name: opts.name, topic: opts.topic });
     });
 
   program
