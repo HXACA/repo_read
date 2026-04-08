@@ -1,0 +1,174 @@
+Produce a comprehensive document catalog that serves as a high-quality guide for developers of this local repository.
+
+## Instructions
+1. Use `get_dir_structure` to understand the project layout. For deeply nested repos, expand folders as needed.
+2. Use `view_file_in_detail` to read key source files (README, entry points, core modules).
+3. Use `run_bash` to run read-only commands for additional insights (e.g., finding entry points, listing file types).
+4. Before each tool call, think carefully about what you observed in the previous result and what you need next.
+
+## Your Task
+Information about the current repository:
+<metadata>
+Working directory: /Users/jyxc-dz-0100318/open_source/deepwiki-open
+Operating system: darwin
+Documentation language: Chinese
+
+Repository structure (top levels):
+.
+├── .dockerignore
+├── .github
+│   └── workflows
+│       └── docker-build-push.yml
+├── .gitignore
+├── .python-version
+├── .understand-anything
+│   ├── knowledge-graph.json
+│   └── meta.json
+├── Dockerfile
+├── Dockerfile-ollama-local
+├── LICENSE
+├── Ollama-instruction.md
+├── README.es.md
+├── README.fr.md
+├── README.ja.md
+├── README.kr.md
+├── README.md
+├── README.pt-br.md
+├── README.ru.md
+├── README.vi.md
+├── README.zh-tw.md
+├── README.zh.md
+├── api
+│   ├── README.md
+│   ├── __init__.py
+│   ├── api.py
+│   ├── azureai_client.py
+│   ├── bedrock_client.py
+│   ├── config
+│   │   ├── embedder.json
+│   │   ├── embedder.json.bak
+│   │   ├── embedder.ollama.json.bak
+│   │   ├── embedder.openai_compatible.json.bak
+│   │   ├── generator.json
+│   │   ├── lang.json
+│   │   └── repo.json
+│   ├── config.py
+│   ├── dashscope_client.py
+│   ├── data_pipeline.py
+│   ├── google_embedder_client.py
+│   ├── logging_config.py
+│   ├── main.py
+│   ├── ollama_patch.py
+│   ├── openai_client.py
+│   ├── openrouter_client.py
+│   ├── poetry.lock
+│   ├── poetry.toml
+│   ├── prompts.py
+│   ├── pyproject.toml
+│   ├── rag.py
+│   ├── simple_chat.py
+│   ├── tools
+│   │   └── embedder.py
+│   └── websocket_wiki.py
+├── docker-compose.yml
+├── eslint.config.mjs
+├── next.config.ts
+├── package-lock.json
+├── package.json
+├── postcss.config.mjs
+├── public
+│   ├── file.svg
+│   ├── globe.svg
+│   ├── next.svg
+│   ├── vercel.svg
+│   └── window.svg
+├── pytest.ini
+├── run.sh
+├── screenshots
+│   ├── DeepResearch.png
+│   ├── Deepwiki.png
+│   ├── Interface.png
+│   ├── Ollama.png
+│   └── privaterepo.png
+├── src
+│   ├── app
+│   │   ├── [owner]
+│   │   ├── api
+│   │   ├── favicon.ico
+│   │   ├── globals.css
+│   │   ├── layout.tsx
+│   │   ├── page.tsx
+│   │   └── wiki
+│   ├── components
+│   │   ├── Ask.tsx
+│   │   ├── ConfigurationModal.tsx
+│   │   ├── Markdown.tsx
+│   │   ├── Mermaid.tsx
+│   │   ├── ModelSelectionModal.tsx
+│   │   ├── ProcessedProjects.tsx
+│   │   ├── TokenInput.tsx
+│   │   ├── UserSelector.tsx
+│   │   ├── WikiTreeView.tsx
+│   │   ├── WikiTypeSelector.tsx
+│   │   └── theme-toggle.tsx
+│   ├── contexts
+│   │   └── LanguageContext.tsx
+│   ├── hooks
+│   │   └── useProcessedProjects.ts
+│   ├── i18n.ts
+│   ├── messages
+│   │   ├── en.json
+│   │   ├── es.json
+│   │   ├── fr.json
+│   │   ├── ja.json
+│   │   ├── kr.json
+│   │   ├── pt-br.json
+│   │   ├── ru.json
+│   │   ├── vi.json
+│   │   ├── zh-tw.json
+│   │   └── zh.json
+│   ├── types
+│   │   ├── repoinfo.tsx
+│   │   └── wiki
+│   └── utils
+│       ├── getRepoUrl.tsx
+│       ├── urlDecoder.tsx
+│       └── websocketClient.ts
+├── tailwind.config.js
+├── test
+│   ├── __init__.py
+│   └── test_extract_repo_name.py
+├── tests
+│   ├── README.md
+│   ├── __init__.py
+│   ├── api
+│   │   ├── __init__.py
+│   │   └── test_api.py
+│   ├── integration
+│   │   ├── __init__.py
+│   │   └── test_full_integration.py
+│   ├── run_tests.py
+│   └── unit
+│       ├── __init__.py
+│       ├── test_all_embedders.py
+│       └── test_google_embedder.py
+├── tsconfig.json
+├── uv.lock
+└── yarn.lock
+</metadata>
+
+Output ONLY the document catalog, without any explanation or comments. Use Chinese as the language for all section names and topic titles. The total number of topics must not exceed 30. Structure each section like this:
+
+<section>
+Section Name
+<topic level="...">
+Topic Title
+</topic>
+<group>
+Group Name
+<topic level="...">
+Topic Title
+</topic>
+</group>
+</section>
+

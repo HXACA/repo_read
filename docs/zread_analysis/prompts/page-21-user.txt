@@ -1,0 +1,238 @@
+## CURRENT MISSION
+**Working directory**: /Users/jyxc-dz-0100318/open_source/deepwiki-open
+**Operating system**: darwin
+**Current Page**: "自定义 LLM 客户端：如何接入新的模型提供商" documentation
+**Audience**: Intermediate level developers
+**Documentation language**: Chinese
+
+## ENVIRONMENT
+Repository structure (top 2 levels):
+```
+.
+├── .dockerignore
+├── .github
+│   └── workflows
+│       └── docker-build-push.yml
+├── .gitignore
+├── .python-version
+├── .understand-anything
+│   ├── knowledge-graph.json
+│   └── meta.json
+├── .zread
+│   └── wiki
+│       └── drafts
+├── Dockerfile
+├── Dockerfile-ollama-local
+├── LICENSE
+├── Ollama-instruction.md
+├── README.es.md
+├── README.fr.md
+├── README.ja.md
+├── README.kr.md
+├── README.md
+├── README.pt-br.md
+├── README.ru.md
+├── README.vi.md
+├── README.zh-tw.md
+├── README.zh.md
+├── api
+│   ├── README.md
+│   ├── __init__.py
+│   ├── api.py
+│   ├── azureai_client.py
+│   ├── bedrock_client.py
+│   ├── config
+│   │   ├── embedder.json
+│   │   ├── embedder.json.bak
+│   │   ├── embedder.ollama.json.bak
+│   │   ├── embedder.openai_compatible.json.bak
+│   │   ├── generator.json
+│   │   ├── lang.json
+│   │   └── repo.json
+│   ├── config.py
+│   ├── dashscope_client.py
+│   ├── data_pipeline.py
+│   ├── google_embedder_client.py
+│   ├── logging_config.py
+│   ├── main.py
+│   ├── ollama_patch.py
+│   ├── openai_client.py
+│   ├── openrouter_client.py
+│   ├── poetry.lock
+│   ├── poetry.toml
+│   ├── prompts.py
+│   ├── pyproject.toml
+│   ├── rag.py
+│   ├── simple_chat.py
+│   ├── tools
+│   │   └── embedder.py
+│   └── websocket_wiki.py
+├── docker-compose.yml
+├── eslint.config.mjs
+├── next.config.ts
+├── package-lock.json
+├── package.json
+├── postcss.config.mjs
+├── public
+│   ├── file.svg
+│   ├── globe.svg
+│   ├── next.svg
+│   ├── vercel.svg
+│   └── window.svg
+├── pytest.ini
+├── run.sh
+├── screenshots
+│   ├── DeepResearch.png
+│   ├── Deepwiki.png
+│   ├── Interface.png
+│   ├── Ollama.png
+│   └── privaterepo.png
+├── src
+│   ├── app
+│   │   ├── [owner]
+│   │   ├── api
+│   │   ├── favicon.ico
+│   │   ├── globals.css
+│   │   ├── layout.tsx
+│   │   ├── page.tsx
+│   │   └── wiki
+│   ├── components
+│   │   ├── Ask.tsx
+│   │   ├── ConfigurationModal.tsx
+│   │   ├── Markdown.tsx
+│   │   ├── Mermaid.tsx
+│   │   ├── ModelSelectionModal.tsx
+│   │   ├── ProcessedProjects.tsx
+│   │   ├── TokenInput.tsx
+│   │   ├── UserSelector.tsx
+│   │   ├── WikiTreeView.tsx
+│   │   ├── WikiTypeSelector.tsx
+│   │   └── theme-toggle.tsx
+│   ├── contexts
+│   │   └── LanguageContext.tsx
+│   ├── hooks
+│   │   └── useProcessedProjects.ts
+│   ├── i18n.ts
+│   ├── messages
+│   │   ├── en.json
+│   │   ├── es.json
+│   │   ├── fr.json
+│   │   ├── ja.json
+│   │   ├── kr.json
+│   │   ├── pt-br.json
+│   │   ├── ru.json
+│   │   ├── vi.json
+│   │   ├── zh-tw.json
+│   │   └── zh.json
+│   ├── types
+│   │   ├── repoinfo.tsx
+│   │   └── wiki
+│   └── utils
+│       ├── getRepoUrl.tsx
+│       ├── urlDecoder.tsx
+│       └── websocketClient.ts
+├── tailwind.config.js
+├── test
+│   ├── __init__.py
+│   └── test_extract_repo_name.py
+├── tests
+│   ├── README.md
+│   ├── __init__.py
+│   ├── api
+│   │   ├── __init__.py
+│   │   └── test_api.py
+│   ├── integration
+│   │   ├── __init__.py
+│   │   └── test_full_integration.py
+│   ├── run_tests.py
+│   └── unit
+│       ├── __init__.py
+│       ├── test_all_embedders.py
+│       └── test_google_embedder.py
+├── tsconfig.json
+├── uv.lock
+└── yarn.lock
+```
+
+## NAVIGATION CONTEXT
+**Full Catalog with Your Position**:
+```
+- **快速开始**
+  - [项目概述：DeepWiki-Open 是什么与为什么存在](1-xiang-mu-gai-shu-deepwiki-open-shi-shi-yao-yu-wei-shi-yao-cun-zai)
+  - [快速上手：安装、配置与运行](2-kuai-su-shang-shou-an-zhuang-pei-zhi-yu-yun-xing)
+  - [Docker 容器化部署与生产环境配置](3-docker-rong-qi-hua-bu-shu-yu-sheng-chan-huan-jing-pei-zhi)
+- **深入理解：架构与核心模块**
+  - [系统整体架构：前后端协作与数据流](4-xi-tong-zheng-ti-jia-gou-qian-hou-duan-xie-zuo-yu-shu-ju-liu)
+  - *后端核心引擎*
+    - [数据流水线：仓库克隆、文档解析与向量化处理](5-shu-ju-liu-shui-xian-cang-ku-ke-long-wen-dang-jie-xi-yu-xiang-liang-hua-chu-li)
+    - [RAG 检索增强生成：嵌入检索与对话记忆管理](6-rag-jian-suo-zeng-qiang-sheng-cheng-qian-ru-jian-suo-yu-dui-hua-ji-yi-guan-li)
+    - [WebSocket 实时通信：流式问答与 DeepResearch 多轮研究](7-websocket-shi-shi-tong-xin-liu-shi-wen-da-yu-deepresearch-duo-lun-yan-jiu)
+    - [提示词工程：系统提示模板与多语言适配策略](8-ti-shi-ci-gong-cheng-xi-tong-ti-shi-mo-ban-yu-duo-yu-yan-gua-pei-ce-lue)
+  - *前端应用层*
+    - [Next.js 应用结构：路由系统与页面渲染流程](9-next-js-ying-yong-jie-gou-lu-you-xi-tong-yu-ye-mian-xuan-ran-liu-cheng)
+    - [Wiki 生成页面：从仓库输入到交互式知识库展示](10-wiki-sheng-cheng-ye-mian-cong-cang-ku-shu-ru-dao-jiao-hu-shi-zhi-shi-ku-zhan-shi)
+    - [React 组件体系：UI 组件职责与交互设计](11-react-zu-jian-ti-xi-ui-zu-jian-zhi-ze-yu-jiao-hu-she-ji)
+    - [WebSocket 客户端：实时流式通信与消息处理](12-websocket-ke-hu-duan-shi-shi-liu-shi-tong-xin-yu-xiao-xi-chu-li)
+  - *多模型提供商体系*
+    - [模型提供商架构：统一抽象与可插拔客户端设计](13-mo-xing-ti-gong-shang-jia-gou-tong-chou-xiang-yu-ke-cha-ba-ke-hu-duan-she-ji)
+    - [嵌入模型配置：OpenAI、Google、Ollama 与 Bedrock 向量化策略](14-qian-ru-mo-xing-pei-zhi-openai-google-ollama-yu-bedrock-xiang-liang-hua-ce-lue)
+    - [生成模型配置：generator.json 与多提供商参数管理](15-sheng-cheng-mo-xing-pei-zhi-generator-json-yu-duo-ti-gong-shang-can-shu-guan-li)
+  - *配置与扩展*
+    - [配置系统详解：JSON 配置文件与环境变量管理](16-pei-zhi-xi-tong-xiang-jie-json-pei-zhi-wen-jian-yu-huan-jing-bian-liang-guan-li)
+    - [文件过滤机制：仓库分析中的包含与排除规则](17-wen-jian-guo-lu-ji-zhi-cang-ku-fen-xi-zhong-de-bao-han-yu-pai-chu-gui-ze)
+    - [国际化与多语言支持：i18n 架构与语言配置](18-guo-ji-hua-yu-duo-yu-yan-zhi-chi-i18n-jia-gou-yu-yu-yan-pei-zhi)
+- **深入理解：API 参考与集成**
+  - [REST API 端点总览：Wiki 缓存、模型配置与导出](19-rest-api-duan-dian-zong-lan-wiki-huan-cun-mo-xing-pei-zhi-yu-dao-chu)
+  - [WebSocket 聊天 API：请求格式、流式响应与错误处理](20-websocket-liao-tian-api-qing-qiu-ge-shi-liu-shi-xiang-ying-yu-cuo-wu-chu-li)
+  - [自定义 LLM 客户端：如何接入新的模型提供商](21-zi-ding-yi-llm-ke-hu-duan-ru-he-jie-ru-xin-de-mo-xing-ti-gong-shang) [You are currently here]
+- **深入理解：高级特性与最佳实践**
+  - [DeepResearch 深度研究：多轮迭代分析的工作原理](22-deepresearch-shen-du-yan-jiu-duo-lun-die-dai-fen-xi-de-gong-zuo-yuan-li)
+  - [私有仓库支持：GitHub、GitLab 与 Bitbucket 的认证流程](23-si-you-cang-ku-zhi-chi-github-gitlab-yu-bitbucket-de-ren-zheng-liu-cheng)
+  - [Wiki 缓存机制：本地持久化与跨会话复用](24-wiki-huan-cun-ji-zhi-ben-di-chi-jiu-hua-yu-kua-hui-hua-fu-yong)
+  - [Ollama 本地模型集成：离线部署与自定义模型](25-ollama-ben-di-mo-xing-ji-cheng-chi-xian-bu-shu-yu-zi-ding-yi-mo-xing)
+
+```
+**Content Boundaries**:
+- Write ONLY about "自定义 LLM 客户端：如何接入新的模型提供商" — avoid content that belongs to other catalog pages
+- Identify your current position marked with "[You are currently here]"
+- Reference other pages by their exact catalog links when suggesting next steps
+
+## DOCUMENT TYPE REQUIREMENTS
+**Global requirement**:
+- Reference local files at the end of every paragraph as: `Sources: [filename](relative/path#L<start>-L<end>)`
+- Use Chinese as the language for all written content
+
+**For Overview/Getting Started docs**:
+- Suggest logical reading progression based on catalog structure using exact catalog links: `[Page Name](page_slug)`
+- Create architecture overview with Mermaid diagram
+- Use tables for feature comparisons, configuration options, or API summaries
+- Add visual project structure representation
+
+**For How-to/Tutorial docs**:
+- Include step-by-step Mermaid flowcharts
+- Use tables for parameter explanations, troubleshooting guides
+- Add before/after code comparison tables
+
+**For Explanation docs**:
+- Create concept relationship diagrams with Mermaid
+- Use tables for pattern comparisons, pros/cons analysis
+- Include class/module interaction diagrams
+
+## OUTPUT FORMAT
+**IMPORTANT**: Wrap your FINAL complete documentation in <blog></blog> tags as shown below:
+
+<blog>
+# 自定义 LLM 客户端：如何接入新的模型提供商
+Brief intro of current page's purpose and scope.
+## Section Name
+Content focused solely on 自定义 LLM 客户端：如何接入新的模型提供商
+Sources: [filename](relative/path#L123-L456)
+## Next Section Name
+Content focused solely on 自定义 LLM 客户端：如何接入新的模型提供商
+Sources: [filename](relative/path#L789)
+...
+</blog>
+
+## EXECUTE NOW
+Begin with architectural hypothesis formation. Verify through targeted code examination using the available tools. Deliver "自定义 LLM 客户端：如何接入新的模型提供商" documentation with visual elements and precise local file references. Remember to wrap your FINAL output in <blog></blog> tags.
+
