@@ -13,3 +13,5 @@ export type { CreateProjectInput } from "./project/index.js";
 export { profileRepo } from "./project/index.js";
 export { createAppEvent, EventWriter, EventReader } from "./events/index.js";
 export { JobStateManager } from "./generation/index.js";
+export { PathPolicy, validateBashCommand } from "./policy/index.js";
+export type { BashValidationResult } from "./policy/index.js";

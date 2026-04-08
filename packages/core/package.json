@@ -22,6 +22,7 @@
     "@ai-sdk/openai": "^3.0.52",
     "@ai-sdk/openai-compatible": "^2.0.41",
     "ai": "^6.0.153",
+    "ignore": "^7.0.5",
     "zod": "^4.0.0"
   },
   "devDependencies": {
