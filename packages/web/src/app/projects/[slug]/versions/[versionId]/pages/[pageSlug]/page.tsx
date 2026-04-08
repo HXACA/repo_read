@@ -3,7 +3,7 @@ import Link from "next/link";
 import { StorageAdapter } from "@reporead/core";
 import type { WikiJson, PageMeta } from "@reporead/core";
 import { notFound } from "next/navigation";
-import { ChatDock } from "./chat-dock.js";
+import { ChatDock } from "./chat-dock";
 
 async function getPageData(slug: string, versionId: string, pageSlug: string) {
   const repoRoot = process.env.REPOREAD_ROOT ?? process.cwd();
