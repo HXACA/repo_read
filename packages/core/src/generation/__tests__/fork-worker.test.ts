@@ -4,6 +4,7 @@ import { ForkWorker } from "../fork-worker.js";
 vi.mock("ai", () => ({
   generateText: vi.fn(),
   jsonSchema: vi.fn((s: unknown) => s),
+  stepCountIs: vi.fn(() => () => false),
 }));
 
 const validOutput = JSON.stringify({

@@ -1,7 +1,8 @@
-import { generateText } from "ai";
-import type { LanguageModel } from "ai";
+import { generateText, stepCountIs } from "ai";
+import type { LanguageModel, ToolSet } from "ai";
 import type { ReviewBriefing, ReviewConclusion } from "../types/review.js";
 import { buildReviewerSystemPrompt, buildReviewerUserPrompt } from "./reviewer-prompt.js";
+import { createCatalogTools } from "../catalog/catalog-tools.js";
 import { extractJson } from "../utils/extract-json.js";
 
 export type ReviewResult = {
@@ -27,12 +28,15 @@ export class FreshReviewer {
   async review(briefing: ReviewBriefing): Promise<ReviewResult> {
     const systemPrompt = buildReviewerSystemPrompt();
     const userPrompt = buildReviewerUserPrompt(briefing);
+    const tools = createCatalogTools(this.repoRoot);
 
     try {
       const result = await generateText({
         model: this.model,
         system: systemPrompt,
         prompt: userPrompt,
+        tools: tools as unknown as ToolSet,
+        stopWhen: stepCountIs(10),
       });
 
       return this.parseOutput(result.text);
@@ -44,7 +48,6 @@ export class FreshReviewer {
   private parseOutput(text: string): ReviewResult {
     const data = extractJson(text);
     if (!data) {
-      // Fallback: if no JSON found, treat as pass with no blockers
       return {
         success: true,
         conclusion: {

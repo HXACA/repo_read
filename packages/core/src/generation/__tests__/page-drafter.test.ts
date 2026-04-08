@@ -5,6 +5,7 @@ import type { MainAuthorContext } from "../../types/agent.js";
 vi.mock("ai", () => ({
   generateText: vi.fn(),
   jsonSchema: vi.fn((s: unknown) => s),
+  stepCountIs: vi.fn(() => () => false),
 }));
 
 const mockContext: MainAuthorContext = {

@@ -8,6 +8,7 @@ import { StorageAdapter } from "../../storage/storage-adapter.js";
 vi.mock("ai", () => ({
   generateText: vi.fn(),
   jsonSchema: vi.fn((s: unknown) => s),
+  stepCountIs: vi.fn(() => () => false),
 }));
 
 const answerOutput = `The engine handles pipeline orchestration through a state machine.

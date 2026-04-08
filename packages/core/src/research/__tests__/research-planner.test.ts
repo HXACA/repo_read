@@ -4,6 +4,7 @@ import { ResearchPlanner } from "../research-planner.js";
 vi.mock("ai", () => ({
   generateText: vi.fn(),
   jsonSchema: vi.fn((s: unknown) => s),
+  stepCountIs: vi.fn(() => () => false),
 }));
 
 describe("ResearchPlanner", () => {

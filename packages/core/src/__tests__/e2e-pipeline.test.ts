@@ -14,6 +14,7 @@ import type { WikiJson, ResolvedConfig, VersionJson } from "../index.js";
 vi.mock("ai", () => ({
   generateText: vi.fn(),
   jsonSchema: vi.fn((s: unknown) => s),
+  stepCountIs: vi.fn(() => () => false),
 }));
 
 const mockConfig: ResolvedConfig = {

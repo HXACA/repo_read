@@ -12,6 +12,7 @@ import type { ResolvedConfig } from "../../types/config.js";
 vi.mock("ai", () => ({
   generateText: vi.fn(),
   jsonSchema: vi.fn((s: unknown) => s),
+  stepCountIs: vi.fn(() => () => false),
 }));
 
 const mockConfig: ResolvedConfig = {

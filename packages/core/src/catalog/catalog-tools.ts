@@ -17,7 +17,7 @@ export function createCatalogTools(repoRoot: string) {
     read: {
       description:
         "Read a file with line numbers. Supports offset and limit for large files. Max 500 lines per read.",
-      parameters: jsonSchema<{ path: string; offset?: number; limit?: number }>({
+      inputSchema: jsonSchema<{ path: string; offset?: number; limit?: number }>({
         type: "object",
         properties: {
           path: { type: "string", description: "Relative file path from repo root" },
@@ -35,7 +35,7 @@ export function createCatalogTools(repoRoot: string) {
     grep: {
       description:
         "Search for a pattern across the repository. Returns matching file paths and line content.",
-      parameters: jsonSchema<{ pattern: string; glob?: string; maxResults?: number }>({
+      inputSchema: jsonSchema<{ pattern: string; glob?: string; maxResults?: number }>({
         type: "object",
         properties: {
           pattern: { type: "string", description: "Search pattern (regex supported)" },
@@ -55,7 +55,7 @@ export function createCatalogTools(repoRoot: string) {
     },
     find: {
       description: "Find files matching a glob pattern. Returns relative file paths.",
-      parameters: jsonSchema<{ pattern: string; maxResults?: number }>({
+      inputSchema: jsonSchema<{ pattern: string; maxResults?: number }>({
         type: "object",
         properties: {
           pattern: { type: "string", description: "Glob pattern, e.g. '**/*.ts' or 'src/**/*.py'" },
@@ -72,7 +72,7 @@ export function createCatalogTools(repoRoot: string) {
     },
     git_log: {
       description: "View recent git commits. Returns commit hash, author, date, and message.",
-      parameters: jsonSchema<{ maxCount?: number; file?: string }>({
+      inputSchema: jsonSchema<{ maxCount?: number; file?: string }>({
         type: "object",
         properties: {
           maxCount: { type: "number", description: "Max commits to return (default 20)" },

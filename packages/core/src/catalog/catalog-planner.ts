@@ -1,4 +1,4 @@
-import { generateText } from "ai";
+import { generateText, stepCountIs } from "ai";
 import type { LanguageModel, ToolSet } from "ai";
 import type { RepoProfile } from "../types/project.js";
 import type { WikiJson } from "../types/generation.js";
@@ -37,10 +37,8 @@ export class CatalogPlanner {
         model: this.model,
         system: systemPrompt,
         prompt: userPrompt,
-        // Tools omitted for catalog planning — the LLM generates wiki.json
-        // directly from the repo profile without needing retrieval tools.
-        // This also improves compatibility with providers that don't support
-        // Anthropic tool_use protocol.
+        tools: tools as unknown as ToolSet,
+        stopWhen: stepCountIs(20),
       });
 
       const wiki = this.parseWikiJson(result.text);
