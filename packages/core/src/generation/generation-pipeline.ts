@@ -8,6 +8,7 @@ import type { MainAuthorContext } from "../types/agent.js";
 import type { ReviewBriefing } from "../types/review.js";
 import { JobStateManager } from "./job-state.js";
 import { JobEventEmitter } from "./generation-events.js";
+import { profileRepo } from "../project/repo-profiler.js";
 import { PageDrafter } from "./page-drafter.js";
 import { FreshReviewer } from "../review/reviewer.js";
 import { validatePage } from "../validation/page-validator.js";
@@ -63,23 +64,7 @@ export class GenerationPipeline {
       await emitter.jobStarted();
 
       const catalogPlanner = new CatalogPlanner({ model: this.model, language: "en" });
-      const profileResult = {
-        projectSlug: slug,
-        repoRoot: this.repoRoot,
-        repoName: slug,
-        branch: "main",
-        commitHash: this.commitHash,
-        languages: [] as string[],
-        frameworks: [] as string[],
-        packageManagers: [] as string[],
-        entryFiles: [] as string[],
-        importantDirs: [] as string[],
-        ignoredPaths: [] as string[],
-        sourceFileCount: 0,
-        docFileCount: 0,
-        treeSummary: "",
-        architectureHints: [] as string[],
-      };
+      const profileResult = await profileRepo(this.repoRoot, slug);
 
       const catalogResult = await catalogPlanner.plan(profileResult);
       if (!catalogResult.success || !catalogResult.wiki) {

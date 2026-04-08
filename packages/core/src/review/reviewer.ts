@@ -1,8 +1,7 @@
 import { generateText } from "ai";
-import type { LanguageModel, ToolSet } from "ai";
+import type { LanguageModel } from "ai";
 import type { ReviewBriefing, ReviewConclusion } from "../types/review.js";
 import { buildReviewerSystemPrompt, buildReviewerUserPrompt } from "./reviewer-prompt.js";
-import { createCatalogTools } from "../catalog/catalog-tools.js";
 
 export type ReviewResult = {
   success: boolean;
@@ -27,14 +26,12 @@ export class FreshReviewer {
   async review(briefing: ReviewBriefing): Promise<ReviewResult> {
     const systemPrompt = buildReviewerSystemPrompt();
     const userPrompt = buildReviewerUserPrompt(briefing);
-    const tools = createCatalogTools(this.repoRoot);
 
     try {
       const result = await generateText({
         model: this.model,
         system: systemPrompt,
         prompt: userPrompt,
-        tools: tools as unknown as ToolSet,
       });
 
       return this.parseOutput(result.text);

@@ -32,15 +32,20 @@ export class CatalogPlanner {
     const tools = createCatalogTools(profile.repoRoot);
 
     try {
-      // Type assertion needed: AI SDK v6 Tool types use `inputSchema`
-      // while our tools use `parameters` via jsonSchema(). At runtime
-      // generateText accepts both forms.
       const result = await generateText({
         model: this.model,
         system: systemPrompt,
         prompt: userPrompt,
-        tools: tools as unknown as ToolSet,
+        // Tools omitted for catalog planning — the LLM generates wiki.json
+        // directly from the repo profile without needing retrieval tools.
+        // This also improves compatibility with providers that don't support
+        // Anthropic tool_use protocol.
       });
+
+      // Debug: log raw LLM output
+      console.error("[CatalogPlanner] text length:", result.text?.length ?? 0);
+      console.error("[CatalogPlanner] text preview:", result.text?.slice(0, 500));
+      console.error("[CatalogPlanner] reasoning:", (result as any).reasoning?.slice(0, 200));
 
       const wiki = this.parseWikiJson(result.text);
 

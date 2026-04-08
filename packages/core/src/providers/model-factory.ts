@@ -38,11 +38,18 @@ function createModel(
 ): LanguageModel {
   switch (provider) {
     case "anthropic": {
-      const anthropic = createAnthropic({ apiKey });
+      // If custom baseUrl, use authToken (Bearer) instead of x-api-key
+      const authOpts = baseUrl
+        ? { authToken: apiKey, baseURL: baseUrl }
+        : { apiKey };
+      const anthropic = createAnthropic(authOpts);
       return anthropic(modelId);
     }
     case "openai": {
-      const openai = createOpenAI({ apiKey });
+      const openai = createOpenAI({
+        apiKey,
+        ...(baseUrl ? { baseURL: baseUrl } : {}),
+      });
       return openai(modelId);
     }
     default: {
