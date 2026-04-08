@@ -3,6 +3,7 @@ import Link from "next/link";
 import { StorageAdapter } from "@reporead/core";
 import type { WikiJson, PageMeta } from "@reporead/core";
 import { notFound } from "next/navigation";
+import { ChatDock } from "./chat-dock.js";
 
 async function getPageData(slug: string, versionId: string, pageSlug: string) {
   const repoRoot = process.env.REPOREAD_ROOT ?? process.cwd();
@@ -96,6 +97,7 @@ export default async function PageReader({
           <span />
         )}
       </nav>
+      <ChatDock slug={slug} versionId={versionId} pageSlug={pageSlug} />
     </main>
   );
 }

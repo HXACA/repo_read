@@ -4,6 +4,7 @@ import { runGenerate } from "./commands/generate.js";
 import { runBrowse } from "./commands/browse.js";
 import { runJobs } from "./commands/jobs.js";
 import { runVersions } from "./commands/versions.js";
+import { runAsk } from "./commands/ask.js";
 
 export function createProgram(): Command {
   const program = new Command();
@@ -58,6 +59,17 @@ export function createProgram(): Command {
     .option("-n, --name <slug>", "Project slug name")
     .action(async (opts) => {
       await runVersions({ dir: opts.dir, name: opts.name });
+    });
+
+  program
+    .command("ask")
+    .description("Ask questions about the codebase wiki")
+    .option("-d, --dir <path>", "Repository root directory", process.cwd())
+    .option("-n, --name <slug>", "Project slug name")
+    .option("-p, --page <slug>", "Current page context")
+    .option("-q, --question <text>", "Single question (non-interactive)")
+    .action(async (opts) => {
+      await runAsk({ dir: opts.dir, name: opts.name, page: opts.page, question: opts.question });
     });
 
   program
