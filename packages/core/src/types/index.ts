@@ -12,7 +12,7 @@ export type { RepoProfile, ProjectInfo } from "./project.js";
 
 export type {
   JobStatus, GenerationJob, WikiJson, PageStatus, PageMeta,
-  CitationKind, CitationRecord,
+  CitationKind, CitationRecord, VersionJson,
 } from "./generation.js";
 
 export type { ReviewBriefing, ReviewVerdict, ReviewConclusion } from "./review.js";

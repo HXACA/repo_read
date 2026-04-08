@@ -12,7 +12,7 @@ export { StoragePaths, StorageAdapter } from "./storage/index.js";
 export { ProjectModel } from "./project/index.js";
 export type { CreateProjectInput } from "./project/index.js";
 export { profileRepo } from "./project/index.js";
-export { createAppEvent, EventWriter, EventReader } from "./events/index.js";
+export { createAppEvent, EventWriter, EventReader, createSSEStream, formatSSE } from "./events/index.js";
 export { JobStateManager } from "./generation/index.js";
 export {
   JobEventEmitter, PageDrafter, ForkWorker, Publisher,
