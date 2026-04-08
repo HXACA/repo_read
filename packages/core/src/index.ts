@@ -49,3 +49,10 @@ export type { PageValidationInput } from "./validation/index.js";
 
 export { classifyRoute, AskSessionManager, AskService } from "./ask/index.js";
 export type { AskRoute, RouteContext, AskOptions, AskResult } from "./ask/index.js";
+
+export { ResearchPlanner, ResearchExecutor, ResearchService } from "./research/index.js";
+export type {
+  ResearchPlan, ResearchPlannerOptions,
+  SubQuestionResult, ResearchExecutorOptions,
+  ResearchResult, ResearchServiceOptions,
+} from "./research/index.js";
