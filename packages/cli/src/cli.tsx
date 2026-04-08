@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { runInit } from "./commands/init.js";
 
 export function createProgram(): Command {
   const program = new Command();
@@ -10,9 +11,11 @@ export function createProgram(): Command {
 
   program
     .command("init")
-    .description("Initialize a new RepoRead project in the current directory")
-    .action(() => {
-      console.log("repo-read init — not yet implemented");
+    .description("Initialize a new RepoRead project")
+    .option("-d, --dir <path>", "Repository root directory", process.cwd())
+    .option("-n, --name <slug>", "Project slug name")
+    .action(async (opts) => {
+      await runInit({ repoRoot: opts.dir, projectSlug: opts.name });
     });
 
   program
