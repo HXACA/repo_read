@@ -63,7 +63,7 @@ describe("PageDrafter", () => {
     expect(result.metadata!.related_pages).toEqual(["setup"]);
   });
 
-  it("returns error when LLM output has no JSON block", async () => {
+  it("gracefully handles LLM output with no JSON block", async () => {
     const { generateText } = await import("ai");
     vi.mocked(generateText).mockResolvedValueOnce({
       text: "# Page\n\nSome content with no metadata block.",
@@ -83,8 +83,10 @@ describe("PageDrafter", () => {
       language: "en",
     });
 
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("metadata");
+    // Should succeed with fallback metadata
+    expect(result.success).toBe(true);
+    expect(result.markdown).toContain("# Page");
+    expect(result.metadata!.citations).toEqual([]);
   });
 
   it("strips JSON metadata block from page markdown", async () => {

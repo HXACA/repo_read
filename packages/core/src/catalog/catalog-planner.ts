@@ -4,6 +4,7 @@ import type { RepoProfile } from "../types/project.js";
 import type { WikiJson } from "../types/generation.js";
 import { buildCatalogSystemPrompt, buildCatalogUserPrompt } from "./catalog-prompt.js";
 import { createCatalogTools } from "./catalog-tools.js";
+import { extractJson } from "../utils/extract-json.js";
 
 export type CatalogPlannerOptions = {
   model: LanguageModel;
@@ -42,11 +43,6 @@ export class CatalogPlanner {
         // Anthropic tool_use protocol.
       });
 
-      // Debug: log raw LLM output
-      console.error("[CatalogPlanner] text length:", result.text?.length ?? 0);
-      console.error("[CatalogPlanner] text preview:", result.text?.slice(0, 500));
-      console.error("[CatalogPlanner] reasoning:", (result as any).reasoning?.slice(0, 200));
-
       const wiki = this.parseWikiJson(result.text);
 
       return {
@@ -64,15 +60,10 @@ export class CatalogPlanner {
   }
 
   private parseWikiJson(text: string): WikiJson {
-    let jsonStr = text.trim();
-    // Strip markdown code fences if present
-    const fenceMatch = jsonStr.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-    if (fenceMatch) jsonStr = fenceMatch[1].trim();
-
-    const parsed = JSON.parse(jsonStr);
-    if (!parsed.summary || !Array.isArray(parsed.reading_order)) {
+    const parsed = extractJson(text);
+    if (!parsed || !parsed.summary || !Array.isArray(parsed.reading_order)) {
       throw new Error("Invalid wiki.json structure: missing summary or reading_order");
     }
-    return parsed as WikiJson;
+    return parsed as unknown as WikiJson;
   }
 }

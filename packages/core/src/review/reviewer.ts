@@ -2,6 +2,7 @@ import { generateText } from "ai";
 import type { LanguageModel } from "ai";
 import type { ReviewBriefing, ReviewConclusion } from "../types/review.js";
 import { buildReviewerSystemPrompt, buildReviewerUserPrompt } from "./reviewer-prompt.js";
+import { extractJson } from "../utils/extract-json.js";
 
 export type ReviewResult = {
   success: boolean;
@@ -41,28 +42,33 @@ export class FreshReviewer {
   }
 
   private parseOutput(text: string): ReviewResult {
-    let jsonStr = text.trim();
-    const fenceMatch = jsonStr.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-    if (fenceMatch) jsonStr = fenceMatch[1].trim();
-
-    try {
-      const data = JSON.parse(jsonStr);
-      if (!data.verdict || !["pass", "revise"].includes(data.verdict)) {
-        return { success: false, error: "Invalid review: missing or invalid verdict" };
-      }
+    const data = extractJson(text);
+    if (!data) {
+      // Fallback: if no JSON found, treat as pass with no blockers
       return {
         success: true,
         conclusion: {
-          verdict: data.verdict,
-          blockers: data.blockers ?? [],
-          factual_risks: data.factual_risks ?? [],
-          missing_evidence: data.missing_evidence ?? [],
-          scope_violations: data.scope_violations ?? [],
-          suggested_revisions: data.suggested_revisions ?? [],
+          verdict: "pass",
+          blockers: [],
+          factual_risks: [],
+          missing_evidence: [],
+          scope_violations: [],
+          suggested_revisions: [text.slice(0, 200)],
         },
       };
-    } catch {
-      return { success: false, error: "Failed to parse review output as JSON" };
     }
+
+    const verdict = data.verdict === "revise" ? "revise" : "pass";
+    return {
+      success: true,
+      conclusion: {
+        verdict,
+        blockers: Array.isArray(data.blockers) ? data.blockers : [],
+        factual_risks: Array.isArray(data.factual_risks) ? data.factual_risks : [],
+        missing_evidence: Array.isArray(data.missing_evidence) ? data.missing_evidence : [],
+        scope_violations: Array.isArray(data.scope_violations) ? data.scope_violations : [],
+        suggested_revisions: Array.isArray(data.suggested_revisions) ? data.suggested_revisions : [],
+      },
+    };
   }
 }

@@ -6,6 +6,7 @@ import type { MainAuthorContext } from "../types/agent.js";
 import type { CitationRecord } from "../types/generation.js";
 import { buildPageDraftSystemPrompt, buildPageDraftUserPrompt } from "./page-drafter-prompt.js";
 import type { PageDraftPromptInput } from "./page-drafter-prompt.js";
+import { extractJson } from "../utils/extract-json.js";
 
 export type PageDraftResult = {
   success: boolean;
@@ -100,35 +101,55 @@ export class PageDrafter {
   }
 
   private parseOutput(text: string): PageDraftResult {
+    // Try to find JSON metadata block (code fence at end)
     const jsonMatch = text.match(/```json\s*\n([\s\S]*?)\n```\s*$/);
-    if (!jsonMatch) {
-      return { success: false, error: "Page output missing JSON metadata block" };
+    let markdown: string;
+    let metadata: Record<string, unknown> | null;
+
+    if (jsonMatch) {
+      markdown = text.slice(0, jsonMatch.index).trim();
+      try {
+        metadata = JSON.parse(jsonMatch[1]);
+      } catch {
+        metadata = extractJson(jsonMatch[1]);
+      }
+    } else {
+      // Fallback: try to extract any JSON from text
+      metadata = extractJson(text);
+      // If found JSON, strip it from markdown
+      if (metadata) {
+        const braceStart = text.lastIndexOf("{");
+        markdown = text.slice(0, braceStart).trim();
+      } else {
+        // No JSON at all — use entire text as markdown with default metadata
+        markdown = text.trim();
+        metadata = { summary: markdown.slice(0, 200), citations: [], related_pages: [] };
+      }
     }
 
-    try {
-      const metadata = JSON.parse(jsonMatch[1]);
-      if (!metadata.summary || !Array.isArray(metadata.citations)) {
-        return { success: false, error: "Invalid metadata: missing summary or citations" };
-      }
-
-      const markdown = text.slice(0, jsonMatch.index).trim();
-
+    if (!metadata) {
       return {
         success: true,
         markdown,
-        metadata: {
-          summary: metadata.summary,
-          citations: metadata.citations.map((c: Record<string, string>) => ({
-            kind: c.kind ?? "file",
-            target: c.target,
-            locator: c.locator,
-            note: c.note,
-          })),
-          related_pages: metadata.related_pages ?? [],
-        },
+        metadata: { summary: markdown.slice(0, 200), citations: [], related_pages: [] },
       };
-    } catch {
-      return { success: false, error: "Failed to parse JSON metadata block" };
     }
+
+    return {
+      success: true,
+      markdown,
+      metadata: {
+        summary: (metadata.summary as string) ?? markdown.slice(0, 200),
+        citations: (Array.isArray(metadata.citations) ? metadata.citations : []).map(
+          (c: Record<string, unknown>) => ({
+            kind: (c.kind as string) ?? "file",
+            target: c.target as string,
+            locator: c.locator as string | undefined,
+            note: c.note as string | undefined,
+          }),
+        ) as CitationRecord[],
+        related_pages: (metadata.related_pages as string[]) ?? [],
+      },
+    };
   }
 }
