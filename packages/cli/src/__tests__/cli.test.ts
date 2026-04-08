@@ -17,4 +17,10 @@ describe("CLI program", () => {
     const initCmd = program.commands.find((c) => c.name() === "init");
     expect(initCmd).toBeDefined();
   });
+
+  it("has generate command registered", () => {
+    const program = createProgram();
+    const genCmd = program.commands.find((c) => c.name() === "generate");
+    expect(genCmd).toBeDefined();
+  });
 });

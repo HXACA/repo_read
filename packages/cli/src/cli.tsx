@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { runInit } from "./commands/init.js";
+import { runGenerate } from "./commands/generate.js";
 
 export function createProgram(): Command {
   const program = new Command();
@@ -16,6 +17,15 @@ export function createProgram(): Command {
     .option("-n, --name <slug>", "Project slug name")
     .action(async (opts) => {
       await runInit({ repoRoot: opts.dir, projectSlug: opts.name });
+    });
+
+  program
+    .command("generate")
+    .description("Generate wiki pages for a project")
+    .option("-d, --dir <path>", "Repository root directory", process.cwd())
+    .option("-n, --name <slug>", "Project slug name")
+    .action(async (opts) => {
+      await runGenerate({ dir: opts.dir, name: opts.name });
     });
 
   program
