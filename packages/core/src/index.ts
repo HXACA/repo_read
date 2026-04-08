@@ -15,3 +15,8 @@ export { createAppEvent, EventWriter, EventReader } from "./events/index.js";
 export { JobStateManager } from "./generation/index.js";
 export { PathPolicy, validateBashCommand } from "./policy/index.js";
 export type { BashValidationResult } from "./policy/index.js";
+export {
+  readFile, grepSearch, findFiles,
+  gitLog, gitShow, gitDiff,
+  execBash, pageRead, citationOpen,
+} from "./tools/index.js";
