@@ -8,3 +8,5 @@ export { SecretStore } from "./secrets/index.js";
 export type { SecretBackend, SecretStoreOptions } from "./secrets/index.js";
 export { ProviderCenter, getStaticCapabilities, buildFallbackChain } from "./providers/index.js";
 export { StoragePaths, StorageAdapter } from "./storage/index.js";
+export { ProjectModel } from "./project/index.js";
+export type { CreateProjectInput } from "./project/index.js";
