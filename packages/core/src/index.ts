@@ -46,3 +46,6 @@ export {
   validateMermaid, validateLinks,
 } from "./validation/index.js";
 export type { PageValidationInput } from "./validation/index.js";
+
+export { classifyRoute, AskSessionManager, AskService } from "./ask/index.js";
+export type { AskRoute, RouteContext, AskOptions, AskResult } from "./ask/index.js";
