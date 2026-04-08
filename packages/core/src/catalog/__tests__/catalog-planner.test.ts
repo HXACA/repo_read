@@ -7,6 +7,7 @@ import type { WikiJson } from "../../types/generation.js";
 vi.mock("ai", () => ({
   generateText: vi.fn(),
   tool: vi.fn((def: unknown) => def),
+  jsonSchema: vi.fn((schema: unknown) => schema),
 }));
 
 const mockProfile: RepoProfile = {
