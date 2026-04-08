@@ -67,7 +67,7 @@ export class JobStateManager {
     if (!allowed.includes(targetStatus)) {
       throw new AppError(
         "JOB_INVALID_STATE",
-        `JOB_INVALID_STATE: Cannot transition from "${job.status}" to "${targetStatus}"`,
+        `Cannot transition from "${job.status}" to "${targetStatus}"`,
         { jobId, current: job.status, target: targetStatus },
       );
     }
@@ -114,7 +114,7 @@ export class JobStateManager {
   private async requireJob(projectSlug: string, jobId: string): Promise<GenerationJob> {
     const job = await this.get(projectSlug, jobId);
     if (!job) {
-      throw new AppError("JOB_NOT_FOUND", `JOB_NOT_FOUND: Job "${jobId}" not found in project "${projectSlug}"`);
+      throw new AppError("JOB_NOT_FOUND", `Job "${jobId}" not found in project "${projectSlug}"`);
     }
     return job;
   }

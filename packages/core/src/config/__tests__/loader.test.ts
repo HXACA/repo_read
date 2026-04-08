@@ -38,7 +38,7 @@ describe("loadProjectConfig", () => {
   });
 
   it("throws AppError for missing config", async () => {
-    await expect(loadProjectConfig(tmpDir)).rejects.toThrow("CONFIG_NOT_FOUND");
+    await expect(loadProjectConfig(tmpDir)).rejects.toMatchObject({ code: "CONFIG_NOT_FOUND" });
   });
 
   it("throws AppError for invalid config", async () => {
@@ -48,6 +48,6 @@ describe("loadProjectConfig", () => {
       path.join(projectDir, CONFIG_FILENAME),
       JSON.stringify({ bad: true }),
     );
-    await expect(loadProjectConfig(projectDir)).rejects.toThrow("CONFIG_INVALID");
+    await expect(loadProjectConfig(projectDir)).rejects.toMatchObject({ code: "CONFIG_INVALID" });
   });
 });

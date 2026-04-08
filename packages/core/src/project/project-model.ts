@@ -16,7 +16,7 @@ export class ProjectModel {
   async create(input: CreateProjectInput): Promise<ProjectInfo> {
     const existing = await this.get(input.projectSlug);
     if (existing) {
-      throw new AppError("PROJECT_ALREADY_EXISTS", `PROJECT_ALREADY_EXISTS: Project "${input.projectSlug}" already exists`);
+      throw new AppError("PROJECT_ALREADY_EXISTS", `Project "${input.projectSlug}" already exists`);
     }
 
     const now = new Date().toISOString();

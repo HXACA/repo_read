@@ -54,6 +54,6 @@ describe("ProjectModel", () => {
     await model.create({ projectSlug: "dup", repoRoot: tmpDir, branch: "main" });
     await expect(
       model.create({ projectSlug: "dup", repoRoot: tmpDir, branch: "main" }),
-    ).rejects.toThrow("PROJECT_ALREADY_EXISTS");
+    ).rejects.toMatchObject({ code: "PROJECT_ALREADY_EXISTS" });
   });
 });

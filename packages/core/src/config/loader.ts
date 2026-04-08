@@ -13,7 +13,7 @@ export async function loadProjectConfig(projectDir: string): Promise<UserEditabl
   try {
     raw = await fs.readFile(configPath, "utf-8");
   } catch {
-    throw new AppError("CONFIG_NOT_FOUND", `CONFIG_NOT_FOUND: Config not found at ${configPath}`, {
+    throw new AppError("CONFIG_NOT_FOUND", `Config not found at ${configPath}`, {
       path: configPath,
     });
   }
@@ -22,7 +22,7 @@ export async function loadProjectConfig(projectDir: string): Promise<UserEditabl
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new AppError("CONFIG_INVALID", `CONFIG_INVALID: Invalid JSON in ${configPath}`, {
+    throw new AppError("CONFIG_INVALID", `Invalid JSON in ${configPath}`, {
       path: configPath,
     });
   }
@@ -30,7 +30,7 @@ export async function loadProjectConfig(projectDir: string): Promise<UserEditabl
   try {
     return parseUserEditableConfig(parsed);
   } catch (err) {
-    throw new AppError("CONFIG_INVALID", `CONFIG_INVALID: Config validation failed: ${String(err)}`, {
+    throw new AppError("CONFIG_INVALID", `Config validation failed: ${String(err)}`, {
       path: configPath,
     });
   }

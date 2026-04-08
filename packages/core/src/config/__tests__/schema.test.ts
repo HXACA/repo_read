@@ -1,8 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  UserEditableConfigSchema,
-  parseUserEditableConfig,
-} from "../schema.js";
+import { parseUserEditableConfig } from "../schema.js";
 
 describe("UserEditableConfigSchema", () => {
   const validConfig = {

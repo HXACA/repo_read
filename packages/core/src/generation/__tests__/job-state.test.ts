@@ -41,7 +41,7 @@ describe("JobStateManager", () => {
     const job = await manager.create("proj", tmpDir, {} as ResolvedConfig);
     await expect(
       manager.transition(job.projectSlug, job.id, "publishing"),
-    ).rejects.toThrow("JOB_INVALID_STATE");
+    ).rejects.toMatchObject({ code: "JOB_INVALID_STATE" });
   });
 
   it("reads job from disk", async () => {
