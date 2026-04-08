@@ -56,3 +56,6 @@ export type {
   SubQuestionResult, ResearchExecutorOptions,
   ResearchResult, ResearchServiceOptions,
 } from "./research/index.js";
+
+export { CitationLedger } from "./wiki/index.js";
+export type { PageCitations } from "./wiki/index.js";
