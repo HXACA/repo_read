@@ -1,0 +1,205 @@
+import type { LanguageModel } from "ai";
+import type { CitationRecord } from "../types/generation.js";
+import type { MainAuthorContext } from "../types/agent.js";
+import { ForkWorker } from "./fork-worker.js";
+import {
+  EvidencePlanner,
+  fallbackPlan,
+  type EvidencePlan,
+  type EvidencePlanInput,
+  type EvidenceTask,
+} from "./evidence-planner.js";
+
+export type EvidenceCoordinatorOptions = {
+  plannerModel: LanguageModel;
+  workerModel: LanguageModel;
+  repoRoot: string;
+  concurrency: number;
+};
+
+export type CollectInput = {
+  pageTitle: string;
+  pageRationale: string;
+  pageOrder: number;
+  coveredFiles: string[];
+  publishedSummaries: Array<{ slug: string; title: string; summary: string }>;
+  taskCount: number;
+  language: string;
+  /** Free-form context passed down to each fork.worker (e.g. page plan). */
+  workerContext: string;
+};
+
+export type EvidenceCollectionResult = {
+  ledger: MainAuthorContext["evidence_ledger"];
+  findings: string[];
+  openQuestions: string[];
+  plan: EvidencePlan;
+  failedTaskIds: string[];
+  usedFallback: boolean;
+};
+
+/**
+ * Orchestrates parallel `fork.worker` subtasks for a single page's evidence
+ * collection. The flow is:
+ *
+ *   1. Ask the planner (main.author LLM) to split work into N tasks.
+ *      On planner failure → deterministic fallback to even file-count split.
+ *   2. Run all tasks in parallel, bounded by `concurrency`.
+ *      On individual worker failure → retry once, then skip that task.
+ *   3. Merge all `ForkWorkerResult` outputs into a deduplicated
+ *      evidence_ledger, flattened findings, and flattened open questions.
+ *
+ * The coordinator is deliberately tolerant: one or two failing workers
+ * should NOT block page generation. The drafter still runs with whatever
+ * evidence was successfully collected.
+ */
+export class EvidenceCoordinator {
+  private readonly planner: EvidencePlanner;
+  private readonly workerFactory: () => ForkWorker;
+  private readonly concurrency: number;
+
+  constructor(options: EvidenceCoordinatorOptions) {
+    this.planner = new EvidencePlanner({ model: options.plannerModel });
+    this.workerFactory = () =>
+      new ForkWorker({
+        model: options.workerModel,
+        repoRoot: options.repoRoot,
+      });
+    this.concurrency = Math.max(1, options.concurrency);
+  }
+
+  async collect(input: CollectInput): Promise<EvidenceCollectionResult> {
+    // Step 1: Plan
+    const planInput: EvidencePlanInput = {
+      pageTitle: input.pageTitle,
+      pageRationale: input.pageRationale,
+      coveredFiles: input.coveredFiles,
+      pageOrder: input.pageOrder,
+      publishedSummaries: input.publishedSummaries,
+      taskCount: input.taskCount,
+      language: input.language,
+    };
+
+    const planResult = await this.planner.plan(planInput);
+    let plan: EvidencePlan;
+    let usedFallback = false;
+    if (planResult.success) {
+      plan = planResult.plan;
+    } else {
+      plan = fallbackPlan(planInput);
+      usedFallback = true;
+    }
+
+    // Step 2: Execute workers in parallel, bounded by concurrency
+    const results = await this.runWorkersBounded(plan.tasks, input.workerContext);
+
+    // Step 3: Merge
+    const ledgerMap = new Map<string, MainAuthorContext["evidence_ledger"][number]>();
+    const findings: string[] = [];
+    const openQuestions: string[] = [];
+    const failedTaskIds: string[] = [];
+    let ledgerAutoId = 1;
+
+    for (const r of results) {
+      if (r.status === "failed") {
+        failedTaskIds.push(r.taskId);
+        continue;
+      }
+      for (const finding of r.data.findings) {
+        if (finding.trim()) findings.push(finding.trim());
+      }
+      for (const q of r.data.open_questions ?? []) {
+        if (q.trim()) openQuestions.push(q.trim());
+      }
+      for (const c of r.data.citations) {
+        const entry = toLedgerEntry(c, String(ledgerAutoId));
+        const key = `${entry.kind}:${entry.target}:${entry.note ?? ""}`;
+        if (!ledgerMap.has(key)) {
+          ledgerMap.set(key, entry);
+          ledgerAutoId++;
+        }
+      }
+    }
+
+    return {
+      ledger: Array.from(ledgerMap.values()),
+      findings,
+      openQuestions,
+      plan,
+      failedTaskIds,
+      usedFallback,
+    };
+  }
+
+  /**
+   * Runs a list of tasks with bounded concurrency. Each task is attempted
+   * twice (original + 1 retry) before being marked failed.
+   */
+  private async runWorkersBounded(
+    tasks: EvidenceTask[],
+    workerContext: string,
+  ): Promise<WorkerOutcome[]> {
+    const outcomes: WorkerOutcome[] = new Array(tasks.length);
+    let nextIndex = 0;
+
+    const runOne = async () => {
+      while (true) {
+        const i = nextIndex++;
+        if (i >= tasks.length) return;
+        outcomes[i] = await this.runWithRetry(tasks[i], workerContext);
+      }
+    };
+
+    const workers = Array.from(
+      { length: Math.min(this.concurrency, tasks.length) },
+      () => runOne(),
+    );
+    await Promise.all(workers);
+    return outcomes;
+  }
+
+  private async runWithRetry(
+    task: EvidenceTask,
+    workerContext: string,
+  ): Promise<WorkerOutcome> {
+    const worker = this.workerFactory();
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const result = await worker.execute({
+          directive: task.directive,
+          context: workerContext,
+          relevantFiles: task.targetFiles,
+        });
+        if (result.success && result.data) {
+          return { status: "ok", taskId: task.id, data: result.data };
+        }
+        // success=false: fall through to retry
+      } catch {
+        // exception: fall through to retry
+      }
+    }
+    return { status: "failed", taskId: task.id };
+  }
+}
+
+type WorkerOutcome =
+  | {
+      status: "ok";
+      taskId: string;
+      data: { findings: string[]; citations: CitationRecord[]; open_questions: string[] };
+    }
+  | { status: "failed"; taskId: string };
+
+function toLedgerEntry(
+  citation: CitationRecord,
+  id: string,
+): MainAuthorContext["evidence_ledger"][number] {
+  return {
+    id,
+    kind: citation.kind,
+    target: citation.locator
+      ? `${citation.target}:${citation.locator}`
+      : citation.target,
+    note: citation.note ?? "",
+  };
+}
