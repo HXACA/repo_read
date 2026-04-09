@@ -137,6 +137,27 @@ export function PageReaderClient({
               reviewDigest={meta.reviewDigest}
               locale={locale}
             />
+            {typeof meta.revisionAttempts === "number" &&
+              meta.revisionAttempts > 0 && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs"
+                  style={{
+                    background: "var(--rr-bg-surface)",
+                    color: "var(--rr-text-secondary)",
+                    border: "1px solid var(--rr-border)",
+                    fontFamily: "var(--font-mono), monospace",
+                  }}
+                  title={
+                    locale === "zh"
+                      ? "审阅后重新修订的次数"
+                      : "Number of revision rounds after review"
+                  }
+                >
+                  {locale === "zh"
+                    ? `重写 ${meta.revisionAttempts} 次`
+                    : `revised ×${meta.revisionAttempts}`}
+                </span>
+              )}
           </div>
         )}
 

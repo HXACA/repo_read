@@ -32,6 +32,7 @@ export default async function JobDetailsPage({
     type: e.type,
     at: e.at,
     pageSlug: e.pageSlug ?? null,
+    payload: (e.payload ?? null) as Record<string, unknown> | null,
   }));
 
   return (

@@ -9,16 +9,53 @@ type EventItem = {
   type: string;
   at: string;
   pageSlug: string | null;
+  payload?: Record<string, unknown> | null;
 };
 
+function eventDetail(type: string, payload: Record<string, unknown> | null | undefined, zh: boolean): string | null {
+  if (!payload) return null;
+  if (type === "page.evidence_planned") {
+    const n = payload.taskCount as number | undefined;
+    const fallback = payload.usedFallback as boolean | undefined;
+    if (typeof n !== "number") return null;
+    const label = zh ? `${n} 个取证任务` : `${n} tasks`;
+    return fallback ? `${label}${zh ? " (降级均分)" : " (fallback split)"}` : label;
+  }
+  if (type === "page.evidence_collected") {
+    const c = payload.citationCount as number | undefined;
+    const w = payload.workerCount as number | undefined;
+    const f = payload.failedCount as number | undefined;
+    if (typeof c !== "number") return null;
+    const parts: string[] = [];
+    parts.push(zh ? `${w ?? 0} 个 worker` : `${w ?? 0} workers`);
+    parts.push(zh ? `${c} 条引用` : `${c} citations`);
+    if (f && f > 0) parts.push(zh ? `${f} 失败` : `${f} failed`);
+    return parts.join(" · ");
+  }
+  if (type === "page.reviewed") {
+    const v = payload.verdict as string | undefined;
+    if (!v) return null;
+    return v === "pass" ? (zh ? "通过" : "pass") : (zh ? "需修订" : "revise");
+  }
+  if (type === "page.validated") {
+    const passed = payload.passed as boolean | undefined;
+    if (passed === undefined) return null;
+    return passed ? (zh ? "通过" : "pass") : (zh ? "未通过" : "fail");
+  }
+  return null;
+}
+
 function eventIcon(type: string): string {
-  if (type.includes("started")) return "\u25B6";
-  if (type.includes("completed")) return "\u2713";
-  if (type.includes("failed")) return "\u2717";
-  if (type.includes("drafting")) return "\u270E";
-  if (type.includes("drafted")) return "\u270E";
-  if (type.includes("reviewed")) return "\u2298";
-  if (type.includes("validated")) return "\u2713";
+  // More specific matches must come before generic ones.
+  if (type.includes("evidence_planned")) return "\u29BF"; // ⦿ — planning
+  if (type.includes("evidence_collected")) return "\u2756"; // ❖ — collected bundle
+  if (type.includes("started")) return "\u25B6"; // ▶
+  if (type.includes("completed")) return "\u2713"; // ✓
+  if (type.includes("failed")) return "\u2717"; // ✗
+  if (type.includes("drafting")) return "\u270E"; // ✎
+  if (type.includes("drafted")) return "\u270E"; // ✎
+  if (type.includes("reviewed")) return "\u2298"; // ⊘
+  if (type.includes("validated")) return "\u2713"; // ✓
   return "\u00B7";
 }
 
@@ -187,38 +224,49 @@ export function JobClient({
           </p>
         ) : (
           <ol className="space-y-0.5">
-            {events.map((event) => (
-              <li
-                key={event.id}
-                className="flex items-start gap-3 py-2 text-sm"
-              >
-                <span
-                  className="w-5 text-center font-mono"
-                  style={{ color: "var(--rr-text-muted)" }}
+            {events.map((event) => {
+              const detail = eventDetail(event.type, event.payload ?? null, zh);
+              return (
+                <li
+                  key={event.id}
+                  className="flex items-start gap-3 py-2 text-sm"
                 >
-                  {eventIcon(event.type)}
-                </span>
-                <span
-                  className="w-24 shrink-0 font-mono text-xs"
-                  style={{ color: "var(--rr-text-muted)" }}
-                >
-                  {new Date(event.at).toLocaleTimeString(
-                    zh ? "zh-CN" : "en-US",
-                  )}
-                </span>
-                <span
-                  className="font-medium"
-                  style={{ color: "var(--rr-text)" }}
-                >
-                  {event.type}
-                </span>
-                {event.pageSlug && (
-                  <span style={{ color: "var(--rr-text-muted)" }}>
-                    ({event.pageSlug})
+                  <span
+                    className="w-5 text-center font-mono"
+                    style={{ color: "var(--rr-text-muted)" }}
+                  >
+                    {eventIcon(event.type)}
                   </span>
-                )}
-              </li>
-            ))}
+                  <span
+                    className="w-24 shrink-0 font-mono text-xs"
+                    style={{ color: "var(--rr-text-muted)" }}
+                  >
+                    {new Date(event.at).toLocaleTimeString(
+                      zh ? "zh-CN" : "en-US",
+                    )}
+                  </span>
+                  <span
+                    className="font-medium"
+                    style={{ color: "var(--rr-text)" }}
+                  >
+                    {event.type}
+                  </span>
+                  {event.pageSlug && (
+                    <span style={{ color: "var(--rr-text-muted)" }}>
+                      ({event.pageSlug})
+                    </span>
+                  )}
+                  {detail && (
+                    <span
+                      className="ml-1 text-xs"
+                      style={{ color: "var(--rr-accent)" }}
+                    >
+                      · {detail}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
           </ol>
         )}
       </section>
