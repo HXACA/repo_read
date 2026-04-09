@@ -135,6 +135,20 @@ type ForkWorkerResult = {
 }
 ```
 
+#### 实现接入点：`EvidenceCoordinator`
+
+页面生成主链路通过 `EvidenceCoordinator` 统一调度 `fork.worker`。一个页面的取证循环是：
+
+1. **规划（main.author 调用）** — `EvidencePlanner` 用一次无工具的 LLM 规划调用，把 `page.covered_files` 拆成 N 个有语义的 `EvidenceTask`。N 来自运行时 `QualityProfile.forkWorkers`。若页面 `coveredFiles.length < N` 或 `N === 1`，直接走 fast path 不调 LLM。
+2. **并行执行** — `EvidenceCoordinator` 用 `Promise.all` 运行所有 `ForkWorker` 任务，并发上限 = `QualityProfile.forkWorkerConcurrency`。
+3. **单任务失败保护** — 任一 worker 抛异常或返回 `success:false` 时，coordinator 重试一次；两次都失败则跳过该 taskId，记入 `failedTaskIds` 并继续用其他 worker 的结果。
+4. **汇总** — 合并去重所有 `ForkWorkerResult.citations` → `MainAuthorContext.evidence_ledger`；扁平化所有 `findings` 与 `open_questions` → `MainAuthorContext.evidence_bundle`。
+5. **发布事件** — `page.evidence_planned`（任务数 + 是否 fallback）与 `page.evidence_collected`（worker 数 + citation 数 + 失败数），可在 CLI / Web job 页看到。
+
+`main.author` 起草时不再直接跑大量工具检索，而是基于已汇总好的 ledger/findings 写作。这符合第 3.1 节"单主循环 + 委派原语 + 确定性 validator"的边界约束：主控只负责合成与决策，取证的并行化交给 worker 原语。
+
+规划失败时，coordinator 会降级到确定性均分（`coveredFiles.slice()` 切片 + 通用 directive），保证页面仍可推进。
+
 ### 4.2 `fresh.reviewer`
 
 `fresh.reviewer` 用于独立审稿：
