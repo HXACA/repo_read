@@ -20,6 +20,21 @@ function slugify(text: string): string {
 }
 
 /**
+ * Stateful heading-id generator matching {@link toc.tsx}. On collision,
+ * appends -2, -3, ... in document order. A fresh instance must be created
+ * per render pass so counts start at zero for each new document.
+ */
+function makeHeadingIdFactory(): (text: string) => string {
+  const counts = new Map<string, number>();
+  return (text: string) => {
+    const base = slugify(text) || "section";
+    const n = (counts.get(base) ?? 0) + 1;
+    counts.set(base, n);
+    return n === 1 ? base : `${base}-${n}`;
+  };
+}
+
+/**
  * Strip LLM "thinking" preamble and trailing metadata JSON
  * that the generation pipeline leaves in page markdown.
  *
@@ -144,6 +159,10 @@ export function MarkdownRenderer({
   versionId?: string;
 }) {
   const processed = preprocessCitations(cleanContent(content));
+  // Fresh id factory per render pass — heading components close over this
+  // so collisions in document order get disambiguated with `-2`, `-3`, etc.
+  // Must walk h1-h4 in order to stay in sync with toc.tsx.
+  const makeHeadingId = makeHeadingIdFactory();
 
   return (
     <ReactMarkdown
@@ -155,19 +174,19 @@ export function MarkdownRenderer({
       components={{
         /* ── Headings with anchor IDs for TOC navigation ── */
         h1({ children, node: _n }) {
-          const id = slugify(textOf(children));
+          const id = makeHeadingId(textOf(children));
           return <h1 id={id}>{children}</h1>;
         },
         h2({ children, node: _n }) {
-          const id = slugify(textOf(children));
+          const id = makeHeadingId(textOf(children));
           return <h2 id={id}>{children}</h2>;
         },
         h3({ children, node: _n }) {
-          const id = slugify(textOf(children));
+          const id = makeHeadingId(textOf(children));
           return <h3 id={id}>{children}</h3>;
         },
         h4({ children, node: _n }) {
-          const id = slugify(textOf(children));
+          const id = makeHeadingId(textOf(children));
           return <h4 id={id}>{children}</h4>;
         },
 

@@ -20,6 +20,24 @@ function slugify(text: string): string {
 }
 
 /**
+ * Build a stateful id generator that disambiguates collisions in document
+ * order: the first occurrence gets the plain slug, subsequent occurrences
+ * get `slug-2`, `slug-3`, etc. Both the TOC and markdown-renderer must
+ * walk headings in the same order and use the same algorithm so the TOC
+ * link's `href="#id"` matches the `<h*>` `id` attribute in the rendered
+ * article.
+ */
+function makeHeadingIdFactory(): (text: string) => string {
+  const counts = new Map<string, number>();
+  return (text: string) => {
+    const base = slugify(text) || "section";
+    const n = (counts.get(base) ?? 0) + 1;
+    counts.set(base, n);
+    return n === 1 ? base : `${base}-${n}`;
+  };
+}
+
+/**
  * Parse H2/H3 headings out of markdown for the sidebar TOC.
  * Skips headings inside code fences.
  */
@@ -27,6 +45,7 @@ function parseHeadings(markdown: string): Heading[] {
   const headings: Heading[] = [];
   const lines = markdown.split("\n");
   let inCodeFence = false;
+  const makeId = makeHeadingIdFactory();
 
   for (const line of lines) {
     if (line.trim().startsWith("```")) {
@@ -35,11 +54,17 @@ function parseHeadings(markdown: string): Heading[] {
     }
     if (inCodeFence) continue;
 
-    const match = line.match(/^(#{2,3})\s+(.+?)\s*$/);
+    // The markdown-renderer only instruments h1-h4 with id attributes;
+    // walk those through the factory to keep numbering in sync.
+    const match = line.match(/^(#{1,4})\s+(.+?)\s*$/);
     if (match) {
       const level = match[1].length;
       const text = match[2].replace(/[*_`]/g, "").trim();
-      headings.push({ level, text, id: slugify(text) });
+      const id = makeId(text);
+      // But only display h2/h3 in the TOC sidebar.
+      if (level >= 2 && level <= 3) {
+        headings.push({ level, text, id });
+      }
     }
   }
   return headings;
