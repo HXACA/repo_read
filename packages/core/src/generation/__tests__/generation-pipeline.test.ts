@@ -8,6 +8,7 @@ import { JobStateManager } from "../job-state.js";
 import { EventReader } from "../../events/event-reader.js";
 import type { WikiJson } from "../../types/generation.js";
 import type { ResolvedConfig } from "../../types/config.js";
+import { getQualityProfile } from "../../config/quality-profile.js";
 
 vi.mock("ai", () => ({
   generateText: vi.fn(),
@@ -15,10 +16,14 @@ vi.mock("ai", () => ({
   stepCountIs: vi.fn(() => () => false),
 }));
 
+// Use the budget preset for tests: forkWorkers=1 short-circuits the
+// planner LLM call (no extra mock needed) and the evidence coordinator
+// makes exactly 1 worker call per draft attempt.
 const mockConfig: ResolvedConfig = {
   projectSlug: "proj",
   repoRoot: "/tmp/repo",
-  preset: "quality",
+  preset: "budget",
+  language: "zh",
   roles: {
     "main.author": {
       role: "main.author",
@@ -48,6 +53,7 @@ const mockConfig: ResolvedConfig = {
     maxReadWindowLines: 500,
     allowControlledBash: true,
   },
+  qualityProfile: getQualityProfile("budget"),
 };
 
 const wikiJson: WikiJson = {
@@ -92,6 +98,16 @@ const passReview = JSON.stringify({
   suggested_revisions: [],
 });
 
+const workerOutput = (slug: string) =>
+  JSON.stringify({
+    directive: `Collect evidence for ${slug}`,
+    findings: [`Finding from ${slug}`],
+    citations: [
+      { kind: "file", target: "src/index.ts", locator: "1-10", note: "entry" },
+    ],
+    open_questions: [],
+  });
+
 describe("GenerationPipeline", () => {
   let tmpDir: string;
   let storage: StorageAdapter;
@@ -113,31 +129,42 @@ describe("GenerationPipeline", () => {
     const { generateText } = await import("ai");
     const mockGenerateText = vi.mocked(generateText);
 
+    // Call sequence (budget preset, forkWorkers=1, fast-path planner):
+    //   1. Catalog planner
+    //   For each page:
+    //     - 1 fork.worker call (coordinator with forkWorkers=1)
+    //     - 1 draft call
+    //     - 1 review call
+
     // Call 1: Catalog planner
     mockGenerateText.mockResolvedValueOnce({
       text: JSON.stringify(wikiJson),
       usage: { inputTokens: 500, outputTokens: 300 },
     } as never);
 
-    // Call 2: Draft page "overview"
+    // Page "overview": worker, draft, review
+    mockGenerateText.mockResolvedValueOnce({
+      text: workerOutput("overview"),
+      usage: { inputTokens: 200, outputTokens: 100 },
+    } as never);
     mockGenerateText.mockResolvedValueOnce({
       text: draftOutput("overview", "Overview"),
       usage: { inputTokens: 500, outputTokens: 300 },
     } as never);
-
-    // Call 3: Review page "overview"
     mockGenerateText.mockResolvedValueOnce({
       text: passReview,
       usage: { inputTokens: 300, outputTokens: 100 },
     } as never);
 
-    // Call 4: Draft page "core"
+    // Page "core": worker, draft, review
+    mockGenerateText.mockResolvedValueOnce({
+      text: workerOutput("core"),
+      usage: { inputTokens: 200, outputTokens: 100 },
+    } as never);
     mockGenerateText.mockResolvedValueOnce({
       text: draftOutput("core", "Core"),
       usage: { inputTokens: 500, outputTokens: 300 },
     } as never);
-
-    // Call 5: Review page "core"
     mockGenerateText.mockResolvedValueOnce({
       text: passReview,
       usage: { inputTokens: 300, outputTokens: 100 },

@@ -47,8 +47,8 @@ export {
 } from "./validation/index.js";
 export type { PageValidationInput } from "./validation/index.js";
 
-export { classifyRoute, AskSessionManager, AskService } from "./ask/index.js";
-export type { AskRoute, RouteContext, AskOptions, AskResult } from "./ask/index.js";
+export { classifyRoute, AskSessionManager, AskService, AskStreamService } from "./ask/index.js";
+export type { AskRoute, RouteContext, AskOptions, AskResult, AskStreamOptions, AskStreamEvent } from "./ask/index.js";
 
 export { ResearchPlanner, ResearchExecutor, ResearchService } from "./research/index.js";
 export type {

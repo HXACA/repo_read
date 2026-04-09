@@ -1,5 +1,6 @@
 import type { StorageAdapter } from "../storage/storage-adapter.js";
 import type { WikiJson, VersionJson } from "../types/generation.js";
+import { ProjectModel } from "../project/project-model.js";
 
 export class Publisher {
   constructor(private readonly storage: StorageAdapter) {}
@@ -33,10 +34,19 @@ export class Publisher {
 
     await this.storage.promoteVersion(projectSlug, jobId, versionId);
 
+    // Update global pointer
     await this.storage.writeJson(this.storage.paths.currentJson, {
       projectSlug,
       versionId,
       updatedAt: new Date().toISOString(),
     });
+
+    // Update project.json with latestVersionId
+    const projectModel = new ProjectModel(this.storage);
+    try {
+      await projectModel.update(projectSlug, { latestVersionId: versionId });
+    } catch {
+      // Best-effort: project.json may not exist if created externally
+    }
   }
 }

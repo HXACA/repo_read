@@ -21,15 +21,19 @@ export type PageDraftResult = {
 export type PageDrafterOptions = {
   model: LanguageModel;
   repoRoot: string;
+  /** Upper bound on tool-call steps within a single draft run. Defaults to 20. */
+  maxSteps?: number;
 };
 
 export class PageDrafter {
   private readonly model: LanguageModel;
   private readonly repoRoot: string;
+  private readonly maxSteps: number;
 
   constructor(options: PageDrafterOptions) {
     this.model = options.model;
     this.repoRoot = options.repoRoot;
+    this.maxSteps = options.maxSteps ?? 20;
   }
 
   async draft(
@@ -46,7 +50,7 @@ export class PageDrafter {
         system: systemPrompt,
         prompt: userPrompt,
         tools: tools as unknown as ToolSet,
-        stopWhen: stepCountIs(20),
+        stopWhen: stepCountIs(this.maxSteps),
       });
 
       return this.parseOutput(result.text);

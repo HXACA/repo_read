@@ -58,6 +58,7 @@ export type PageMeta = {
   reviewStatus: "accepted" | "accepted_with_notes";
   reviewSummary: string;
   reviewDigest: string;
+  revisionAttempts?: number;
   status: PageStatus;
   validation: {
     structurePassed: boolean;

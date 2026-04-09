@@ -15,7 +15,8 @@ export type {
   CitationKind, CitationRecord, VersionJson,
 } from "./generation.js";
 
-export type { ReviewBriefing, ReviewVerdict, ReviewConclusion } from "./review.js";
+export type { ReviewBriefing, ReviewVerdict, ReviewConclusion, VerifiedCitation } from "./review.js";
 export type { ValidationTarget, ValidationReport } from "./validation.js";
 export type { EventChannel, AppEvent, AskSession } from "./events.js";
 export type { MainAuthorContext, ForkWorkerResult } from "./agent.js";
+export type { LabeledFinding, ResearchNote } from "./research.js";

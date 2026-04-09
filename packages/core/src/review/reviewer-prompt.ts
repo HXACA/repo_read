@@ -1,6 +1,32 @@
 import type { ReviewBriefing } from "../types/review.js";
 
-export function buildReviewerSystemPrompt(): string {
+export function buildReviewerSystemPrompt(minCitations = 0): string {
+  const verifyBlock =
+    minCitations > 0
+      ? `
+
+## Verification Requirement (MANDATORY)
+
+You MUST call the \`read\` tool to verify at least **${minCitations}** key citations from the draft.
+
+Selection:
+- Pick the ${minCitations} most load-bearing citations — claims that would break the page if wrong (API signatures, route definitions, config keys, data structures).
+- Prefer citations that support numeric values, names, or exact behaviors.
+
+Procedure for each verified citation:
+1. Call \`read\` with the cited path and line range.
+2. Compare the actual file content against what the draft asserts.
+3. Classify as:
+   - \`match\` — cited lines contain what the draft claims. **Line drift of ±5 is OK** if the named symbol is still present at the new location.
+   - \`mismatch\` — cited lines exist but contradict the draft.
+   - \`not_found\` — file or line range does not exist.
+4. Record the result in \`verified_citations\`.
+
+Any \`mismatch\` or \`not_found\` MUST also be added to \`blockers\` as a specific error (e.g. "citation [cite:file:src/api.py:42-60] does not contain the claimed \`register_route\` function").
+
+If the draft has fewer than ${minCitations} citations total, verify all of them.`
+      : "";
+
   return `You are "fresh.reviewer", an independent quality reviewer for a code-reading wiki.
 
 You receive a complete briefing about a page draft. You have access to retrieval tools (Read, Grep, Find, Git) to verify claims independently.
@@ -18,11 +44,18 @@ Rules:
   "factual_risks": ["claims not backed by evidence"],
   "missing_evidence": ["files or topics that should be cited"],
   "scope_violations": ["content outside the page plan"],
-  "suggested_revisions": ["specific actionable changes"]
+  "suggested_revisions": ["specific actionable changes"],
+  "verified_citations": [
+    {
+      "citation": { "kind": "file", "target": "path/to/file.ts", "locator": "10-20" },
+      "status": "match" | "mismatch" | "not_found",
+      "note": "optional explanation"
+    }
+  ]
 }
 
 6. Use "pass" only if there are zero blockers. Even minor factual risks do not require "revise" if they don't block publication.
-7. Be specific and actionable — "add error handling section" is better than "needs more detail".`;
+7. Be specific and actionable — "add error handling section" is better than "needs more detail".${verifyBlock}`;
 }
 
 export function buildReviewerUserPrompt(briefing: ReviewBriefing): string {
@@ -47,7 +80,9 @@ export function buildReviewerUserPrompt(briefing: ReviewBriefing): string {
     sections.push(`- ${q}`);
   }
 
-  sections.push(`\nReview the draft above. Use retrieval tools to verify claims. Return your conclusion as JSON.`);
+  sections.push(
+    `\nReview the draft above. Use retrieval tools to verify claims. Return your conclusion as JSON.`,
+  );
 
   return sections.join("\n\n");
 }

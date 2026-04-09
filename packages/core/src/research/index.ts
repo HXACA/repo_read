@@ -4,3 +4,4 @@ export { ResearchExecutor } from "./research-executor.js";
 export type { SubQuestionResult, ResearchExecutorOptions } from "./research-executor.js";
 export { ResearchService } from "./research-service.js";
 export type { ResearchResult, ResearchServiceOptions } from "./research-service.js";
+export { ResearchStore } from "./research-store.js";

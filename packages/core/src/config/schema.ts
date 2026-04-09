@@ -10,6 +10,7 @@ const PresetSchema = z.enum(["quality", "balanced", "budget", "local-only"]);
 const ProviderCredentialConfigSchema = z.object({
   provider: z.string().min(1),
   secretRef: z.string(),
+  apiKey: z.string().optional(),
   baseUrl: z.string().optional(),
   enabled: z.boolean(),
 });
@@ -24,6 +25,7 @@ export const UserEditableConfigSchema = z.object({
   projectSlug: z.string().min(1),
   repoRoot: z.string().min(1),
   preset: PresetSchema,
+  language: z.string().optional(),
   providers: z.array(ProviderCredentialConfigSchema).min(1),
   roles: ProjectRoleConfigSchema,
 });

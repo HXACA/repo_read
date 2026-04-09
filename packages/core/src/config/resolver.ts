@@ -1,5 +1,6 @@
 import type { UserEditableConfig, ResolvedConfig, ResolvedRoleRoute, RoleName } from "../types/config.js";
 import type { ModelCapability } from "../types/provider.js";
+import { getQualityProfile } from "./quality-profile.js";
 
 const PRESET_RETRIEVAL = {
   quality: { maxParallelReadsPerPage: 2, maxReadWindowLines: 300, allowControlledBash: true },
@@ -49,11 +50,13 @@ export function resolveConfig(
     projectSlug: config.projectSlug,
     repoRoot: config.repoRoot,
     preset: config.preset,
+    language: config.language ?? "zh",
     roles,
     providers: config.providers.map((p) => ({
       ...p,
       capabilities: capabilities.filter((c) => c.provider === p.provider),
     })),
     retrieval: { ...PRESET_RETRIEVAL[config.preset] },
+    qualityProfile: getQualityProfile(config.preset),
   };
 }

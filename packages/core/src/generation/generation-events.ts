@@ -30,6 +30,31 @@ export class JobEventEmitter {
     await this.emit("page.drafting", {}, pageSlug);
   }
 
+  async pageEvidencePlanned(
+    pageSlug: string,
+    taskCount: number,
+    usedFallback: boolean,
+  ): Promise<void> {
+    await this.emit(
+      "page.evidence_planned",
+      { taskCount, usedFallback },
+      pageSlug,
+    );
+  }
+
+  async pageEvidenceCollected(
+    pageSlug: string,
+    citationCount: number,
+    workerCount: number,
+    failedCount: number,
+  ): Promise<void> {
+    await this.emit(
+      "page.evidence_collected",
+      { citationCount, workerCount, failedCount },
+      pageSlug,
+    );
+  }
+
   async pageDrafted(pageSlug: string): Promise<void> {
     await this.emit("page.drafted", {}, pageSlug);
   }

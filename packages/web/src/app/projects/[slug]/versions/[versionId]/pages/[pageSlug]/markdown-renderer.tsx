@@ -1,83 +1,319 @@
 "use client";
 
+import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
+import rehypeHighlight from "rehype-highlight";
 import { MermaidBlock } from "./mermaid-block";
+import { CitationPopover } from "./citation-popover";
 
-export function MarkdownRenderer({ content }: { content: string }) {
+/** Convert heading text → URL-safe slug for anchor IDs (TOC) */
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s\u4e00-\u9fff-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+/**
+ * Strip LLM "thinking" preamble and trailing metadata JSON
+ * that the generation pipeline leaves in page markdown.
+ *
+ * Patterns handled:
+ *   1. "Now I have enough info..." + ```markdown wrapper
+ *   2. "Now I have..." + bare # heading (no fence)
+ *   3. Clean content starting with # heading (no-op)
+ *   4. Trailing ```json { "summary": ... } block (often truncated)
+ */
+function cleanContent(raw: string): string {
+  let text = raw;
+
+  // Find the first top-level heading (# or ##)
+  const headingIdx = text.search(/^#{1,2}\s/m);
+
+  if (headingIdx > 0) {
+    text = text.slice(headingIdx);
+  } else if (headingIdx === -1) {
+    // No heading found — return as-is (shouldn't happen for wiki pages)
+    return text.trim();
+  }
+
+  // Strip trailing metadata JSON block (often truncated from pipeline)
+  const lastJsonFence = text.lastIndexOf("\n```json\n");
+  if (lastJsonFence !== -1) {
+    const tail = text.slice(lastJsonFence);
+    if (/"summary"|"citations"/.test(tail)) {
+      text = text.slice(0, lastJsonFence);
+    }
+  }
+
+  // Strip a trailing lone ``` that was the markdown fence close
+  if (text.trimEnd().endsWith("\n```")) {
+    const idx = text.lastIndexOf("\n```");
+    const afterFence = text.slice(idx + 4).trim();
+    if (afterFence === "") {
+      text = text.slice(0, idx);
+    }
+  }
+
+  return text.trim();
+}
+
+/**
+ * Convert [cite:kind:target:locator] into markdown link syntax that
+ * react-markdown can natively render (more reliable than raw HTML tags).
+ *
+ *   Format: [display](cite://kind/?t=target&l=locator)
+ *
+ * The `a` component handler detects `cite://` URLs and renders a popover.
+ * Skips matches inside fenced code blocks and inline code.
+ */
+function preprocessCitations(content: string): string {
+  // Split on fenced code blocks and inline code so we can skip them
+  const parts = content.split(/(```[\s\S]*?```|`[^`\n]+`)/g);
+  return parts
+    .map((part) => {
+      if (
+        part.startsWith("```") ||
+        (part.startsWith("`") && part.endsWith("`") && !part.includes("\n"))
+      ) {
+        return part; // leave code blocks/inline code untouched
+      }
+      return part.replace(
+        /\[cite:(\w+):([^\]:]+)(?::([^\]]*))?\]/g,
+        (_match, kind: string, target: string, locator?: string) => {
+          const display = locator ? `${target}:${locator}` : target;
+          const params = new URLSearchParams({ t: target });
+          if (locator) params.set("l", locator);
+          // Escape display chars that would break markdown link syntax
+          const safeDisplay = display.replace(/[[\]]/g, "");
+          return `[${safeDisplay}](cite://${kind}/?${params.toString()})`;
+        },
+      );
+    })
+    .join("");
+}
+
+/** Parse a citation URL produced by preprocessCitations */
+function parseCiteUrl(href: string | undefined): {
+  kind: string;
+  target: string;
+  locator: string;
+} | null {
+  if (!href || !href.startsWith("cite://")) return null;
+  try {
+    // cite://kind/?t=...&l=...
+    const after = href.slice("cite://".length);
+    const slashIdx = after.indexOf("/");
+    const kind = slashIdx >= 0 ? after.slice(0, slashIdx) : after;
+    const queryStart = after.indexOf("?");
+    const query = queryStart >= 0 ? after.slice(queryStart + 1) : "";
+    const params = new URLSearchParams(query);
+    return {
+      kind,
+      target: params.get("t") ?? "",
+      locator: params.get("l") ?? "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Recursively extract plain text from React children tree */
+function textOf(node: React.ReactNode): string {
+  if (typeof node === "string") return node;
+  if (typeof node === "number") return String(node);
+  if (node == null || typeof node === "boolean") return "";
+  if (Array.isArray(node)) return node.map(textOf).join("");
+  if (React.isValidElement(node))
+    return textOf((node.props as { children?: React.ReactNode }).children);
+  return "";
+}
+
+export function MarkdownRenderer({
+  content,
+  slug,
+  versionId,
+}: {
+  content: string;
+  slug?: string;
+  versionId?: string;
+}) {
+  const processed = preprocessCitations(cleanContent(content));
+
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
+      rehypePlugins={[rehypeRaw, [rehypeHighlight, { ignoreMissing: true }]]}
+      skipHtml={false}
+      // Allow custom URL schemes (cite://) for citation links
+      urlTransform={(url) => url}
       components={{
-        code({ className, children, ...props }) {
-          const match = /language-(\w+)/.exec(className || "");
-          const lang = match?.[1];
-          const codeStr = String(children).replace(/\n$/, "");
+        /* ── Headings with anchor IDs for TOC navigation ── */
+        h1({ children, node: _n }) {
+          const id = slugify(textOf(children));
+          return <h1 id={id}>{children}</h1>;
+        },
+        h2({ children, node: _n }) {
+          const id = slugify(textOf(children));
+          return <h2 id={id}>{children}</h2>;
+        },
+        h3({ children, node: _n }) {
+          const id = slugify(textOf(children));
+          return <h3 id={id}>{children}</h3>;
+        },
+        h4({ children, node: _n }) {
+          const id = slugify(textOf(children));
+          return <h4 id={id}>{children}</h4>;
+        },
 
-          // Mermaid diagram
-          if (lang === "mermaid") {
-            return <MermaidBlock code={codeStr} />;
+        /* ── Fenced code blocks (pre > code) ── */
+        pre({ children, node: _n }) {
+          const child = React.Children.toArray(children)[0];
+
+          if (React.isValidElement(child)) {
+            const cp = child.props as {
+              className?: string;
+              children?: React.ReactNode;
+            };
+            const cls = cp.className || "";
+
+            // Mermaid → delegate to interactive block
+            if (cls.includes("language-mermaid")) {
+              return (
+                <MermaidBlock code={textOf(cp.children).replace(/\n$/, "")} />
+              );
+            }
+
+            // Extract language label
+            const langMatch = /language-(\w+)/.exec(cls);
+            const lang = langMatch?.[1];
+
+            return (
+              <div className="code-block">
+                {lang && <div className="code-block-lang">{lang}</div>}
+                <pre className="code-block-pre">{children}</pre>
+              </div>
+            );
           }
 
-          // Inline code (no language class, no block)
+          return <pre className="code-block-pre">{children}</pre>;
+        },
+
+        /* ── Code (inline + fenced) ── */
+        code({ className, children, node: _n, ...props }) {
           if (!className) {
+            // Distinguish inline code from fenced blocks without a language
+            const text = String(children);
+            if (text.includes("\n")) {
+              // Multi-line → fenced code block without language
+              return <code {...props}>{children}</code>;
+            }
             return (
-              <code
-                className="rounded bg-gray-100 px-1.5 py-0.5 text-sm dark:bg-gray-800"
-                {...props}
-              >
+              <code className="inline-code" {...props}>
                 {children}
               </code>
             );
           }
-
-          // Code block
+          // Fenced code (inside <pre>) — rehype-highlight already processed
           return (
             <code className={className} {...props}>
               {children}
             </code>
           );
         },
-        // Tables
-        table({ children }) {
+
+        /* ── Tables ── */
+        table({ children, node: _n }) {
           return (
-            <div className="my-4 overflow-x-auto">
-              <table className="min-w-full border-collapse border border-gray-200 dark:border-gray-700">
-                {children}
-              </table>
+            <div className="table-wrap">
+              <table className="rr-table">{children}</table>
             </div>
           );
         },
-        th({ children }) {
-          return (
-            <th className="border border-gray-200 bg-gray-50 px-4 py-2 text-left text-sm font-semibold dark:border-gray-700 dark:bg-gray-800">
-              {children}
-            </th>
-          );
+        thead({ children, node: _n }) {
+          return <thead className="rr-thead">{children}</thead>;
         },
-        td({ children }) {
-          return (
-            <td className="border border-gray-200 px-4 py-2 text-sm dark:border-gray-700">
-              {children}
-            </td>
-          );
+        th({ children, node: _n }) {
+          return <th className="rr-th">{children}</th>;
         },
-        // Links
-        a({ href, children }) {
+        td({ children, node: _n }) {
+          return <td className="rr-td">{children}</td>;
+        },
+
+        /* ── Links + citations (cite:// scheme) ── */
+        a({ href, children, node: _n }) {
+          // Detect citation URLs from preprocessCitations
+          const cite = parseCiteUrl(href);
+          if (cite) {
+            // With slug+versionId: render interactive popover
+            if (slug && versionId) {
+              return (
+                <CitationPopover
+                  kind={cite.kind}
+                  target={cite.target}
+                  locator={cite.locator}
+                  slug={slug}
+                  versionId={versionId}
+                >
+                  {children}
+                </CitationPopover>
+              );
+            }
+            // Fallback: static chip
+            const styleClass =
+              cite.kind === "page"
+                ? "cite-chip-page"
+                : cite.kind === "commit"
+                  ? "cite-chip-commit"
+                  : "cite-chip-file";
+            const icon =
+              cite.kind === "page"
+                ? "\u25A3"
+                : cite.kind === "commit"
+                  ? "\u2197"
+                  : "\u2630";
+            return (
+              <span className={`cite-chip ${styleClass}`}>
+                <span className="cite-icon">{icon}</span>
+                {children}
+              </span>
+            );
+          }
+
           const isExternal = href?.startsWith("http");
           return (
             <a
               href={href}
-              className="text-blue-600 hover:underline dark:text-blue-400"
-              {...(isExternal ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+              className="rr-link"
+              {...(isExternal
+                ? { target: "_blank", rel: "noopener noreferrer" }
+                : {})}
             >
               {children}
+              {isExternal && (
+                <span className="rr-external-icon">&thinsp;&#8599;</span>
+              )}
             </a>
           );
         },
+
+        /* ── Blockquote ── */
+        blockquote({ children, node: _n }) {
+          return <blockquote className="rr-blockquote">{children}</blockquote>;
+        },
+
+        /* ── Horizontal rule ── */
+        hr({ node: _n }) {
+          return <hr className="rr-hr" />;
+        },
       }}
     >
-      {content}
+      {processed}
     </ReactMarkdown>
   );
 }

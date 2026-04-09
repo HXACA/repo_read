@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { createModelForRole } from "../model-factory.js";
 import type { ResolvedConfig } from "../../types/config.js";
+import { getQualityProfile } from "../../config/quality-profile.js";
 
 // Mock the AI SDK providers
 vi.mock("@ai-sdk/anthropic", () => ({
@@ -19,6 +20,7 @@ const mockConfig: ResolvedConfig = {
   projectSlug: "test",
   repoRoot: "/tmp",
   preset: "quality",
+  language: "zh",
   roles: {
     "main.author": {
       role: "main.author",
@@ -47,6 +49,7 @@ const mockConfig: ResolvedConfig = {
     { provider: "openai", secretRef: "OPENAI_API_KEY", enabled: true, capabilities: [] },
   ],
   retrieval: { maxParallelReadsPerPage: 5, maxReadWindowLines: 500, allowControlledBash: true },
+  qualityProfile: getQualityProfile("quality"),
 };
 
 describe("createModelForRole", () => {

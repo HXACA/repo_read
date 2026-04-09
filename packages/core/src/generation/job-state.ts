@@ -8,7 +8,8 @@ const VALID_TRANSITIONS: Record<JobStatus, JobStatus[]> = {
   queued: ["cataloging", "failed"],
   cataloging: ["page_drafting", "failed", "interrupted"],
   page_drafting: ["reviewing", "failed", "interrupted"],
-  reviewing: ["validating", "failed", "interrupted"],
+  // reviewing → page_drafting allows the retry loop when reviewer requests revisions
+  reviewing: ["validating", "page_drafting", "failed", "interrupted"],
   validating: ["page_drafting", "publishing", "failed", "interrupted"],
   publishing: ["completed", "failed"],
   completed: [],

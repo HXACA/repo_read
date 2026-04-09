@@ -8,13 +8,27 @@ export type PageDraftPromptInput = {
   language: string;
 };
 
+const LANGUAGE_NAMES: Record<string, string> = {
+  zh: "Chinese (简体中文)",
+  en: "English",
+  ja: "Japanese (日本語)",
+  ko: "Korean (한국어)",
+  fr: "French (Français)",
+  de: "German (Deutsch)",
+  es: "Spanish (Español)",
+};
+
+function languageName(code: string): string {
+  return LANGUAGE_NAMES[code] ?? code;
+}
+
 export function buildPageDraftSystemPrompt(): string {
   return `You are "main.author", the primary technical writer for a code-reading wiki.
 
 Your task is to write a single wiki page as high-quality Markdown. You have access to retrieval tools (Read, Grep, Find, Git) to inspect the repository.
 
 Rules:
-1. Write in the specified language. Use clear, technical prose.
+1. **LANGUAGE IS STRICT**: Write ALL prose, headings, summaries, and explanations in the exact language specified in the page assignment. Code snippets, file paths, API names, and citation markers remain untranslated. If the language is Chinese, write ALL narrative text in Chinese — never fall back to English even if the source code or repository uses English.
 2. Every factual claim must be backed by evidence from the repository.
 3. Include inline citations in the format: [cite:kind:target:locator] where kind is file/page/commit.
    Example: [cite:file:src/engine.ts:42-60]
@@ -54,7 +68,7 @@ export function buildPageDraftUserPrompt(
     `- **Title:** ${input.title}`,
     `- **Slug:** ${input.slug}`,
     `- **Order:** Page ${input.order} in the reading order`,
-    `- **Language:** ${input.language}`,
+    `- **Output Language:** ${languageName(input.language)} — WRITE ALL NARRATIVE TEXT IN THIS LANGUAGE`,
     `- **Covered Files:** ${input.coveredFiles.join(", ")}`,
   );
 
@@ -65,16 +79,91 @@ export function buildPageDraftUserPrompt(
     }
   }
 
-  if (context.evidence_ledger.length > 0) {
-    sections.push(`## Evidence Ledger (already collected)`);
-    for (const entry of context.evidence_ledger) {
-      sections.push(`- [${entry.kind}] ${entry.target}: ${entry.note}`);
+  // === Pre-collected evidence from fork.worker subtasks ===
+  // The EvidenceCoordinator dispatched parallel fork.workers before this
+  // drafter call. Their findings are the drafter's primary source of truth;
+  // the drafter should only call retrieval tools to verify or fill gaps.
+  if (context.evidence_ledger.length > 0 || context.evidence_bundle) {
+    sections.push(`## Pre-collected Evidence (from fork.workers)`);
+    sections.push(
+      `The following evidence was gathered in parallel before this drafting step. **Prefer these citations over running fresh retrieval** — only call tools if you need to verify a claim or fill an open question below.`,
+    );
+
+    if (context.evidence_bundle && context.evidence_bundle.findings.length > 0) {
+      sections.push(`### Findings`);
+      for (const f of context.evidence_bundle.findings.slice(0, 40)) {
+        sections.push(`- ${f}`);
+      }
+    }
+
+    if (context.evidence_ledger.length > 0) {
+      sections.push(`### Evidence Ledger (cite these first)`);
+      for (const entry of context.evidence_ledger) {
+        const suffix = entry.note ? `: ${entry.note}` : "";
+        sections.push(`- [${entry.kind}] ${entry.target}${suffix}`);
+      }
+    }
+
+    if (
+      context.evidence_bundle &&
+      context.evidence_bundle.open_questions.length > 0
+    ) {
+      sections.push(`### Open Questions (verify with tools if needed)`);
+      for (const q of context.evidence_bundle.open_questions.slice(0, 20)) {
+        sections.push(`- ${q}`);
+      }
     }
   }
 
+  // === Revision context — included when re-drafting after a "revise" verdict ===
+  if (context.revision) {
+    const r = context.revision;
+    sections.push(
+      `## REVISION REQUEST (Attempt ${r.attempt + 1})`,
+      `Your previous draft was reviewed and the reviewer asked for changes. **You must address every blocker below**, then re-output the complete page from scratch.`,
+    );
+
+    const fb = r.feedback;
+    if (fb.blockers.length > 0) {
+      sections.push("### Blockers (MUST fix)");
+      fb.blockers.forEach((b, i) => sections.push(`${i + 1}. ${b}`));
+    }
+    if (fb.factual_risks.length > 0) {
+      sections.push("### Factual risks (verify and correct)");
+      fb.factual_risks.forEach((b, i) => sections.push(`${i + 1}. ${b}`));
+    }
+    if (fb.missing_evidence.length > 0) {
+      sections.push("### Missing evidence (read these files and cite them)");
+      fb.missing_evidence.forEach((b, i) => sections.push(`${i + 1}. ${b}`));
+    }
+    if (fb.scope_violations.length > 0) {
+      sections.push("### Scope violations (remove or move out)");
+      fb.scope_violations.forEach((b, i) => sections.push(`${i + 1}. ${b}`));
+    }
+    if (fb.suggested_revisions.length > 0) {
+      sections.push("### Suggested revisions");
+      fb.suggested_revisions.forEach((b, i) => sections.push(`${i + 1}. ${b}`));
+    }
+
+    sections.push(
+      "### Previous draft (for reference)",
+      "```markdown",
+      r.previous_draft.slice(0, 4000) +
+        (r.previous_draft.length > 4000 ? "\n...[truncated]" : ""),
+      "```",
+    );
+  }
+
+  const hasPreEvidence =
+    context.evidence_ledger.length > 0 || !!context.evidence_bundle;
+
   sections.push(
     `## Instructions`,
-    `Write the complete wiki page for "${input.title}". Use the retrieval tools to read the covered files and gather evidence. Then produce the page as Markdown with inline citations. End with the JSON metadata block.`,
+    context.revision
+      ? `**Re-write** the complete wiki page for "${input.title}" addressing every blocker and reviewer note above. Use the retrieval tools to verify facts and read additional files mentioned in "missing evidence". Output the FULL page (not a diff). End with the JSON metadata block.`
+      : hasPreEvidence
+        ? `Write the complete wiki page for "${input.title}". **Base your page on the Pre-collected Evidence section above** — it was gathered in parallel by fork.workers and represents your primary source of truth. Only call retrieval tools to verify specific claims, resolve open questions, or read a file that the ledger does not yet cover. End with the JSON metadata block.`
+        : `Write the complete wiki page for "${input.title}". Use the retrieval tools to read the covered files and gather evidence. Then produce the page as Markdown with inline citations. End with the JSON metadata block.`,
   );
 
   return sections.join("\n\n");

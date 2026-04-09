@@ -1,8 +1,13 @@
 import type { RepoProfile } from "../types/project.js";
 
 const LANGUAGE_NAMES: Record<string, string> = {
-  zh: "Chinese", en: "English", ja: "Japanese", ko: "Korean",
-  fr: "French", de: "German", es: "Spanish",
+  zh: "Chinese (简体中文)",
+  en: "English",
+  ja: "Japanese (日本語)",
+  ko: "Korean (한국어)",
+  fr: "French (Français)",
+  de: "German (Deutsch)",
+  es: "Spanish (Español)",
 };
 
 export function buildCatalogSystemPrompt(): string {
@@ -81,9 +86,9 @@ export function buildCatalogUserPrompt(profile: RepoProfile, language: string): 
 ${profile.treeSummary}
 \`\`\`
 
-## Output Language
+## Output Language — STRICT REQUIREMENT
 
-Write all titles, summaries, and rationales in **${langName}**.
+Write ALL page titles, summaries, and rationales in **${langName}**. Slugs remain in lowercase English kebab-case (they are URL-safe identifiers). Never mix languages in a single field — every title and rationale must be entirely in ${langName}.
 
 ## Instructions
 

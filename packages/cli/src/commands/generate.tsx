@@ -4,6 +4,7 @@ import {
   ProjectModel,
   profileRepo,
   loadProjectConfig,
+  saveProjectConfig,
   ProviderCenter,
   SecretStore,
   GenerationPipeline,
@@ -46,23 +47,35 @@ export async function runGenerate(options: GenerateOptions): Promise<void> {
   const resolvedConfig = providerCenter.resolve(config);
   console.log(`Config resolved: preset=${resolvedConfig.preset}`);
 
-  // 3. Gather API keys
+  // 3. Gather API keys — check env vars, then config.apiKey
   const secretStore = new SecretStore({ backend: "env" });
   const apiKeys: Record<string, string> = {};
-  for (const p of resolvedConfig.providers) {
-    if (p.enabled) {
-      const key = await secretStore.get(p.secretRef);
-      if (key) {
-        apiKeys[p.provider] = key;
+  let configDirty = false;
+  for (const p of config.providers) {
+    if (!p.enabled) continue;
+    const envKey = await secretStore.get(p.secretRef);
+    if (envKey) {
+      apiKeys[p.provider] = envKey;
+      // Persist env key to config.json so web server can reuse it
+      if (!p.apiKey || p.apiKey !== envKey) {
+        p.apiKey = envKey;
+        configDirty = true;
       }
+    } else if (p.apiKey) {
+      apiKeys[p.provider] = p.apiKey;
     }
   }
+  if (configDirty) {
+    await saveProjectConfig(storage.paths.projectDir(slug), config);
+    console.log("API key saved to config.json for web server reuse.");
+  }
 
-  // 4. Create models
-  let model, reviewerModel;
+  // 4. Create models for all three roles
+  let model, reviewerModel, workerModel;
   try {
     model = createModelForRole(resolvedConfig, "main.author", { apiKeys });
     reviewerModel = createModelForRole(resolvedConfig, "fresh.reviewer", { apiKeys });
+    workerModel = createModelForRole(resolvedConfig, "fork.worker", { apiKeys });
   } catch (err) {
     console.error(`Failed to create models: ${(err as Error).message}`);
     console.error("Ensure API keys are set via environment variables or keychain.");
@@ -95,6 +108,7 @@ export async function runGenerate(options: GenerateOptions): Promise<void> {
     config: resolvedConfig,
     model,
     reviewerModel,
+    workerModel,
     repoRoot,
     commitHash,
   });

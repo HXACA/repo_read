@@ -88,4 +88,14 @@ export class StoragePaths {
   versionCitationsJson(slug: string, versionId: string, pageSlug: string): string {
     return path.join(this.versionDir(slug, versionId), "citations", `${pageSlug}.citations.json`);
   }
+
+  /** Directory holding all research notes for a given project+version. */
+  researchDir(slug: string, versionId: string): string {
+    return path.join(this.projectDir(slug), "research", versionId);
+  }
+
+  /** Single research note file, keyed by UUID. */
+  researchNoteJson(slug: string, versionId: string, noteId: string): string {
+    return path.join(this.researchDir(slug, versionId), `${noteId}.json`);
+  }
 }

@@ -10,6 +10,7 @@ import {
   EventReader,
 } from "../index.js";
 import type { WikiJson, ResolvedConfig, VersionJson } from "../index.js";
+import { getQualityProfile } from "../config/quality-profile.js";
 
 vi.mock("ai", () => ({
   generateText: vi.fn(),
@@ -17,10 +18,12 @@ vi.mock("ai", () => ({
   stepCountIs: vi.fn(() => () => false),
 }));
 
+// Use budget preset: forkWorkers=1 short-circuits planner LLM call
 const mockConfig: ResolvedConfig = {
   projectSlug: "mini-ts-app",
   repoRoot: "/tmp",
-  preset: "quality",
+  preset: "budget",
+  language: "zh",
   roles: {
     "main.author": { role: "main.author", primaryModel: "claude-sonnet-4-6", fallbackModels: [], resolvedProvider: "anthropic", systemPromptTuningId: "claude" },
     "fork.worker": { role: "fork.worker", primaryModel: "claude-haiku-4-5-20251001", fallbackModels: [], resolvedProvider: "anthropic", systemPromptTuningId: "claude" },
@@ -28,6 +31,7 @@ const mockConfig: ResolvedConfig = {
   },
   providers: [],
   retrieval: { maxParallelReadsPerPage: 5, maxReadWindowLines: 500, allowControlledBash: true },
+  qualityProfile: getQualityProfile("budget"),
 };
 
 const wikiJson: WikiJson = {
@@ -66,6 +70,16 @@ const passReview = JSON.stringify({
   suggested_revisions: [],
 });
 
+const workerOutput = (slug: string) =>
+  JSON.stringify({
+    directive: `Collect evidence for ${slug}`,
+    findings: [`Finding from ${slug}`],
+    citations: [
+      { kind: "file", target: "src/index.ts", locator: "1-10", note: "entry" },
+    ],
+    open_questions: [],
+  });
+
 describe("E2E Pipeline", () => {
   let tmpDir: string;
   let storage: StorageAdapter;
@@ -99,8 +113,10 @@ describe("E2E Pipeline", () => {
     // Catalog
     mock.mockResolvedValueOnce({ text: JSON.stringify(wikiJson), usage: { inputTokens: 500, outputTokens: 300 } } as never);
 
-    // 3 pages x (draft + review) = 6 calls
+    // 3 pages x (worker + draft + review) = 9 calls
+    // (budget preset forkWorkers=1, planner fast-path skips LLM)
     for (const page of wikiJson.reading_order) {
+      mock.mockResolvedValueOnce({ text: workerOutput(page.slug), usage: { inputTokens: 200, outputTokens: 100 } } as never);
       mock.mockResolvedValueOnce({ text: draftOutput(page.slug, page.title), usage: { inputTokens: 500, outputTokens: 300 } } as never);
       mock.mockResolvedValueOnce({ text: passReview, usage: { inputTokens: 300, outputTokens: 100 } } as never);
     }

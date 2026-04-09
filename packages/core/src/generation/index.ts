@@ -8,6 +8,20 @@ export { ForkWorker } from "./fork-worker.js";
 export type { ForkWorkerResponse, ForkWorkerOptions } from "./fork-worker.js";
 export { buildForkWorkerSystemPrompt, buildForkWorkerUserPrompt } from "./fork-worker-prompt.js";
 export type { ForkWorkerInput } from "./fork-worker-prompt.js";
+export { EvidencePlanner, fallbackPlan } from "./evidence-planner.js";
+export type {
+  EvidencePlan,
+  EvidenceTask,
+  EvidencePlanInput,
+  EvidencePlanResult,
+  EvidencePlannerOptions,
+} from "./evidence-planner.js";
+export { EvidenceCoordinator } from "./evidence-coordinator.js";
+export type {
+  EvidenceCoordinatorOptions,
+  CollectInput,
+  EvidenceCollectionResult,
+} from "./evidence-coordinator.js";
 export { Publisher } from "./publisher.js";
 export { determineResumePoint } from "./resume.js";
 export type { ResumePoint } from "./resume.js";

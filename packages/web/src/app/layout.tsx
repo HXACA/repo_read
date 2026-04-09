@@ -1,30 +1,45 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import { Crimson_Pro, Outfit, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import { ClientLayout } from "./client-layout";
+
+const display = Crimson_Pro({
+  subsets: ["latin"],
+  variable: "--font-display",
+  display: "swap",
+  weight: ["400", "500", "600", "700"],
+});
+
+const body = Outfit({
+  subsets: ["latin"],
+  variable: "--font-body",
+  display: "swap",
+});
+
+const mono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+  display: "swap",
+  weight: ["400", "500", "600"],
+});
 
 export const metadata: Metadata = {
   title: "RepoRead",
   description: "Local-first code reading & technical writing workbench",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
-    <html lang="en">
-      <body className="bg-white text-gray-900 dark:bg-gray-950 dark:text-gray-100">
-        <header className="border-b border-gray-200 dark:border-gray-800">
-          <nav className="mx-auto flex max-w-4xl items-center justify-between px-6 py-3">
-            <Link href="/" className="text-lg font-bold">
-              RepoRead
-            </Link>
-            <Link
-              href="/settings/providers"
-              className="text-sm text-gray-500 hover:text-gray-900 dark:hover:text-gray-100"
-            >
-              Settings
-            </Link>
-          </nav>
-        </header>
-        {children}
+    <html
+      lang="zh"
+      className={`${display.variable} ${body.variable} ${mono.variable}`}
+    >
+      <body style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}>
+        <ClientLayout>{children}</ClientLayout>
       </body>
     </html>
   );

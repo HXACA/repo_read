@@ -16,6 +16,7 @@ import { validateCatalog } from "../catalog/catalog-validator.js";
 import { CatalogPlanner } from "../catalog/catalog-planner.js";
 import { persistCatalog } from "../catalog/catalog-persister.js";
 import { Publisher } from "./publisher.js";
+import { EvidenceCoordinator, type EvidenceCollectionResult } from "./evidence-coordinator.js";
 
 export type GenerationPipelineOptions = {
   storage: StorageAdapter;
@@ -23,6 +24,12 @@ export type GenerationPipelineOptions = {
   config: ResolvedConfig;
   model: LanguageModel;
   reviewerModel: LanguageModel;
+  /**
+   * Model used by fork.worker subtasks during evidence collection. Falls
+   * back to `model` (main.author's model) when omitted to preserve
+   * backwards compatibility with older callers.
+   */
+  workerModel?: LanguageModel;
   repoRoot: string;
   commitHash: string;
 };
@@ -39,6 +46,7 @@ export class GenerationPipeline {
   private readonly config: ResolvedConfig;
   private readonly model: LanguageModel;
   private readonly reviewerModel: LanguageModel;
+  private readonly workerModel: LanguageModel;
   private readonly repoRoot: string;
   private readonly commitHash: string;
 
@@ -48,6 +56,7 @@ export class GenerationPipeline {
     this.config = options.config;
     this.model = options.model;
     this.reviewerModel = options.reviewerModel;
+    this.workerModel = options.workerModel ?? options.model;
     this.repoRoot = options.repoRoot;
     this.commitHash = options.commitHash;
   }
@@ -63,7 +72,7 @@ export class GenerationPipeline {
       job = await this.jobManager.transition(slug, jobId, "cataloging");
       await emitter.jobStarted();
 
-      const catalogPlanner = new CatalogPlanner({ model: this.model, language: "en" });
+      const catalogPlanner = new CatalogPlanner({ model: this.model, language: this.config.language });
       const profileResult = await profileRepo(this.repoRoot, slug);
 
       const catalogResult = await catalogPlanner.plan(profileResult);
@@ -94,94 +103,208 @@ export class GenerationPipeline {
       const publishedSummaries: Array<{ slug: string; title: string; summary: string }> = [];
       const knownPages: string[] = [];
 
+      const qp = this.config.qualityProfile;
+      const MAX_REVISION_ATTEMPTS = qp.maxRevisionAttempts;
+
       for (let i = 0; i < wiki.reading_order.length; i++) {
         const page = wiki.reading_order[i];
         job = await this.jobManager.updatePage(slug, jobId, page.slug, i + 1);
 
-        // --- DRAFT ---
-        await emitter.pageDrafting(page.slug);
-
-        const drafter = new PageDrafter({ model: this.model, repoRoot: this.repoRoot });
-        const authorContext: MainAuthorContext = {
-          project_summary: wiki.summary,
-          full_book_summary: wiki.summary,
-          current_page_plan: page.rationale,
-          published_page_summaries: publishedSummaries,
-          evidence_ledger: [],
-        };
-
-        const draftResult = await drafter.draft(authorContext, {
-          slug: page.slug,
-          title: page.title,
-          order: i + 1,
-          coveredFiles: page.covered_files,
-          language: "en",
+        // === DRAFT + REVIEW LOOP ===
+        const drafter = new PageDrafter({
+          model: this.model,
+          repoRoot: this.repoRoot,
+          maxSteps: qp.drafterMaxSteps,
         });
-
-        if (!draftResult.success || !draftResult.markdown || !draftResult.metadata) {
-          return this.failJob(
-            job,
-            emitter,
-            draftResult.error ?? `Page ${page.slug} drafting failed`,
-          );
-        }
-
-        // Persist draft markdown as raw text (NOT writeJson which would double-encode)
-        const pageMdPath = this.storage.paths.draftPageMd(slug, jobId, versionId, page.slug);
-        await fs.mkdir(path.dirname(pageMdPath), { recursive: true });
-        await fs.writeFile(pageMdPath, draftResult.markdown, "utf-8");
-
-        // Persist citations
-        await this.storage.writeJson(
-          this.storage.paths.draftCitationsJson(slug, jobId, versionId, page.slug),
-          draftResult.metadata.citations,
-        );
-
-        await emitter.pageDrafted(page.slug);
-
-        // --- REVIEW ---
-        job = await this.jobManager.transition(slug, jobId, "reviewing");
-
         const reviewer = new FreshReviewer({
           model: this.reviewerModel,
           repoRoot: this.repoRoot,
+          maxSteps: qp.reviewerMaxSteps,
+          verifyMinCitations: qp.reviewerVerifyMinCitations,
         });
-        const briefing: ReviewBriefing = {
-          page_title: page.title,
-          section_position: `Page ${i + 1} of ${wiki.reading_order.length}`,
-          current_page_plan: page.rationale,
-          full_book_summary: wiki.summary,
-          current_draft: draftResult.markdown,
-          citations: draftResult.metadata.citations,
-          covered_files: page.covered_files,
-          review_questions: [
-            "Does the page stay within its assigned scope?",
-            "Are all key claims backed by citations from the repository?",
-            "Are there covered files that should be referenced but aren't?",
-          ],
-        };
+        const coordinator =
+          qp.forkWorkers > 0
+            ? new EvidenceCoordinator({
+                plannerModel: this.model,
+                workerModel: this.workerModel,
+                repoRoot: this.repoRoot,
+                concurrency: qp.forkWorkerConcurrency,
+              })
+            : null;
 
-        const reviewResult = await reviewer.review(briefing);
-        if (!reviewResult.success || !reviewResult.conclusion) {
-          return this.failJob(
-            job,
-            emitter,
-            reviewResult.error ?? `Page ${page.slug} review failed`,
+        let draftResult: Awaited<ReturnType<typeof drafter.draft>> | null = null;
+        let reviewResult: Awaited<ReturnType<typeof reviewer.review>> | null =
+          null;
+        let attempt = 0;
+        // Cached across retries — only re-run when reviewer asks for more evidence
+        let evidenceResult: EvidenceCollectionResult | null = null;
+
+        while (true) {
+          // === EVIDENCE COLLECTION ===
+          // Run on first attempt, or on retries where reviewer flagged
+          // missing_evidence (suggesting we need to look at more files).
+          const shouldCollectEvidence =
+            coordinator !== null &&
+            (attempt === 0 ||
+              (reviewResult?.conclusion?.missing_evidence?.length ?? 0) > 0);
+
+          if (shouldCollectEvidence) {
+            evidenceResult = await coordinator!.collect({
+              pageTitle: page.title,
+              pageRationale: page.rationale,
+              pageOrder: i + 1,
+              coveredFiles: page.covered_files,
+              publishedSummaries,
+              taskCount: qp.forkWorkers,
+              language: this.config.language,
+              workerContext: [
+                `Project: ${wiki.summary}`,
+                `Page plan: ${page.rationale}`,
+              ].join("\n\n"),
+            });
+            await emitter.pageEvidencePlanned(
+              page.slug,
+              evidenceResult.plan.tasks.length,
+              evidenceResult.usedFallback,
+            );
+            await emitter.pageEvidenceCollected(
+              page.slug,
+              evidenceResult.ledger.length,
+              evidenceResult.plan.tasks.length - evidenceResult.failedTaskIds.length,
+              evidenceResult.failedTaskIds.length,
+            );
+          }
+
+          await emitter.pageDrafting(page.slug);
+
+          const authorContext: MainAuthorContext = {
+            project_summary: wiki.summary,
+            full_book_summary: wiki.summary,
+            current_page_plan: page.rationale,
+            published_page_summaries: publishedSummaries,
+            evidence_ledger: evidenceResult?.ledger ?? [],
+            ...(evidenceResult
+              ? {
+                  evidence_bundle: {
+                    findings: evidenceResult.findings,
+                    open_questions: evidenceResult.openQuestions,
+                  },
+                }
+              : {}),
+            ...(attempt > 0 && draftResult?.markdown && reviewResult?.conclusion
+              ? {
+                  revision: {
+                    attempt,
+                    previous_draft: draftResult.markdown,
+                    feedback: reviewResult.conclusion,
+                  },
+                }
+              : {}),
+          };
+
+          draftResult = await drafter.draft(authorContext, {
+            slug: page.slug,
+            title: page.title,
+            order: i + 1,
+            coveredFiles: page.covered_files,
+            language: this.config.language,
+          });
+
+          if (
+            !draftResult.success ||
+            !draftResult.markdown ||
+            !draftResult.metadata
+          ) {
+            return this.failJob(
+              job,
+              emitter,
+              draftResult.error ?? `Page ${page.slug} drafting failed`,
+            );
+          }
+
+          await emitter.pageDrafted(page.slug);
+
+          // --- REVIEW ---
+          job = await this.jobManager.transition(slug, jobId, "reviewing");
+
+          const briefing: ReviewBriefing = {
+            page_title: page.title,
+            section_position: `Page ${i + 1} of ${wiki.reading_order.length}`,
+            current_page_plan: page.rationale,
+            full_book_summary: wiki.summary,
+            current_draft: draftResult.markdown,
+            citations: draftResult.metadata.citations,
+            covered_files: page.covered_files,
+            review_questions: [
+              "Does the page stay within its assigned scope?",
+              "Are all key claims backed by citations from the repository?",
+              "Are there covered files that should be referenced but aren't?",
+            ],
+          };
+
+          reviewResult = await reviewer.review(briefing);
+          if (!reviewResult.success || !reviewResult.conclusion) {
+            return this.failJob(
+              job,
+              emitter,
+              reviewResult.error ?? `Page ${page.slug} review failed`,
+            );
+          }
+
+          await emitter.pageReviewed(
+            page.slug,
+            reviewResult.conclusion.verdict,
           );
+
+          // Decide whether to retry: only retry on "revise" verdict with at
+          // least one blocker, and only if we haven't hit the attempt limit.
+          const verdict = reviewResult.conclusion.verdict;
+          const hasBlockers = reviewResult.conclusion.blockers.length > 0;
+          const canRetry = attempt < MAX_REVISION_ATTEMPTS;
+
+          if (verdict === "pass" || !hasBlockers || !canRetry) {
+            break;
+          }
+
+          // Retry: increment attempt, drafter will receive revision context
+          attempt++;
+          job = await this.jobManager.transition(slug, jobId, "page_drafting");
         }
+
+        // After loop: persist final draft + final review
+        const finalDraft = draftResult!;
+        const finalReview = reviewResult!;
+
+        const pageMdPath = this.storage.paths.draftPageMd(
+          slug,
+          jobId,
+          versionId,
+          page.slug,
+        );
+        await fs.mkdir(path.dirname(pageMdPath), { recursive: true });
+        await fs.writeFile(pageMdPath, finalDraft.markdown!, "utf-8");
+
+        await this.storage.writeJson(
+          this.storage.paths.draftCitationsJson(
+            slug,
+            jobId,
+            versionId,
+            page.slug,
+          ),
+          finalDraft.metadata!.citations,
+        );
 
         await this.storage.writeJson(
           this.storage.paths.reviewJson(slug, jobId, page.slug),
-          reviewResult.conclusion,
+          finalReview.conclusion,
         );
-        await emitter.pageReviewed(page.slug, reviewResult.conclusion.verdict);
 
         // --- VALIDATE ---
         job = await this.jobManager.transition(slug, jobId, "validating");
 
         const validationResult = validatePage({
-          markdown: draftResult.markdown,
-          citations: draftResult.metadata.citations,
+          markdown: finalDraft.markdown!,
+          citations: finalDraft.metadata!.citations,
           knownFiles: page.covered_files,
           knownPages,
           pageSlug: page.slug,
@@ -200,22 +323,34 @@ export class GenerationPipeline {
           order: i + 1,
           sectionId: page.slug,
           coveredFiles: page.covered_files,
-          relatedPages: draftResult.metadata.related_pages,
+          relatedPages: finalDraft.metadata!.related_pages,
           generatedAt: new Date().toISOString(),
           commitHash: this.commitHash,
           citationFile: `citations/${page.slug}.citations.json`,
-          summary: draftResult.metadata.summary,
+          summary: finalDraft.metadata!.summary,
           reviewStatus:
-            reviewResult.conclusion.verdict === "pass" ? "accepted" : "accepted_with_notes",
-          reviewSummary: reviewResult.conclusion.blockers.join("; ") || "No blockers",
-          reviewDigest: JSON.stringify(reviewResult.conclusion),
+            finalReview.conclusion!.verdict === "pass"
+              ? "accepted"
+              : "accepted_with_notes",
+          reviewSummary:
+            finalReview.conclusion!.blockers.join("; ") || "No blockers",
+          reviewDigest: JSON.stringify(finalReview.conclusion),
+          revisionAttempts: attempt,
           status: "validated" as const,
           validation: {
             structurePassed: validationResult.passed,
-            mermaidPassed: !validationResult.errors.some((e: string) => e.includes("mermaid")),
-            citationsPassed: !validationResult.errors.some((e: string) => e.includes("citation")),
-            linksPassed: !validationResult.errors.some((e: string) => e.includes("link")),
-            summary: validationResult.passed ? ("passed" as const) : ("failed" as const),
+            mermaidPassed: !validationResult.errors.some((e: string) =>
+              e.includes("mermaid"),
+            ),
+            citationsPassed: !validationResult.errors.some((e: string) =>
+              e.includes("citation"),
+            ),
+            linksPassed: !validationResult.errors.some((e: string) =>
+              e.includes("link"),
+            ),
+            summary: validationResult.passed
+              ? ("passed" as const)
+              : ("failed" as const),
           },
         };
 
@@ -229,7 +364,7 @@ export class GenerationPipeline {
         publishedSummaries.push({
           slug: page.slug,
           title: page.title,
-          summary: draftResult.metadata.summary,
+          summary: finalDraft.metadata!.summary,
         });
         job.summary.succeededPages = (job.summary.succeededPages ?? 0) + 1;
         await this.persistJobSummary(job);

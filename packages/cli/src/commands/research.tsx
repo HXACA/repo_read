@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import {
   StorageAdapter,
+  ProjectModel,
   loadProjectConfig,
   ProviderCenter,
   SecretStore,
@@ -49,12 +50,26 @@ export async function runResearch(options: ResearchOptions): Promise<void> {
     return;
   }
 
-  console.log(`Researching: "${options.topic}"...`);
+  // Resolve current version for this project (research notes are
+  // versioned so they can be viewed alongside the wiki they reference).
+  const projectModel = new ProjectModel(storage);
+  const project = await projectModel.get(slug);
+  const versionId = project?.latestVersionId;
+  if (!versionId) {
+    console.error(
+      `Project "${slug}" has no published version. Run "repo-read generate" first.`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log(`Researching: "${options.topic}" (version ${versionId})...`);
 
   const service = new ResearchService({ model, storage, repoRoot });
 
   try {
-    const result = await service.research(slug, options.topic);
+    const result = await service.research(slug, versionId, options.topic);
+    const note = result.note;
 
     console.log(`\nResearch Plan: ${result.plan.scope}`);
     console.log(`Sub-questions: ${result.plan.subQuestions.length}\n`);
@@ -70,17 +85,29 @@ export async function runResearch(options: ResearchOptions): Promise<void> {
       console.log();
     }
 
-    console.log("--- Conclusion ---\n");
-    console.log(result.conclusion);
-
-    if (result.allCitations.length > 0) {
-      console.log("\nCitations:");
-      for (const c of result.allCitations) {
-        console.log(`  [${c.kind}] ${c.target}${c.locator ? `:${c.locator}` : ""}`);
+    console.log("--- Synthesis ---\n");
+    console.log(`事实 (facts): ${note.facts.length}`);
+    for (const f of note.facts) {
+      console.log(`  ✓ ${f.statement}`);
+      for (const c of f.citations) {
+        console.log(`     [${c.kind}] ${c.target}${c.locator ? `:${c.locator}` : ""}`);
       }
     }
+    console.log(`\n推断 (inferences): ${note.inferences.length}`);
+    for (const f of note.inferences) {
+      console.log(`  ~ ${f.statement}`);
+    }
+    console.log(`\n待确认 (unconfirmed): ${note.unconfirmed.length}`);
+    for (const f of note.unconfirmed) {
+      console.log(`  ? ${f.statement}`);
+    }
 
-    console.log("\nResearch saved to .reporead/projects/" + slug + "/research/");
+    console.log("\n--- Summary ---\n");
+    console.log(note.summary);
+
+    console.log(
+      `\nResearch note saved: .reporead/projects/${slug}/research/${versionId}/${note.id}.json`,
+    );
   } catch (err) {
     console.error(`Research failed: ${(err as Error).message}`);
     process.exitCode = 1;

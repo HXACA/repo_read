@@ -100,4 +100,125 @@ describe("FreshReviewer", () => {
     expect(result.success).toBe(true);
     expect(result.conclusion!.verdict).toBe("pass");
   });
+
+  it("parses verified_citations and preserves match entries", async () => {
+    const { generateText } = await import("ai");
+    vi.mocked(generateText).mockResolvedValueOnce({
+      text: JSON.stringify({
+        verdict: "pass",
+        blockers: [],
+        factual_risks: [],
+        missing_evidence: [],
+        scope_violations: [],
+        suggested_revisions: [],
+        verified_citations: [
+          {
+            citation: { kind: "file", target: "src/engine.ts", locator: "1-50" },
+            status: "match",
+          },
+        ],
+      }),
+    } as never);
+
+    const reviewer = new FreshReviewer({
+      model: {} as never,
+      repoRoot: "/tmp/repo",
+      verifyMinCitations: 1,
+    });
+
+    const result = await reviewer.review(briefing);
+    expect(result.conclusion!.verdict).toBe("pass");
+    expect(result.conclusion!.verified_citations).toHaveLength(1);
+    expect(result.conclusion!.verified_citations![0].status).toBe("match");
+  });
+
+  it("promotes mismatch to blockers and forces revise verdict", async () => {
+    const { generateText } = await import("ai");
+    vi.mocked(generateText).mockResolvedValueOnce({
+      text: JSON.stringify({
+        verdict: "pass", // reviewer forgot to downgrade
+        blockers: [],
+        factual_risks: [],
+        missing_evidence: [],
+        scope_violations: [],
+        suggested_revisions: [],
+        verified_citations: [
+          {
+            citation: { kind: "file", target: "src/engine.ts", locator: "1-50" },
+            status: "mismatch",
+            note: "class not found",
+          },
+        ],
+      }),
+    } as never);
+
+    const reviewer = new FreshReviewer({
+      model: {} as never,
+      repoRoot: "/tmp/repo",
+      verifyMinCitations: 1,
+    });
+
+    const result = await reviewer.review(briefing);
+    // Defensive promotion: mismatch forces revise + adds blocker
+    expect(result.conclusion!.verdict).toBe("revise");
+    expect(result.conclusion!.blockers.length).toBeGreaterThan(0);
+    expect(result.conclusion!.blockers[0]).toContain("src/engine.ts");
+  });
+
+  it("promotes not_found to blockers", async () => {
+    const { generateText } = await import("ai");
+    vi.mocked(generateText).mockResolvedValueOnce({
+      text: JSON.stringify({
+        verdict: "revise",
+        blockers: [],
+        factual_risks: [],
+        missing_evidence: [],
+        scope_violations: [],
+        suggested_revisions: [],
+        verified_citations: [
+          {
+            citation: { kind: "file", target: "missing/path.ts", locator: "1-10" },
+            status: "not_found",
+          },
+        ],
+      }),
+    } as never);
+
+    const reviewer = new FreshReviewer({
+      model: {} as never,
+      repoRoot: "/tmp/repo",
+      verifyMinCitations: 1,
+    });
+
+    const result = await reviewer.review(briefing);
+    expect(result.conclusion!.verdict).toBe("revise");
+    expect(result.conclusion!.blockers.some((b) => b.includes("missing/path.ts"))).toBe(true);
+  });
+
+  it("verifyMinCitations=0 does not add the verification block", async () => {
+    // When minCitations is 0, the prompt should not mention verification at all.
+    // We can verify by checking that a call with only old-style fields still passes.
+    const { generateText } = await import("ai");
+    const spy = vi.mocked(generateText);
+    spy.mockResolvedValueOnce({
+      text: JSON.stringify({
+        verdict: "pass",
+        blockers: [],
+        factual_risks: [],
+        missing_evidence: [],
+        scope_violations: [],
+        suggested_revisions: [],
+      }),
+    } as never);
+
+    const reviewer = new FreshReviewer({
+      model: {} as never,
+      repoRoot: "/tmp/repo",
+      verifyMinCitations: 0,
+    });
+
+    await reviewer.review(briefing);
+    const call = spy.mock.calls[0][0] as { system?: string };
+    expect(call.system).not.toContain("Verification Requirement");
+  });
 });

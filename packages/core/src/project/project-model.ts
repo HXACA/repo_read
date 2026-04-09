@@ -37,9 +37,23 @@ export class ProjectModel {
   }
 
   async get(slug: string): Promise<ProjectInfo | null> {
-    return this.storage.readJson<ProjectInfo>(
+    const project = await this.storage.readJson<ProjectInfo>(
       this.storage.paths.projectJson(slug),
     );
+    if (!project) return null;
+
+    // Backfill latestVersionId from current.json if missing
+    if (!project.latestVersionId) {
+      const current = await this.storage.readJson<{
+        projectSlug: string;
+        versionId: string;
+      }>(this.storage.paths.currentJson);
+      if (current && current.projectSlug === slug && current.versionId) {
+        project.latestVersionId = current.versionId;
+      }
+    }
+
+    return project;
   }
 
   async update(slug: string, updates: Partial<Pick<ProjectInfo, "latestVersionId" | "repoProfile">>): Promise<ProjectInfo> {
@@ -71,5 +85,63 @@ export class ProjectModel {
       if (project) projects.push(project);
     }
     return projects;
+  }
+
+  /**
+   * List all published versions for a project, newest first.
+   */
+  async listVersions(slug: string): Promise<
+    Array<{
+      versionId: string;
+      createdAt: string;
+      pageCount: number;
+      commitHash: string;
+      summary: string;
+    }>
+  > {
+    const versionsDir = path.join(
+      this.storage.paths.projectDir(slug),
+      "versions",
+    );
+    let entries: string[];
+    try {
+      entries = await fs.readdir(versionsDir);
+    } catch {
+      return [];
+    }
+
+    const versions: Array<{
+      versionId: string;
+      createdAt: string;
+      pageCount: number;
+      commitHash: string;
+      summary: string;
+    }> = [];
+
+    for (const versionId of entries) {
+      const versionJson = await this.storage.readJson<{
+        versionId: string;
+        createdAt: string;
+        pageCount: number;
+        commitHash: string;
+        summary: string;
+      }>(this.storage.paths.versionJson(slug, versionId));
+      if (versionJson) {
+        versions.push({
+          versionId,
+          createdAt: versionJson.createdAt,
+          pageCount: versionJson.pageCount,
+          commitHash: versionJson.commitHash,
+          summary: versionJson.summary,
+        });
+      }
+    }
+
+    // Newest first
+    versions.sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+    return versions;
   }
 }

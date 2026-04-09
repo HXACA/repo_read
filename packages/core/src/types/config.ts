@@ -11,6 +11,7 @@ export type ProjectRoleConfig = Record<RoleName, RoleModelConfig>;
 export type ProviderCredentialConfig = {
   provider: string;
   secretRef: string;
+  apiKey?: string;
   baseUrl?: string;
   enabled: boolean;
 };
@@ -19,6 +20,7 @@ export type UserEditableConfig = {
   projectSlug: string;
   repoRoot: string;
   preset: Preset;
+  language?: string;
   providers: ProviderCredentialConfig[];
   roles: ProjectRoleConfig;
 };
@@ -36,9 +38,11 @@ export type ResolvedConfig = {
   repoRoot: string;
   preset: Preset;
   roles: Record<RoleName, ResolvedRoleRoute>;
+  language: string;
   providers: Array<{
     provider: string;
     secretRef: string;
+    apiKey?: string;
     baseUrl?: string;
     enabled: boolean;
     capabilities: import("./provider.js").ModelCapability[];
@@ -48,4 +52,5 @@ export type ResolvedConfig = {
     maxReadWindowLines: number;
     allowControlledBash: boolean;
   };
+  qualityProfile: import("../config/quality-profile.js").QualityProfile;
 };
