@@ -1,7 +1,7 @@
 # RepoRead 实现差异与待办清单
 
-> 快照时间：2026-04-10（P0 批次于当日完成）
-> 版本范围：截至 commit `97c943a`（P0 批次：ask/research quality + route dispatch）
+> 快照时间：2026-04-10（P0 批次 + drafter 硬 bug 修复均于当日完成）
+> 版本范围：截至 commit `0c10fe0`（drafter 输出提取 + maxOutputTokens + 截断重试）
 > 关联文档：
 > - [产品需求文档](./prd.md)
 > - [Agent 架构](./agent-architecture.md)
@@ -42,6 +42,8 @@
 | **Reviewer 严格度分档** | `review/reviewer-prompt.ts` strictnessRule() | lenient/normal/strict 切换 rule 6 — 2026-04-10 @ `97c943a` |
 | **Ask/Research 预设约束** | `ask/ask-stream.ts` + `ask/ask-service.ts` + `research/research-*.ts` | askMaxSteps/researchMaxSteps 全链路生效 — 2026-04-10 @ `97c943a` |
 | **Ask 路由实路由分流** | `ask/ask-stream.ts` runStreamingRoute/runResearchRoute | page-first 零工具、research 调 ResearchService — 2026-04-10 @ `97c943a` |
+| **Drafter 输出鲁棒化** | `generation/page-drafter.ts` stripDraftOutputWrappers() | 剥离 LLM preamble 和外层 ` ```markdown ` fence — 2026-04-10 @ `0c10fe0` |
+| **Drafter token 上限 + 截断重试** | `page-drafter.ts` maxOutputTokens + `generation-pipeline.ts` truncation guard | `finishReason=length` → 合成 revise verdict 跳过 reviewer 直接缩写重写 — 2026-04-10 @ `0c10fe0` |
 
 ---
 
@@ -98,6 +100,27 @@
   - 证据：`generation-pipeline.ts:220-223` 的 `shouldCollectEvidence` 条件
   - 影响：当 reviewer 报 `factual_risks` 或 `scope_violations` 时，pipeline 只改 author context 里的 revision 字段，但不重新规划 evidence
   - 严重度：🟡 中 — 理论上可以通过更智能的重规划提升重试质量
+
+### 2.6 Drafter 输出硬 bug（补记）✅ 已闭环
+
+2026-04-10 对 deepwiki-open 产出做 review 时发现的两个硬 bug，P0 批次后立即修完，细节见 `docs/quality-review-2026-04-10.md` §3。
+
+- [x] **G-15** ~~PageDrafter 输出提取不鲁棒~~ [DONE @ `0c10fe0`]
+  - 症状：23 页中 11 页（48%）开头带 `Now I have all the necessary information. Let me...` 的 LLM 思维链 preamble，且正文被包在外层 ` ```markdown ... ``` ` fence 里
+  - 根因：`page-drafter.ts:parseOutput()` 只处理末尾 JSON 块，没有 strip 开头污染和外层 fence
+  - 解决：新增导出函数 `stripDraftOutputWrappers()`，先删掉首个 `# ` heading（或 `` ```markdown `` fence opener）之前的所有内容，再剥掉外层 markdown fence（closer 精确匹配到 `` ```json `` 之前那一个 `` ``` ``，内层代码块不会被误杀）
+  - 测试：`page-drafter.test.ts` +6 用例（preamble / 外层 fence / 两者混合 / 内层代码块保留 / stripper 单测 ×4）
+
+- [x] **G-16** ~~Drafter 输出达到 max_tokens 导致内容截断~~ [DONE @ `0c10fe0`]
+  - 症状：23 页中 16 页（70%）存在不同程度截断——9 页正文被切掉（包括 mermaid 图中间、代码块中间、半句话），7 页 JSON metadata 被切掉
+  - 根因 1：`PageDrafter` 从未给 `generateText` 设过 `maxOutputTokens`，走 Claude 默认 8192，对长页面不够用
+  - 根因 2：即使设大一点也仍可能命中，需要一套"截断 → 重写"的机制
+  - 解决：
+    - `PageDrafterOptions.maxOutputTokens` 默认 16384（2× 默认）
+    - 检测 `result.finishReason === "length"` 时给 `PageDraftResult` 打 `truncated: true` 标记
+    - `generation-pipeline.ts` 在 draft 返回后判断 `truncated` flag：若还有 revision 预算，合成一个 `verdict: "revise"` 的 reviewResult（blocker = "Page too long, shorten it"），**跳过真实 reviewer**直接回到 `page_drafting` 重写。`missing_evidence: []` 保证不会额外触发 evidence 重收集
+    - 因为在 truncation guard 触发时 job 还处于 `page_drafting` 状态，**不需要**额外的 state transition（加了这行会触发状态机 self-transition 错误）
+  - 测试：`generation-pipeline.test.ts` +1 用例 `truncated draft triggers shorten-retry without calling reviewer`——8 次 mocked LLM 调用，断言 reviewer 对 overview 页只被真实调用 **一次**（truncated 那次是合成的）
 
 ### 2.5 Fresh Reviewer 会话隔离仅靠文档约束 🟡
 
