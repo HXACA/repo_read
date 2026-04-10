@@ -29,8 +29,16 @@ export function createProgram(): Command {
     .description("Generate wiki pages for a project")
     .option("-d, --dir <path>", "Repository root directory", process.cwd())
     .option("-n, --name <slug>", "Project slug name")
+    .option(
+      "--resume <jobId>",
+      "Resume a previously failed or interrupted job, skipping pages that were already validated",
+    )
     .action(async (opts) => {
-      await runGenerate({ dir: opts.dir, name: opts.name });
+      await runGenerate({
+        dir: opts.dir,
+        name: opts.name,
+        resume: opts.resume,
+      });
     });
 
   program

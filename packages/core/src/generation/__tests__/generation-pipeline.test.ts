@@ -205,4 +205,134 @@ describe("GenerationPipeline", () => {
     expect(types).toContain("page.validated");
     expect(types).toContain("job.completed");
   });
+
+  it("resume: skips catalog + already-validated pages", async () => {
+    const { generateText } = await import("ai");
+    const mockGenerateText = vi.mocked(generateText);
+
+    // Phase A: simulate a partially-completed prior job by pre-writing
+    // wiki.json and a validated meta file for the first page. We never
+    // call the pipeline in this phase — just lay the filesystem state
+    // a real failed job would leave behind.
+    const job = await jobManager.create("proj", tmpDir, mockConfig);
+
+    // Persist wiki.json under the draft dir (simulating persistCatalog)
+    await storage.writeJson(
+      storage.paths.draftWikiJson("proj", job.id, job.versionId),
+      wikiJson,
+    );
+    // Pre-write a validated meta file for the first page
+    const overviewMeta = {
+      slug: "overview",
+      title: "Overview",
+      order: 1,
+      sectionId: "overview",
+      coveredFiles: ["README.md"],
+      relatedPages: [],
+      generatedAt: new Date().toISOString(),
+      commitHash: "abc123",
+      citationFile: "citations/overview.citations.json",
+      summary: "Overview summary",
+      reviewStatus: "accepted" as const,
+      reviewSummary: "No blockers",
+      reviewDigest: "{}",
+      status: "validated" as const,
+      validation: {
+        structurePassed: true,
+        mermaidPassed: true,
+        citationsPassed: true,
+        linksPassed: true,
+        summary: "passed" as const,
+      },
+    };
+    await storage.writeJson(
+      storage.paths.draftPageMeta("proj", job.id, job.versionId, "overview"),
+      overviewMeta,
+    );
+    // Pre-write the markdown too (publisher reads it)
+    const pageMdPath = storage.paths.draftPageMd(
+      "proj",
+      job.id,
+      job.versionId,
+      "overview",
+    );
+    await fs.mkdir(path.dirname(pageMdPath), { recursive: true });
+    await fs.writeFile(pageMdPath, "# Overview\n\nPre-existing content.", "utf-8");
+
+    // Mark the job as failed so resume can transition it back
+    await jobManager.fail("proj", job.id, "simulated network error");
+
+    // Phase B: resume — we only mock the LLM calls for the REMAINING
+    // page ("core"): worker + draft + review. Catalog must NOT be
+    // called again, and overview must NOT be re-drafted.
+    vi.clearAllMocks();
+    mockGenerateText.mockResolvedValueOnce({
+      text: workerOutput("core"),
+      usage: { inputTokens: 200, outputTokens: 100 },
+    } as never);
+    mockGenerateText.mockResolvedValueOnce({
+      text: draftOutput("core", "Core"),
+      usage: { inputTokens: 500, outputTokens: 300 },
+    } as never);
+    mockGenerateText.mockResolvedValueOnce({
+      text: passReview,
+      usage: { inputTokens: 300, outputTokens: 100 },
+    } as never);
+
+    const pipeline = new GenerationPipeline({
+      storage,
+      jobManager,
+      config: mockConfig,
+      model: {} as never,
+      reviewerModel: {} as never,
+      repoRoot: tmpDir,
+      commitHash: "abc123",
+    });
+
+    const result = await pipeline.run(job, {
+      resumeWith: {
+        wiki: wikiJson,
+        skipPageSlugs: new Set(["overview"]),
+      },
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.job.status).toBe("completed");
+    // The LLM was only called 3 times (worker + draft + review for "core"),
+    // not 7 (which would be catalog + 2× worker/draft/review for both pages).
+    expect(mockGenerateText).toHaveBeenCalledTimes(3);
+
+    // Published version must exist AND include both pages (overview was
+    // pre-written, core was freshly drafted).
+    const publishedWikiPath = storage.paths.versionWikiJson(
+      "proj",
+      result.job.versionId,
+    );
+    expect(await storage.exists(publishedWikiPath)).toBe(true);
+    const overviewPath = storage.paths.versionPageMd(
+      "proj",
+      result.job.versionId,
+      "overview",
+    );
+    const corePath = storage.paths.versionPageMd(
+      "proj",
+      result.job.versionId,
+      "core",
+    );
+    expect(await storage.exists(overviewPath)).toBe(true);
+    expect(await storage.exists(corePath)).toBe(true);
+
+    // Event stream must NOT contain a catalog.completed event (no catalog
+    // re-run) but MUST contain job.resumed.
+    const reader = new EventReader(storage.paths.eventsNdjson("proj", job.id));
+    const events = await reader.readAll();
+    const types = events.map((e) => e.type);
+    expect(types).not.toContain("catalog.completed");
+    expect(types).toContain("job.resumed");
+    // Only the "core" page should have been drafted this run
+    const draftedSlugs = events
+      .filter((e) => e.type === "page.drafting")
+      .map((e) => e.pageSlug);
+    expect(draftedSlugs).toEqual(["core"]);
+  });
 });

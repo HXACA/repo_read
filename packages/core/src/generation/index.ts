@@ -26,4 +26,8 @@ export { Publisher } from "./publisher.js";
 export { determineResumePoint } from "./resume.js";
 export type { ResumePoint } from "./resume.js";
 export { GenerationPipeline } from "./generation-pipeline.js";
-export type { GenerationPipelineOptions, PipelineResult } from "./generation-pipeline.js";
+export type {
+  GenerationPipelineOptions,
+  PipelineResult,
+  PipelineRunOptions,
+} from "./generation-pipeline.js";

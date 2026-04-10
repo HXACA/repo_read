@@ -11,10 +11,17 @@ import {
   JobStateManager,
   createModelForRole,
 } from "@reporead/core";
+import type {
+  GenerationJob,
+  WikiJson,
+  PageMeta,
+} from "@reporead/core";
 
 export interface GenerateOptions {
   dir: string;
   name?: string;
+  /** Resume a previously failed/interrupted job by id. */
+  resume?: string;
 }
 
 export async function runGenerate(options: GenerateOptions): Promise<void> {
@@ -83,24 +90,125 @@ export async function runGenerate(options: GenerateOptions): Promise<void> {
     return;
   }
 
-  // 5. Profile repo
-  console.log("Profiling repository...");
-  const profile = await profileRepo(repoRoot, slug);
-  console.log(`Found ${profile.sourceFileCount} source files, languages: ${profile.languages.join(", ") || "unknown"}`);
-
-  // 6. Get commit hash
-  let commitHash = "unknown";
-  try {
-    const { execSync } = await import("node:child_process");
-    commitHash = execSync("git rev-parse HEAD", { cwd: repoRoot, encoding: "utf-8" }).trim();
-  } catch {
-    // Non-git directory, use fallback
-  }
-
-  // 7. Create job and run pipeline
   const jobManager = new JobStateManager(storage);
-  const job = await jobManager.create(slug, repoRoot, resolvedConfig);
-  console.log(`Job ${job.id} created (version: ${job.versionId})`);
+
+  // 5. Either resume an existing job or create a new one
+  let job: GenerationJob;
+  let resumeWith: { wiki: WikiJson; skipPageSlugs: Set<string> } | undefined;
+  let commitHash = "unknown";
+
+  if (options.resume) {
+    // --- RESUME PATH ---
+    const existing = await jobManager.get(slug, options.resume);
+    if (!existing) {
+      console.error(`Job "${options.resume}" not found in project "${slug}".`);
+      process.exitCode = 1;
+      return;
+    }
+    if (existing.status === "completed") {
+      console.error(
+        `Job "${options.resume}" is already completed. Nothing to resume.`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    console.log(
+      `Resuming job ${existing.id} (version ${existing.versionId}, status=${existing.status})`,
+    );
+
+    // Load the wiki.json that was persisted when the original job ran
+    // through catalog. If it doesn't exist, catalog never finished — we
+    // can't resume the page loop without a plan.
+    const wiki = await storage.readJson<WikiJson>(
+      storage.paths.draftWikiJson(slug, existing.id, existing.versionId),
+    );
+    if (!wiki) {
+      console.error(
+        `Job "${existing.id}" has no draft wiki.json — catalog never completed. Run without --resume.`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    // Walk the reading order and find pages that already have a validated
+    // meta file. Those are the ones we should skip. Also grab the
+    // commitHash from the first available meta file so subsequent pages
+    // stay consistent with the original run's commit basis.
+    const skipPageSlugs = new Set<string>();
+    let recoveredCommitHash: string | null = null;
+    for (const page of wiki.reading_order) {
+      const meta = await storage.readJson<PageMeta>(
+        storage.paths.draftPageMeta(
+          slug,
+          existing.id,
+          existing.versionId,
+          page.slug,
+        ),
+      );
+      // Consider a page done if its meta file exists and declares
+      // status="validated". Anything else needs to be re-drafted.
+      if (meta && meta.status === "validated") {
+        skipPageSlugs.add(page.slug);
+        if (!recoveredCommitHash && meta.commitHash) {
+          recoveredCommitHash = meta.commitHash;
+        }
+      }
+    }
+
+    const alreadyDone = skipPageSlugs.size;
+    const remaining = wiki.reading_order.length - alreadyDone;
+    console.log(
+      `Resume plan: ${alreadyDone} pages already validated, ${remaining} remaining`,
+    );
+    if (remaining === 0) {
+      console.error(
+        `All pages are already validated for job "${existing.id}". Nothing to do — consider running without --resume to publish.`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    // Reuse the recovered commit hash to keep citations consistent with
+    // the original run. Fall back to re-reading HEAD if no meta file
+    // provided one.
+    if (recoveredCommitHash) {
+      commitHash = recoveredCommitHash;
+    } else {
+      try {
+        const { execSync } = await import("node:child_process");
+        commitHash = execSync("git rev-parse HEAD", {
+          cwd: repoRoot,
+          encoding: "utf-8",
+        }).trim();
+      } catch {
+        /* non-git directory */
+      }
+    }
+
+    job = existing;
+    resumeWith = { wiki, skipPageSlugs };
+  } else {
+    // --- FRESH GENERATION PATH ---
+    console.log("Profiling repository...");
+    const profile = await profileRepo(repoRoot, slug);
+    console.log(
+      `Found ${profile.sourceFileCount} source files, languages: ${profile.languages.join(", ") || "unknown"}`,
+    );
+
+    try {
+      const { execSync } = await import("node:child_process");
+      commitHash = execSync("git rev-parse HEAD", {
+        cwd: repoRoot,
+        encoding: "utf-8",
+      }).trim();
+    } catch {
+      /* non-git directory */
+    }
+
+    job = await jobManager.create(slug, repoRoot, resolvedConfig);
+    console.log(`Job ${job.id} created (version: ${job.versionId})`);
+  }
 
   const pipeline = new GenerationPipeline({
     storage,
@@ -114,17 +222,22 @@ export async function runGenerate(options: GenerateOptions): Promise<void> {
   });
 
   console.log("Running generation pipeline...");
-  const result = await pipeline.run(job);
+  const result = await pipeline.run(job, resumeWith ? { resumeWith } : {});
 
   if (result.success) {
     console.log(`\nGeneration complete!`);
     console.log(`  Version: ${result.job.versionId}`);
-    console.log(`  Pages: ${result.job.summary.succeededPages ?? 0}/${result.job.summary.totalPages ?? 0}`);
+    console.log(
+      `  Pages: ${result.job.summary.succeededPages ?? 0}/${result.job.summary.totalPages ?? 0}`,
+    );
     console.log(`  Status: ${result.job.status}`);
   } else {
     console.error(`\nGeneration failed: ${result.error}`);
     console.error(`  Job: ${result.job.id}`);
     console.error(`  Status: ${result.job.status}`);
+    console.error(
+      `  To resume: repo-read generate -d ${repoRoot} --resume ${result.job.id}`,
+    );
     process.exitCode = 1;
   }
 }

@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { LanguageModel } from "ai";
 import type { StorageAdapter } from "../storage/storage-adapter.js";
-import type { GenerationJob, WikiJson } from "../types/generation.js";
+import type { GenerationJob, WikiJson, PageMeta } from "../types/generation.js";
 import type { ResolvedConfig } from "../types/config.js";
 import type { MainAuthorContext } from "../types/agent.js";
 import type { ReviewBriefing } from "../types/review.js";
@@ -40,6 +40,25 @@ export type PipelineResult = {
   error?: string;
 };
 
+/**
+ * Optional per-run configuration for `GenerationPipeline.run()`.
+ *
+ * When `resumeWith` is set, the pipeline:
+ *  - skips the entire catalog phase and uses the provided wiki directly
+ *    (avoiding another LLM call and preserving the original reading order)
+ *  - skips any page whose slug is in `skipPageSlugs`
+ *  - rebuilds `publishedSummaries` / `knownPages` from the existing page
+ *    meta files so later pages can still reference the skipped ones via
+ *    `[cite:page:slug]`
+ *  - transitions through states as normal, starting from `page_drafting`
+ */
+export type PipelineRunOptions = {
+  resumeWith?: {
+    wiki: WikiJson;
+    skipPageSlugs: Set<string>;
+  };
+};
+
 export class GenerationPipeline {
   private readonly storage: StorageAdapter;
   private readonly jobManager: JobStateManager;
@@ -61,53 +80,108 @@ export class GenerationPipeline {
     this.commitHash = options.commitHash;
   }
 
-  async run(job: GenerationJob): Promise<PipelineResult> {
+  async run(
+    job: GenerationJob,
+    options: PipelineRunOptions = {},
+  ): Promise<PipelineResult> {
     const slug = job.projectSlug;
     const jobId = job.id;
     const versionId = job.versionId;
     const emitter = new JobEventEmitter(this.storage, slug, jobId, versionId);
+    const isResume = !!options.resumeWith;
 
     try {
-      // === CATALOGING ===
-      job = await this.jobManager.transition(slug, jobId, "cataloging");
-      await emitter.jobStarted();
+      let wiki: WikiJson;
 
-      const catalogPlanner = new CatalogPlanner({ model: this.model, language: this.config.language });
-      const profileResult = await profileRepo(this.repoRoot, slug);
+      if (options.resumeWith) {
+        // === RESUME PATH ===
+        // Skip catalog. Reuse existing wiki.json and meta files.
+        wiki = options.resumeWith.wiki;
+        job = await this.jobManager.transition(slug, jobId, "page_drafting");
+        await emitter.jobResumed("page_drafting");
+      } else {
+        // === CATALOGING ===
+        job = await this.jobManager.transition(slug, jobId, "cataloging");
+        await emitter.jobStarted();
 
-      const catalogResult = await catalogPlanner.plan(profileResult);
-      if (!catalogResult.success || !catalogResult.wiki) {
-        return this.failJob(job, emitter, catalogResult.error ?? "Catalog planning failed");
+        const catalogPlanner = new CatalogPlanner({
+          model: this.model,
+          language: this.config.language,
+        });
+        const profileResult = await profileRepo(this.repoRoot, slug);
+
+        const catalogResult = await catalogPlanner.plan(profileResult);
+        if (!catalogResult.success || !catalogResult.wiki) {
+          return this.failJob(
+            job,
+            emitter,
+            catalogResult.error ?? "Catalog planning failed",
+          );
+        }
+
+        wiki = catalogResult.wiki;
+        const catalogValidation = validateCatalog(wiki);
+        if (!catalogValidation.passed) {
+          return this.failJob(
+            job,
+            emitter,
+            `Catalog validation failed: ${catalogValidation.errors.join("; ")}`,
+          );
+        }
+
+        await persistCatalog(this.storage, slug, jobId, versionId, wiki);
+        await emitter.catalogCompleted(wiki.reading_order.length);
+
+        job = await this.jobManager.transition(slug, jobId, "page_drafting");
       }
 
-      const wiki = catalogResult.wiki;
-      const catalogValidation = validateCatalog(wiki);
-      if (!catalogValidation.passed) {
-        return this.failJob(
-          job,
-          emitter,
-          `Catalog validation failed: ${catalogValidation.errors.join("; ")}`,
-        );
-      }
-
-      await persistCatalog(this.storage, slug, jobId, versionId, wiki);
-      await emitter.catalogCompleted(wiki.reading_order.length);
-
-      job = await this.jobManager.transition(slug, jobId, "page_drafting");
       job.summary.totalPages = wiki.reading_order.length;
-      job.summary.succeededPages = 0;
-      job.summary.failedPages = 0;
+      if (!isResume) {
+        job.summary.succeededPages = 0;
+        job.summary.failedPages = 0;
+      }
       await this.persistJobSummary(job);
 
       // === PAGE LOOP ===
-      const publishedSummaries: Array<{ slug: string; title: string; summary: string }> = [];
+      const publishedSummaries: Array<{
+        slug: string;
+        title: string;
+        summary: string;
+      }> = [];
       const knownPages: string[] = [];
+
+      // On resume, rebuild context from already-validated pages so that
+      // subsequent pages can still reference them.
+      const skipSlugs = options.resumeWith?.skipPageSlugs ?? new Set<string>();
+      if (isResume) {
+        for (const page of wiki.reading_order) {
+          if (!skipSlugs.has(page.slug)) continue;
+          const meta = await this.storage.readJson<PageMeta>(
+            this.storage.paths.draftPageMeta(slug, jobId, versionId, page.slug),
+          );
+          if (meta) {
+            publishedSummaries.push({
+              slug: meta.slug,
+              title: meta.title,
+              summary: meta.summary,
+            });
+            knownPages.push(meta.slug);
+          }
+        }
+      }
 
       const qp = this.config.qualityProfile;
       const MAX_REVISION_ATTEMPTS = qp.maxRevisionAttempts;
 
       for (let i = 0; i < wiki.reading_order.length; i++) {
         const page = wiki.reading_order[i];
+
+        // Resume path: fast-forward past already-validated pages without
+        // re-running their draft/review/validate loops.
+        if (skipSlugs.has(page.slug)) {
+          continue;
+        }
+
         job = await this.jobManager.updatePage(slug, jobId, page.slug, i + 1);
 
         // === DRAFT + REVIEW LOOP ===
