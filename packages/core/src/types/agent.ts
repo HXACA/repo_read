@@ -26,12 +26,35 @@ export type MainAuthorContext = {
     findings: string[];
     open_questions: string[];
   };
+  /**
+   * Structured outline produced by the OutlinePlanner. Each section maps
+   * to specific evidence_ledger entries so the drafter knows exactly what
+   * to cite in each `##` heading.
+   */
+  page_outline?: PageOutline;
   /** Optional revision context — set when re-drafting after a "revise" verdict */
   revision?: {
     attempt: number;
     previous_draft: string;
     feedback: ReviewConclusion;
   };
+};
+
+/**
+ * Structured outline for a single wiki page. Produced by the
+ * OutlinePlanner between evidence collection and drafting.
+ */
+export type PageOutline = {
+  sections: PageOutlineSection[];
+};
+
+export type PageOutlineSection = {
+  /** The `##` heading text (e.g. "核心架构"). */
+  heading: string;
+  /** 2-5 bullet points the section should cover. */
+  key_points: string[];
+  /** Evidence entries the drafter MUST cite in this section. */
+  cite_from: Array<{ target: string; locator?: string }>;
 };
 
 export type ForkWorkerResult = {

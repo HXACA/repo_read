@@ -119,6 +119,28 @@ export function buildPageDraftUserPrompt(
     }
   }
 
+  // === Page outline — maps sections to evidence entries ===
+  // When present, the outline tells the drafter exactly which sections to
+  // write and which evidence to cite in each. This replaces the flat
+  // evidence dump with a structured brief so the drafter doesn't have to
+  // decide what to cite on its own.
+  if (context.page_outline && context.page_outline.sections.length > 0) {
+    sections.push(
+      `## Page Outline (follow this structure)`,
+      `Write the page following the sections below. Each section lists its key points and the evidence entries you MUST cite. Use \`[cite:file:target:locator]\` for each cite_from entry.`,
+    );
+    for (const sec of context.page_outline.sections) {
+      const citeList = sec.cite_from
+        .map((c) => `${c.target}${c.locator ? `:${c.locator}` : ""}`)
+        .join(", ");
+      sections.push(
+        `### § ${sec.heading}`,
+        `- Key points: ${sec.key_points.join("; ")}`,
+        `- Cite from: ${citeList || "(use retrieval tools)"}`,
+      );
+    }
+  }
+
   // === Revision context — included when re-drafting after a "revise" verdict ===
   if (context.revision) {
     const r = context.revision;

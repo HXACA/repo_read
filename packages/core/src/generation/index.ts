@@ -22,6 +22,8 @@ export type {
   CollectInput,
   EvidenceCollectionResult,
 } from "./evidence-coordinator.js";
+export { OutlinePlanner } from "./outline-planner.js";
+export type { OutlinePlannerInput, OutlinePlannerOptions } from "./outline-planner.js";
 export { Publisher } from "./publisher.js";
 export { determineResumePoint } from "./resume.js";
 export type { ResumePoint } from "./resume.js";

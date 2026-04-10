@@ -17,6 +17,8 @@ import { CatalogPlanner } from "../catalog/catalog-planner.js";
 import { persistCatalog } from "../catalog/catalog-persister.js";
 import { Publisher } from "./publisher.js";
 import { EvidenceCoordinator, type EvidenceCollectionResult } from "./evidence-coordinator.js";
+import { OutlinePlanner } from "./outline-planner.js";
+import type { PageOutline } from "../types/agent.js";
 
 export type GenerationPipelineOptions = {
   storage: StorageAdapter;
@@ -207,12 +209,16 @@ export class GenerationPipeline {
               })
             : null;
 
+        const outlinePlanner = new OutlinePlanner({ model: this.model });
+
         let draftResult: Awaited<ReturnType<typeof drafter.draft>> | null = null;
         let reviewResult: Awaited<ReturnType<typeof reviewer.review>> | null =
           null;
         let attempt = 0;
         // Cached across retries — only re-run when reviewer asks for more evidence
         let evidenceResult: EvidenceCollectionResult | null = null;
+        // Outline is planned once after evidence collection and reused across retries
+        let outline: PageOutline | null = null;
 
         while (true) {
           // === EVIDENCE COLLECTION ===
@@ -250,6 +256,21 @@ export class GenerationPipeline {
             );
           }
 
+          // === OUTLINE PLANNING ===
+          // Plan the outline once (first attempt after evidence is ready).
+          // Reuse across retries — the structure stays the same, only the
+          // prose changes when the drafter revises.
+          if (outline === null && evidenceResult) {
+            outline = await outlinePlanner.plan({
+              pageTitle: page.title,
+              pageRationale: page.rationale,
+              coveredFiles: page.covered_files,
+              language: this.config.language,
+              ledger: evidenceResult.ledger,
+              findings: evidenceResult.findings,
+            });
+          }
+
           await emitter.pageDrafting(page.slug);
 
           const authorContext: MainAuthorContext = {
@@ -266,6 +287,7 @@ export class GenerationPipeline {
                   },
                 }
               : {}),
+            ...(outline ? { page_outline: outline } : {}),
             ...(attempt > 0 && draftResult?.markdown && reviewResult?.conclusion
               ? {
                   revision: {

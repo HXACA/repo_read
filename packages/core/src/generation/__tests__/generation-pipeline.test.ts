@@ -108,6 +108,30 @@ const workerOutput = (slug: string) =>
     open_questions: [],
   });
 
+const outlineOutput = (slug: string) =>
+  JSON.stringify({
+    sections: [
+      {
+        heading: `${slug} 概述`,
+        key_points: [`${slug} overview`],
+        cite_from: [{ target: "src/index.ts", locator: "1-10" }],
+      },
+      {
+        heading: `${slug} 细节`,
+        key_points: [`${slug} details`],
+        cite_from: [{ target: "src/index.ts", locator: "1-10" }],
+      },
+    ],
+  });
+
+/** Shorthand for a mock LLM response used by outline/worker/draft/review steps. */
+const mockResponse = (text: string, extra?: Record<string, unknown>) =>
+  ({
+    text,
+    usage: { inputTokens: 200, outputTokens: 100 },
+    ...extra,
+  }) as never;
+
 describe("GenerationPipeline", () => {
   let tmpDir: string;
   let storage: StorageAdapter;
@@ -133,42 +157,24 @@ describe("GenerationPipeline", () => {
     //   1. Catalog planner
     //   For each page:
     //     - 1 fork.worker call (coordinator with forkWorkers=1)
+    //     - 1 outline planner call
     //     - 1 draft call
     //     - 1 review call
 
     // Call 1: Catalog planner
-    mockGenerateText.mockResolvedValueOnce({
-      text: JSON.stringify(wikiJson),
-      usage: { inputTokens: 500, outputTokens: 300 },
-    } as never);
+    mockGenerateText.mockResolvedValueOnce(mockResponse(JSON.stringify(wikiJson)));
 
-    // Page "overview": worker, draft, review
-    mockGenerateText.mockResolvedValueOnce({
-      text: workerOutput("overview"),
-      usage: { inputTokens: 200, outputTokens: 100 },
-    } as never);
-    mockGenerateText.mockResolvedValueOnce({
-      text: draftOutput("overview", "Overview"),
-      usage: { inputTokens: 500, outputTokens: 300 },
-    } as never);
-    mockGenerateText.mockResolvedValueOnce({
-      text: passReview,
-      usage: { inputTokens: 300, outputTokens: 100 },
-    } as never);
+    // Page "overview": worker, outline, draft, review
+    mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("overview")));
+    mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("overview")));
+    mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("overview", "Overview")));
+    mockGenerateText.mockResolvedValueOnce(mockResponse(passReview));
 
-    // Page "core": worker, draft, review
-    mockGenerateText.mockResolvedValueOnce({
-      text: workerOutput("core"),
-      usage: { inputTokens: 200, outputTokens: 100 },
-    } as never);
-    mockGenerateText.mockResolvedValueOnce({
-      text: draftOutput("core", "Core"),
-      usage: { inputTokens: 500, outputTokens: 300 },
-    } as never);
-    mockGenerateText.mockResolvedValueOnce({
-      text: passReview,
-      usage: { inputTokens: 300, outputTokens: 100 },
-    } as never);
+    // Page "core": worker, outline, draft, review
+    mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("core")));
+    mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("core")));
+    mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("core", "Core")));
+    mockGenerateText.mockResolvedValueOnce(mockResponse(passReview));
 
     const pipeline = new GenerationPipeline({
       storage,
@@ -263,21 +269,13 @@ describe("GenerationPipeline", () => {
     await jobManager.fail("proj", job.id, "simulated network error");
 
     // Phase B: resume — we only mock the LLM calls for the REMAINING
-    // page ("core"): worker + draft + review. Catalog must NOT be
-    // called again, and overview must NOT be re-drafted.
+    // page ("core"): worker + outline + draft + review. Catalog must NOT
+    // be called again, and overview must NOT be re-drafted.
     vi.clearAllMocks();
-    mockGenerateText.mockResolvedValueOnce({
-      text: workerOutput("core"),
-      usage: { inputTokens: 200, outputTokens: 100 },
-    } as never);
-    mockGenerateText.mockResolvedValueOnce({
-      text: draftOutput("core", "Core"),
-      usage: { inputTokens: 500, outputTokens: 300 },
-    } as never);
-    mockGenerateText.mockResolvedValueOnce({
-      text: passReview,
-      usage: { inputTokens: 300, outputTokens: 100 },
-    } as never);
+    mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("core")));
+    mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("core")));
+    mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("core", "Core")));
+    mockGenerateText.mockResolvedValueOnce(mockResponse(passReview));
 
     const pipeline = new GenerationPipeline({
       storage,
@@ -298,9 +296,9 @@ describe("GenerationPipeline", () => {
 
     expect(result.success).toBe(true);
     expect(result.job.status).toBe("completed");
-    // The LLM was only called 3 times (worker + draft + review for "core"),
-    // not 7 (which would be catalog + 2× worker/draft/review for both pages).
-    expect(mockGenerateText).toHaveBeenCalledTimes(3);
+    // The LLM was only called 4 times (worker + outline + draft + review
+    // for "core"), not 9 (catalog + 2× worker/outline/draft/review).
+    expect(mockGenerateText).toHaveBeenCalledTimes(4);
 
     // Published version must exist AND include both pages (overview was
     // pre-written, core was freshly drafted).
@@ -343,66 +341,35 @@ describe("GenerationPipeline", () => {
     // Call sequence (budget preset, 2 pages; forkWorkers=1, maxRevisionAttempts=1):
     //   1. Catalog planner
     //   Page "overview":
-    //     2. fork.worker (attempt 0)
-    //     3. draft attempt 0 → TRUNCATED (finishReason=length)
-    //        pipeline synthesizes revise verdict, skips reviewer,
-    //        DOES NOT re-collect evidence (missing_evidence is empty)
-    //     4. draft attempt 1 → normal
-    //     5. review pass
+    //     2. fork.worker
+    //     3. outline planner
+    //     4. draft attempt 0 → TRUNCATED (finishReason=length)
+    //        pipeline synthesizes revise, skips reviewer, no re-collect
+    //     5. draft attempt 1 → normal
+    //     6. review pass
     //   Page "core":
-    //     6. fork.worker
-    //     7. draft
-    //     8. review pass
-    // Total = 8 calls. Critically: only ONE reviewer call for "overview",
-    // not two — a naive implementation would send the truncated draft to
-    // the reviewer and waste a call.
+    //     7. fork.worker
+    //     8. outline planner
+    //     9. draft
+    //     10. review pass
+    // Total = 10. Only ONE reviewer call for "overview".
 
-    mockGenerateText.mockResolvedValueOnce({
-      text: JSON.stringify(wikiJson),
-      usage: { inputTokens: 500, outputTokens: 300 },
-      finishReason: "stop",
-    } as never);
+    mockGenerateText.mockResolvedValueOnce(mockResponse(JSON.stringify(wikiJson)));
 
-    // --- overview ---
-    mockGenerateText.mockResolvedValueOnce({
-      text: workerOutput("overview"),
-      usage: { inputTokens: 200, outputTokens: 100 },
-      finishReason: "stop",
-    } as never);
-    // Truncated first draft
-    mockGenerateText.mockResolvedValueOnce({
-      text: "# Overview\n\nContent that got cut off mid-",
-      usage: { inputTokens: 500, outputTokens: 16384 },
-      finishReason: "length",
-    } as never);
-    // Retry succeeds
-    mockGenerateText.mockResolvedValueOnce({
-      text: draftOutput("overview", "Overview"),
-      usage: { inputTokens: 500, outputTokens: 300 },
-      finishReason: "stop",
-    } as never);
-    mockGenerateText.mockResolvedValueOnce({
-      text: passReview,
-      usage: { inputTokens: 300, outputTokens: 100 },
-      finishReason: "stop",
-    } as never);
+    // --- overview: worker, outline, truncated-draft, retry-draft, review ---
+    mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("overview")));
+    mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("overview")));
+    mockGenerateText.mockResolvedValueOnce(
+      mockResponse("# Overview\n\nContent that got cut off mid-", { finishReason: "length" }),
+    );
+    mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("overview", "Overview")));
+    mockGenerateText.mockResolvedValueOnce(mockResponse(passReview));
 
-    // --- core ---
-    mockGenerateText.mockResolvedValueOnce({
-      text: workerOutput("core"),
-      usage: { inputTokens: 200, outputTokens: 100 },
-      finishReason: "stop",
-    } as never);
-    mockGenerateText.mockResolvedValueOnce({
-      text: draftOutput("core", "Core"),
-      usage: { inputTokens: 500, outputTokens: 300 },
-      finishReason: "stop",
-    } as never);
-    mockGenerateText.mockResolvedValueOnce({
-      text: passReview,
-      usage: { inputTokens: 300, outputTokens: 100 },
-      finishReason: "stop",
-    } as never);
+    // --- core: worker, outline, draft, review ---
+    mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("core")));
+    mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("core")));
+    mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("core", "Core")));
+    mockGenerateText.mockResolvedValueOnce(mockResponse(passReview));
 
     const pipeline = new GenerationPipeline({
       storage,
@@ -419,7 +386,7 @@ describe("GenerationPipeline", () => {
 
     expect(result.success).toBe(true);
     expect(result.job.status).toBe("completed");
-    expect(mockGenerateText).toHaveBeenCalledTimes(8);
+    expect(mockGenerateText).toHaveBeenCalledTimes(10);
 
     // Event stream should show:
     //  - 3× page.drafting (overview attempt 0 + overview attempt 1 + core)

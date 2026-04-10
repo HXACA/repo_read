@@ -113,10 +113,17 @@ describe("E2E Pipeline", () => {
     // Catalog
     mock.mockResolvedValueOnce({ text: JSON.stringify(wikiJson), usage: { inputTokens: 500, outputTokens: 300 } } as never);
 
-    // 3 pages x (worker + draft + review) = 9 calls
+    // 3 pages x (worker + outline + draft + review) = 12 calls
     // (budget preset forkWorkers=1, planner fast-path skips LLM)
     for (const page of wikiJson.reading_order) {
       mock.mockResolvedValueOnce({ text: workerOutput(page.slug), usage: { inputTokens: 200, outputTokens: 100 } } as never);
+      // Outline planner
+      mock.mockResolvedValueOnce({ text: JSON.stringify({
+        sections: [
+          { heading: `${page.title} 概述`, key_points: ["overview"], cite_from: [{ target: "src/index.ts", locator: "1-10" }] },
+          { heading: `${page.title} 细节`, key_points: ["details"], cite_from: [{ target: "src/index.ts", locator: "1-10" }] },
+        ],
+      }), usage: { inputTokens: 100, outputTokens: 80 } } as never);
       mock.mockResolvedValueOnce({ text: draftOutput(page.slug, page.title), usage: { inputTokens: 500, outputTokens: 300 } } as never);
       mock.mockResolvedValueOnce({ text: passReview, usage: { inputTokens: 300, outputTokens: 100 } } as never);
     }
