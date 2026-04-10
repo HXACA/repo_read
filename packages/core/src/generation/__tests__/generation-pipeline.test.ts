@@ -335,4 +335,112 @@ describe("GenerationPipeline", () => {
       .map((e) => e.pageSlug);
     expect(draftedSlugs).toEqual(["core"]);
   });
+
+  it("truncated draft triggers shorten-retry without calling reviewer", async () => {
+    const { generateText } = await import("ai");
+    const mockGenerateText = vi.mocked(generateText);
+
+    // Call sequence (budget preset, 2 pages; forkWorkers=1, maxRevisionAttempts=1):
+    //   1. Catalog planner
+    //   Page "overview":
+    //     2. fork.worker (attempt 0)
+    //     3. draft attempt 0 → TRUNCATED (finishReason=length)
+    //        pipeline synthesizes revise verdict, skips reviewer,
+    //        DOES NOT re-collect evidence (missing_evidence is empty)
+    //     4. draft attempt 1 → normal
+    //     5. review pass
+    //   Page "core":
+    //     6. fork.worker
+    //     7. draft
+    //     8. review pass
+    // Total = 8 calls. Critically: only ONE reviewer call for "overview",
+    // not two — a naive implementation would send the truncated draft to
+    // the reviewer and waste a call.
+
+    mockGenerateText.mockResolvedValueOnce({
+      text: JSON.stringify(wikiJson),
+      usage: { inputTokens: 500, outputTokens: 300 },
+      finishReason: "stop",
+    } as never);
+
+    // --- overview ---
+    mockGenerateText.mockResolvedValueOnce({
+      text: workerOutput("overview"),
+      usage: { inputTokens: 200, outputTokens: 100 },
+      finishReason: "stop",
+    } as never);
+    // Truncated first draft
+    mockGenerateText.mockResolvedValueOnce({
+      text: "# Overview\n\nContent that got cut off mid-",
+      usage: { inputTokens: 500, outputTokens: 16384 },
+      finishReason: "length",
+    } as never);
+    // Retry succeeds
+    mockGenerateText.mockResolvedValueOnce({
+      text: draftOutput("overview", "Overview"),
+      usage: { inputTokens: 500, outputTokens: 300 },
+      finishReason: "stop",
+    } as never);
+    mockGenerateText.mockResolvedValueOnce({
+      text: passReview,
+      usage: { inputTokens: 300, outputTokens: 100 },
+      finishReason: "stop",
+    } as never);
+
+    // --- core ---
+    mockGenerateText.mockResolvedValueOnce({
+      text: workerOutput("core"),
+      usage: { inputTokens: 200, outputTokens: 100 },
+      finishReason: "stop",
+    } as never);
+    mockGenerateText.mockResolvedValueOnce({
+      text: draftOutput("core", "Core"),
+      usage: { inputTokens: 500, outputTokens: 300 },
+      finishReason: "stop",
+    } as never);
+    mockGenerateText.mockResolvedValueOnce({
+      text: passReview,
+      usage: { inputTokens: 300, outputTokens: 100 },
+      finishReason: "stop",
+    } as never);
+
+    const pipeline = new GenerationPipeline({
+      storage,
+      jobManager,
+      config: mockConfig,
+      model: {} as never,
+      reviewerModel: {} as never,
+      repoRoot: tmpDir,
+      commitHash: "abc123",
+    });
+
+    const job = await jobManager.create("proj", tmpDir, mockConfig);
+    const result = await pipeline.run(job);
+
+    expect(result.success).toBe(true);
+    expect(result.job.status).toBe("completed");
+    expect(mockGenerateText).toHaveBeenCalledTimes(8);
+
+    // Event stream should show:
+    //  - 3× page.drafting (overview attempt 0 + overview attempt 1 + core)
+    //  - 3× page.reviewed (overview synthesized revise + overview real pass + core pass)
+    //  - 2× page.validated (one per page)
+    const reader = new EventReader(storage.paths.eventsNdjson("proj", job.id));
+    const events = await reader.readAll();
+    const draftEvents = events.filter((e) => e.type === "page.drafting");
+    const reviewEvents = events.filter((e) => e.type === "page.reviewed");
+    const validateEvents = events.filter((e) => e.type === "page.validated");
+    expect(draftEvents).toHaveLength(3);
+    expect(reviewEvents).toHaveLength(3);
+    expect(validateEvents).toHaveLength(2);
+
+    // Overview's first reviewer event should be the synthesized revise
+    const overviewReviews = reviewEvents.filter(
+      (e) => (e as { pageSlug?: string }).pageSlug === "overview",
+    );
+    const verdicts = overviewReviews.map(
+      (e) => (e as { payload?: { verdict?: string } }).payload?.verdict,
+    );
+    expect(verdicts).toEqual(["revise", "pass"]);
+  });
 });

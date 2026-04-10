@@ -299,6 +299,35 @@ export class GenerationPipeline {
 
           await emitter.pageDrafted(page.slug);
 
+          // === TRUNCATION GUARD ===
+          // If the draft hit `finishReason === "length"`, the tail of the
+          // page (often including the JSON metadata block) was cut off by
+          // the model's output-token ceiling. Skip the reviewer entirely
+          // and synthesize a "revise" verdict that tells the drafter to
+          // produce a shorter page. This avoids publishing half-written
+          // content and re-uses the existing revision loop machinery.
+          if (draftResult.truncated && attempt < MAX_REVISION_ATTEMPTS) {
+            reviewResult = {
+              success: true,
+              conclusion: {
+                verdict: "revise",
+                blockers: [
+                  "Draft output was truncated at the model's max_tokens limit. The page is too long. Make it shorter: merge overlapping sections, trim long code examples to the 3-5 most load-bearing lines, drop non-essential prose. Keep every claim cited.",
+                ],
+                factual_risks: [],
+                missing_evidence: [],
+                scope_violations: [],
+                suggested_revisions: [],
+              },
+            };
+            await emitter.pageReviewed(page.slug, "revise");
+            attempt++;
+            // Job is already in "page_drafting" state at this point (the
+            // reviewing transition happens below the guard), so no state
+            // transition is needed — just loop back.
+            continue;
+          }
+
           // --- REVIEW ---
           job = await this.jobManager.transition(slug, jobId, "reviewing");
 
