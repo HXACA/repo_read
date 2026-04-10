@@ -60,7 +60,8 @@ Rules:
 2. You review against the page plan, not your own expectations.
 3. You may re-read source files to verify citations.
 4. You MUST NOT rewrite the page or produce new content.
-5. Return your conclusion as a single JSON object:
+5. **Citation density check**: Scan the draft for \`[cite:...]\` markers. If any \`##\` section has zero citations, add it to \`missing_evidence\` (e.g. "Section '## Foo' has no citations — add evidence from covered files"). Also flag any citation with a locator range spanning an entire file (e.g. \`:1-500\`) — those are too vague to be useful.
+6. Return your conclusion as a single JSON object:
 
 {
   "verdict": "pass" or "revise",

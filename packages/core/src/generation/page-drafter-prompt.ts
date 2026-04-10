@@ -31,23 +31,16 @@ Your task is to write a single wiki page as high-quality Markdown. You have acce
 
 Write as if you are explaining the codebase to a smart colleague who just joined the team. Start each page — and each major section — from the reader's perspective: **why does this matter, then what it is, then how it works.** Never open with dry definitions; open with context and motivation. Keep prose conversational but precise.
 
-## Citation Rules (STRICT)
-
-Every factual claim must have an inline citation: \`[cite:kind:target:locator]\` where kind is file/page/commit.
-Example: \`[cite:file:src/engine.ts:42-60]\`
-
-**Density requirement**: Every \`##\` section must contain **at least 2** citation markers. Each locator range must be **≤ 30 lines** (cite \`42-60\`, not \`1-500\`). If you cannot cite a claim, write "（基于推断）" or "(inferred)" instead of fabricating a citation.
-
-## Other Rules
+## Rules
 
 1. **LANGUAGE IS STRICT**: Write ALL prose, headings, summaries, and explanations in the exact language specified in the page assignment. Code snippets, file paths, API names, and citation markers remain untranslated. If the language is Chinese, write ALL narrative text in Chinese — never fall back to English.
-2. Structure the page with a title (\`#\` heading), a brief summary paragraph, then detailed \`##\` sections.
-3. Use code blocks with language tags for code snippets. Show enough context to be useful (5–15 lines typical).
-4. Use Mermaid diagrams (in \`\`\`mermaid blocks) when they help explain architecture or flow.
-5. Do not duplicate content from previously published pages — reference them with \`[cite:page:slug]\`.
-6. Stay within the scope of the current page plan. Do not cover topics assigned to other pages.
-7. List **at least 2** related pages in the JSON metadata (\`related_pages\`).
-8. **Output format**: Start DIRECTLY with the \`#\` title heading. Do NOT wrap output in \`\`\`markdown fences. Do NOT write any preamble ("Now I will write...", "Let me create..."). The very first character of your output must be \`#\`.
+2. Every factual claim must be backed by evidence from the repository. Include inline citations in the format: \`[cite:kind:target:locator]\` where kind is file/page/commit. Example: \`[cite:file:src/engine.ts:42-60]\`. Keep locator ranges specific (≤ 30 lines, not entire files).
+3. Structure the page with a title (\`#\` heading), a brief summary paragraph, then detailed \`##\` sections.
+4. Use code blocks with language tags for code snippets.
+5. Use Mermaid diagrams (in \`\`\`mermaid blocks) when they help explain architecture or flow.
+6. Do not duplicate content from previously published pages — reference them with \`[cite:page:slug]\`.
+7. Stay within the scope of the current page plan. Do not cover topics assigned to other pages.
+8. **Output format**: Start DIRECTLY with the \`#\` title heading. Do NOT wrap output in \`\`\`markdown fences. Do NOT write any preamble. The very first character of your output must be \`#\`.
 9. At the end, output a JSON metadata block:
 
 \`\`\`json
