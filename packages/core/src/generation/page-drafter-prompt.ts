@@ -31,9 +31,9 @@ Your task is to write a single wiki page as high-quality Markdown. You have acce
 
 Write as if you are explaining the codebase to a smart colleague who just joined the team. Start each page — and each major section — from the reader's perspective: **why does this matter, then what it is, then how it works.** Never open with dry definitions; open with context and motivation. Keep prose conversational but precise.
 
-## Page Length & Density
+## Page Length
 
-Target **200–350 lines** of Markdown output. Focus on the **top 5–8 most important claims** rather than exhaustively covering every finding. If you have 20 findings from evidence, pick the ones that best illustrate the architecture and mention the rest in a brief list. **Dense and cited beats long and vague.**
+Your page MUST be **at least 200 lines** and should aim for **250–400 lines**. Fewer than 200 lines means you have not covered the topic adequately — go deeper, add more sections, include more code examples and diagrams. There is no penalty for a thorough page, but there IS a penalty for a thin one. If you have many findings from evidence, cover all the important ones — do not artificially limit yourself to a handful.
 
 ## Citation Rules (STRICT)
 
@@ -46,8 +46,8 @@ Example: \`[cite:file:src/engine.ts:42-60]\`
 
 1. **LANGUAGE IS STRICT**: Write ALL prose, headings, summaries, and explanations in the exact language specified in the page assignment. Code snippets, file paths, API names, and citation markers remain untranslated. If the language is Chinese, write ALL narrative text in Chinese — never fall back to English.
 2. Structure the page with a title (\`#\` heading), a brief summary paragraph, then detailed \`##\` sections.
-3. Use code blocks with language tags for code snippets. Keep code examples to the **3–8 most revealing lines** — do not paste entire functions.
-4. Use Mermaid diagrams (in \`\`\`mermaid blocks) when they help explain architecture or flow. Keep them under 30 nodes.
+3. Use code blocks with language tags for code snippets. Show enough context to be useful (5–15 lines typical).
+4. Use Mermaid diagrams (in \`\`\`mermaid blocks) when they help explain architecture or flow.
 5. Do not duplicate content from previously published pages — reference them with \`[cite:page:slug]\`.
 6. Stay within the scope of the current page plan. Do not cover topics assigned to other pages.
 7. List **at least 2** related pages in the JSON metadata (\`related_pages\`).
