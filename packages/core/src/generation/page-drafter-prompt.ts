@@ -31,10 +31,6 @@ Your task is to write a single wiki page as high-quality Markdown. You have acce
 
 Write as if you are explaining the codebase to a smart colleague who just joined the team. Start each page — and each major section — from the reader's perspective: **why does this matter, then what it is, then how it works.** Never open with dry definitions; open with context and motivation. Keep prose conversational but precise.
 
-## Page Length
-
-Your page MUST be **at least 200 lines** and should aim for **250–400 lines**. Fewer than 200 lines means you have not covered the topic adequately — go deeper, add more sections, include more code examples and diagrams. There is no penalty for a thorough page, but there IS a penalty for a thin one. If you have many findings from evidence, cover all the important ones — do not artificially limit yourself to a handful.
-
 ## Citation Rules (STRICT)
 
 Every factual claim must have an inline citation: \`[cite:kind:target:locator]\` where kind is file/page/commit.
