@@ -1,7 +1,7 @@
 # RepoRead 实现差异与待办清单
 
-> 快照时间：2026-04-10
-> 版本范围：截至 commit `40a1507`（minimal resume support 合并后）
+> 快照时间：2026-04-10（P0 批次于当日完成）
+> 版本范围：截至 commit `97c943a`（P0 批次：ask/research quality + route dispatch）
 > 关联文档：
 > - [产品需求文档](./prd.md)
 > - [Agent 架构](./agent-architecture.md)
@@ -39,47 +39,51 @@
 | 全局配置合并 | `config/loader.ts` | `~/.reporead/config.json` 作为 fallback 层 |
 | Publisher 原子发布 | `generation/publisher.ts` | 更新 `project.json.latestVersionId` |
 | 渲染层容错 | `web/.../markdown-renderer.tsx` / `toc.tsx` | makeHeadingIdFactory、citation portal、mermaid 修复 |
+| **Reviewer 严格度分档** | `review/reviewer-prompt.ts` strictnessRule() | lenient/normal/strict 切换 rule 6 — 2026-04-10 @ `97c943a` |
+| **Ask/Research 预设约束** | `ask/ask-stream.ts` + `ask/ask-service.ts` + `research/research-*.ts` | askMaxSteps/researchMaxSteps 全链路生效 — 2026-04-10 @ `97c943a` |
+| **Ask 路由实路由分流** | `ask/ask-stream.ts` runStreamingRoute/runResearchRoute | page-first 零工具、research 调 ResearchService — 2026-04-10 @ `97c943a` |
 
 ---
 
 ## 2. 部分落地（Gap 盘点）
 
-### 2.1 Quality Profile 约束链路不完整 🔴
+### 2.1 Quality Profile 约束链路不完整 ✅ 已闭环
 
 **预期**：`preset` 决定的 QualityProfile 应该贯穿 page 生成 + ask + research 三条路径。
 
-**实际**：
+**状态**：**已完成 @ `97c943a`**。
 
-- [ ] **G-1** `ask-stream.ts` 未消费 `qualityProfile`
-  - 证据：`ask-stream.ts:125` 硬编码 `stopWhen: stepCountIs(10)`，`AskStreamOptions` (L10-15) 没有 qualityProfile 字段
-  - 影响：budget preset 下 ask 仍跑满 10 步；quality preset 也只有 10 步上限
-  - 严重度：🔴 高 — 直接违反 FR-009（预设必须贯穿所有 LLM 调用路径）
+- [x] **G-1** ~~`ask-stream.ts` 未消费 `qualityProfile`~~ [DONE @ `97c943a`]
+  - 解决：`AskStreamOptions.qualityProfile` 字段 + `runStreamingRoute` 使用 `askMaxSteps`；page-first 固定 2 步，page-plus-retrieval 使用 profile 预算
+  - `AskService`（旧同步版本）也同步接入，CLI `ask.tsx` 传入 `resolvedConfig.qualityProfile`
 
-- [ ] **G-2** `reviewerStrictness` 字段定义了但没人读
-  - 证据：`quality-profile.ts:26,46,55,64,73` 四个预设都声明了该字段；`reviewer.ts` / `reviewer-prompt.ts` 全文无引用
-  - 影响：lenient 和 strict preset 下 reviewer 的语气完全一样
-  - 严重度：🟡 中 — 功能存在但预设区分度降低
+- [x] **G-2** ~~`reviewerStrictness` 字段定义了但没人读~~ [DONE @ `97c943a`]
+  - 解决：`buildReviewerSystemPrompt(minCitations, strictness)` 新增 `strictness` 参数；`strictnessRule()` 函数按 lenient/normal/strict 返回不同的 rule 6 文案
+  - `FreshReviewerOptions.strictness` 新增；pipeline 传 `qp.reviewerStrictness`
+  - 覆盖测试：`reviewer.test.ts` 三档 strictness 断言 prompt 文本
 
-- [ ] **G-3** `research-service.ts` 的 planner/executor/synthesizer 都不接收 qualityProfile
-  - 证据：`research-service.ts:57-90` 的 research() 签名只有 (projectSlug, versionId, topic, context?)
-  - 影响：research 在任何 preset 下都用全量步数 + 全量工具
-  - 严重度：🟡 中
+- [x] **G-3** ~~`research-service.ts` 的 planner/executor/synthesizer 都不接收 qualityProfile~~ [DONE @ `97c943a`]
+  - 解决：`ResearchPlanner` / `ResearchExecutor` 新增 `maxSteps` 构造参数（默认 6/15）；`ResearchServiceOptions.plannerMaxSteps` + `executorMaxSteps` 转发
+  - CLI `research.tsx` 传入 `resolvedConfig.qualityProfile.researchMaxSteps`（planner 用 ceil/2 的子预算）
+  - `QualityProfile` 新增字段：`askMaxSteps`（quality=15 / balanced=10 / budget=4）、`researchMaxSteps`（quality=20 / balanced=15 / budget=8）
 
-### 2.2 Ask 路由判定 → 真实路由执行链路断裂 🔴
+### 2.2 Ask 路由判定 → 真实路由执行链路断裂 ✅ 已闭环
 
 **预期**：ask-stream 先用 `classifyRoute` 判定 page-first / page-plus-retrieval / research 三路，不同路由走不同上下文和工具。
 
-**实际**：
+**状态**：**已完成 @ `97c943a`**。
 
-- [ ] **G-4** 路由分类后没有真正分流
-  - 证据：`ask-stream.ts:79-86` 调用 `classifyRoute` 并通过 `yield { type: "session", route }` 告诉前端；但 L114 `const tools = createCatalogTools(...)` 三路共用同一工具集；L125 `stepCountIs(10)` 三路共用同一预算；L120-126 三路共用同一 system prompt（仅 `route` 字符串拼进提示文本）
-  - 影响：route 只是一个 UI 标签，没有实际语义
-  - 严重度：🔴 高 — 路由设计形同虚设
+- [x] **G-4** ~~路由分类后没有真正分流~~ [DONE @ `97c943a`]
+  - 解决：`ask()` 顶层按 route 分支到 `runStreamingRoute(route, ...)` 或 `runResearchRoute(...)`
+    - `page-first`：`toolSet = {}`, 2-step 预算，system prompt 追加 page-first guard（"当前页面没有相关内容就说没有，绝不编造"）
+    - `page-plus-retrieval`：完整 catalog 工具集 + `qp.askMaxSteps` 预算
+    - `research`：完全不走 `streamText`
+  - 测试：`ask-stream.test.ts` 三路各一个用例断言 tool 数量 + stepCountIs 实参
 
-- [ ] **G-5** research 路由未衔接 `ResearchService`
-  - 证据：判定为 `research` 后仍然在 ask-stream 内完成；`ResearchService.research()` 没有从任何 ask 上下文被调用
-  - 影响：ask 里的"深度问题"永远不会升级成持久化的 ResearchNote
-  - 严重度：🟡 中 — 但与 G-4 捆绑处理成本较低
+- [x] **G-5** ~~research 路由未衔接 `ResearchService`~~ [DONE @ `97c943a`]
+  - 解决：`runResearchRoute()` 内部 `new ResearchService({...})` 跑完整 plan→execute→synthesize 管线，持久化 ResearchNote，然后把 `facts/inferences/unconfirmed` 三标签格式化为一段 markdown 通过 `text-delta` 事件流式输出
+  - 代价：research 路径不是真正的 token 级流式，UI 会先看到 `tool-call: research.plan` 占位事件，然后一次性接收整段文本。真正 token 流式要侵入每个 sub-step，放到下个迭代
+  - 测试：断言 `streamText` 未被调用、`generateText` 被调用、`citations` 事件包含 facts 的引用
 
 ### 2.3 Ask Session 持久化不完整 🟡
 
@@ -160,6 +164,10 @@
   - 场景：用户改了 preset 后 resume，已 validated 的页面不会按新预设重跑，但新页面会；造成同一 version 内两种质量标准
   - 严重度：🟢 低 — 属于设计权衡，文档里说清楚就行
 
+- [ ] **B-5** ~~G-1/G-4 原文本描述的硬编码 `stepCountIs(10)` 行号~~ 已失效
+  - 历史：P0 前 `ask-stream.ts:125` 硬编码 10 步；P0 后该行不存在了
+  - 保留在此只为历史回溯，不需要再处理
+
 - [ ] **B-3** Reviewer 失败无降级
   - 位置：`generation-pipeline.ts:319-326`
   - 场景：reviewer 本身调用失败（网络/模型错）直接 failJob，不会降级成"接受但打标"
@@ -176,33 +184,32 @@
 
 依据用户诉求"先完善 agent 编排和质量相关的链路"，建议按下面顺序推进。每项的"估算"是粗估，仅作相对比较。
 
-### P0（本轮必做，阻塞"质量链路闭环"）
+### P0（本轮必做，阻塞"质量链路闭环"）✅ 全部完成 @ `97c943a`
 
-- [ ] **P0-1** Ask/Research 接入 QualityProfile（G-1 + G-3）
-  - 动作：
-    1. `AskStreamOptions` 增加 `qualityProfile: QualityProfile`
-    2. `stepCountIs(10)` → `stepCountIs(qualityProfile.askMaxSteps ?? 10)`（同时在 QualityProfile 加 `askMaxSteps` 字段）
-    3. `ResearchService` 的 planner/executor/synthesizer 构造时接收 qualityProfile，控制各自的 maxSteps
-    4. Web `ask/route.ts` 和 CLI `ask.tsx` 从 resolvedConfig 取 qualityProfile 传下去
-  - 验收：budget preset 下 ask 最多跑 4 步；quality preset 下 ask 最多跑 15 步（或经过验证的值）
-  - 估算：3-4h
+- [x] **P0-1** Ask/Research 接入 QualityProfile（G-1 + G-3）[DONE @ `97c943a`]
+  - 实际动作：
+    1. `QualityProfile` 新增 `askMaxSteps` + `researchMaxSteps` 字段；四个预设全部补齐
+    2. `AskStreamOptions` + `AskOptions`（旧同步版本）都增加 `qualityProfile`；`stepCountIs` 使用 `qp.askMaxSteps ?? 10`
+    3. `ResearchPlanner` / `ResearchExecutor` 增加 `maxSteps` 构造参数并在 `generateText` 里加 `stopWhen`
+    4. `ResearchService` 增加 `plannerMaxSteps` / `executorMaxSteps`，CLI `research.tsx` 从 qp 传入（planner 用一半预算）
+    5. Web `ask/route.ts` + CLI `ask.tsx` 都传 `resolvedConfig.qualityProfile`
+  - 验收结果：`quality-profile.test.ts` 断言预算字段存在且 budget≤quality；`ask-stream.test.ts` 断言 budget/balanced preset 下 `stepCountIs` 收到的值与 profile 一致
 
-- [ ] **P0-2** Ask 路由真正分流（G-4 + G-5）
-  - 动作：
-    1. `classifyRoute` 返回的三路对应不同 system prompt 和工具子集
-    2. `page-first` → 不启用 grep/find，只读当前页面，限制 1-3 步
-    3. `page-plus-retrieval` → 启用全工具，中等步数
-    4. `research` → 改为调用 `ResearchService.research()`，产出 ResearchNote 后流式返回三标签
-  - 验收：三路在 Web Chat 里表现明显不同；research 路径能生成落盘的 note
-  - 估算：6-8h
+- [x] **P0-2** Ask 路由真正分流（G-4 + G-5）[DONE @ `97c943a`]
+  - 实际动作：
+    1. `ask-stream.ts` 顶层 `try { if route === "research" ... else runStreamingRoute(...) }` 拆成两条分支
+    2. `runStreamingRoute` 内部按 `isPageFirst` 切换 tool set（`{}` vs 完整）和预算（2 vs askMaxSteps）
+    3. `buildSystemPrompt` 在 page-first 时追加 guard rail 段落
+    4. `runResearchRoute` 内部 `new ResearchService({...plannerMaxSteps, executorMaxSteps})` 跑完整管线，然后 `formatResearchAnswer` 把三标签格式化后用 `text-delta` 发出
+  - 验收结果：`ask-stream.test.ts` 三路各一个用例，断言 `streamText.mock.calls[0][0].tools` 键数、`stepCountIs` 实参、research 路径仅 `generateText` 被调用
+  - 已知代价：research 路径不是真正 token 级流式（UI 会"卡一下再整段出现"），留作后续迭代
 
-- [ ] **P0-3** Reviewer 消费 `reviewerStrictness`（G-2）
-  - 动作：
-    1. `FreshReviewer` 构造器接收 `strictness: "lenient" | "normal" | "strict"`
-    2. `buildReviewerSystemPrompt(minCitations, strictness)` 根据值切换开头语气和容忍度说明
-    3. `generation-pipeline.ts` 构造 reviewer 时从 qp 取值传入
-  - 验收：三个 preset 跑同一页时 reviewer 输出的 verdict 分布不同（lenient 更多 pass，strict 更多 revise）
-  - 估算：2h
+- [x] **P0-3** Reviewer 消费 `reviewerStrictness`（G-2）[DONE @ `97c943a`]
+  - 实际动作：
+    1. `reviewer-prompt.ts` 新增 `ReviewerStrictness` 类型 + `strictnessRule()` 函数，切换 rule 6 文案
+    2. `FreshReviewerOptions.strictness` 字段（默认 `"normal"`）
+    3. `generation-pipeline.ts` 构造 reviewer 时传 `strictness: qp.reviewerStrictness`
+  - 验收结果：`reviewer.test.ts` 三档 strictness 用例断言 system prompt 包含/不包含对应关键词（"err on the side of rejection" / "HARD blockers that would actively mislead"）
 
 ### P1（下一轮推进）
 
@@ -271,6 +278,21 @@
 
 - Task #86 `Final validation smoke test` — 等待 background resume (job `cd4ff08b-...`) 完成；进度 21/23
 - Task #87 `Implement minimal resume` — 已完成，commit `40a1507`
+- Task #88 `P0-3: Reviewer consume reviewerStrictness` — 已完成，commit `97c943a`
+- Task #89 `P0-1: Ask/Research consume QualityProfile` — 已完成，commit `97c943a`
+- Task #90 `P0-2: Ask route dispatch` — 已完成，commit `97c943a`
+
+## 附录 C：P0 批次产出小结（2026-04-10）
+
+| 项目 | 文件 | 测试 |
+|---|---|---|
+| QualityProfile 扩字段 | `config/quality-profile.ts` +2 字段 | `quality-profile.test.ts` +4 断言 |
+| Reviewer strictness | `review/reviewer-prompt.ts` +`strictnessRule()` / `reviewer.ts` +option / `generation-pipeline.ts` 传参 | `reviewer.test.ts` +3 tests |
+| Research budget | `research/research-planner.ts` +`maxSteps` / `research-executor.ts` +`maxSteps` / `research-service.ts` +options / `cli/commands/research.tsx` 传参 | 现有 tests 绿 |
+| Ask quality profile | `ask/ask-stream.ts` + `ask/ask-service.ts` +option / `web/.../ask/route.ts` / `cli/commands/ask.tsx` 传参 | `ask-stream.test.ts` +3 tests |
+| Ask route dispatch | `ask/ask-stream.ts` 拆 `runStreamingRoute` + `runResearchRoute` + `formatResearchAnswer` | 同上 |
+
+**产出统计**：17 files changed, +960 / -73。测试 243 → 249（净增 6：reviewer strictness +3、ask-stream route dispatch +3）。Core / CLI / Web 三包 typecheck 全绿。
 
 ## 附录 B：关键数据位置
 
