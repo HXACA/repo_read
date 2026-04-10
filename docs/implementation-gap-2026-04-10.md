@@ -44,6 +44,7 @@
 | **Ask 路由实路由分流** | `ask/ask-stream.ts` runStreamingRoute/runResearchRoute | page-first 零工具、research 调 ResearchService — 2026-04-10 @ `97c943a` |
 | **Drafter 输出鲁棒化** | `generation/page-drafter.ts` stripDraftOutputWrappers() | 剥离 LLM preamble 和外层 ` ```markdown ` fence — 2026-04-10 @ `0c10fe0` |
 | **Drafter token 上限 + 截断重试** | `page-drafter.ts` maxOutputTokens + `generation-pipeline.ts` truncation guard | `finishReason=length` → 合成 revise verdict 跳过 reviewer 直接缩写重写 — 2026-04-10 @ `0c10fe0` |
+| **Outline-first 引用映射** | `generation/outline-planner.ts` + pipeline wiring + drafter prompt 消费 | 证据→节映射，drafter 按 outline 写，reviewer 检查密度 — 2026-04-10 @ `5de1ab7` |
 
 ---
 

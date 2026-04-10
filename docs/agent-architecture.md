@@ -149,6 +149,31 @@ type ForkWorkerResult = {
 
 规划失败时，coordinator 会降级到确定性均分（`coveredFiles.slice()` 切片 + 通用 directive），保证页面仍可推进。
 
+#### Outline-first 引用映射：`OutlinePlanner`
+
+> 2026-04-10 新增。解决"drafter 收到扁平 evidence dump 后引用稀疏"的架构级问题。
+
+在 `EvidenceCoordinator` 汇总 ledger 之后、`PageDrafter` 起草之前，插入一步 **OutlinePlanner**：
+
+```
+evidence_ledger + findings
+         ↓
+  OutlinePlanner.plan()      ← 1 次轻量 LLM 调用（~500 tokens output）
+         ↓
+  PageOutline { sections: [{ heading, key_points, cite_from }] }
+         ↓
+  注入 MainAuthorContext.page_outline → 传给 PageDrafter
+```
+
+**每个 outline section 显式列出该节要引用的 ledger 条目**。drafter 的 user prompt 里看到的不再是一坨扁平的 evidence ledger，而是结构化的"§ 核心架构 → cite api/main.py:10-30, api/api.py:26-33"这样的清单。
+
+设计原则：
+- **引用密度由结构保证，不由约束保证**。旧方案是在 drafter prompt 里加"每节 ≥2 citation"的硬规则，导致模型自我审查（不敢写没证据的节 → 内容变薄）。新方案让 OutlinePlanner 提前把证据映射好，drafter 只需"按图施工"。
+- **Outline 计算一次，跨 retry 复用**。outline 变量在 while(true) 循环外声明，仅在 `outline === null && evidenceResult` 时触发规划。后续 revise 循环不重新规划 outline，只重写内容。
+- **LLM 失败时确定性兜底**。OutlinePlanner 的 `fallbackOutline()` 按 ledger 文件路径分组，每组一个 section，保证页面仍可推进。
+
+引用密度的质量门从 drafter prompt 移到了 reviewer（rule 5 "Citation density check"）：reviewer 扫描 draft 中每个 `##` section，对零引用的节报 `missing_evidence`，让 revise 循环自然补齐。这比在 drafter 端加写作约束更健康——drafter 专心写内容，reviewer 判断质量。
+
 ### 4.2 `fresh.reviewer`
 
 `fresh.reviewer` 用于独立审稿：
