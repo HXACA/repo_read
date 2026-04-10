@@ -27,17 +27,32 @@ export function buildPageDraftSystemPrompt(): string {
 
 Your task is to write a single wiki page as high-quality Markdown. You have access to retrieval tools (Read, Grep, Find, Git) to inspect the repository.
 
-Rules:
-1. **LANGUAGE IS STRICT**: Write ALL prose, headings, summaries, and explanations in the exact language specified in the page assignment. Code snippets, file paths, API names, and citation markers remain untranslated. If the language is Chinese, write ALL narrative text in Chinese — never fall back to English even if the source code or repository uses English.
-2. Every factual claim must be backed by evidence from the repository.
-3. Include inline citations in the format: [cite:kind:target:locator] where kind is file/page/commit.
-   Example: [cite:file:src/engine.ts:42-60]
-4. Structure the page with a title (# heading), a brief summary paragraph, then detailed sections.
-5. Use code blocks with language tags for code snippets.
-6. Use Mermaid diagrams (in \`\`\`mermaid blocks) when they help explain architecture or flow.
-7. Do not duplicate content from previously published pages — reference them with [cite:page:slug].
-8. Stay within the scope of the current page plan. Do not cover topics assigned to other pages.
-9. At the end, output a JSON block with your citations and summary:
+## Writing Voice
+
+Write as if you are explaining the codebase to a smart colleague who just joined the team. Start each page — and each major section — from the reader's perspective: **why does this matter, then what it is, then how it works.** Never open with dry definitions; open with context and motivation. Keep prose conversational but precise.
+
+## Page Length & Density
+
+Target **200–350 lines** of Markdown output. Focus on the **top 5–8 most important claims** rather than exhaustively covering every finding. If you have 20 findings from evidence, pick the ones that best illustrate the architecture and mention the rest in a brief list. **Dense and cited beats long and vague.**
+
+## Citation Rules (STRICT)
+
+Every factual claim must have an inline citation: \`[cite:kind:target:locator]\` where kind is file/page/commit.
+Example: \`[cite:file:src/engine.ts:42-60]\`
+
+**Density requirement**: Every \`##\` section must contain **at least 2** citation markers. Each locator range must be **≤ 30 lines** (cite \`42-60\`, not \`1-500\`). If you cannot cite a claim, write "（基于推断）" or "(inferred)" instead of fabricating a citation.
+
+## Other Rules
+
+1. **LANGUAGE IS STRICT**: Write ALL prose, headings, summaries, and explanations in the exact language specified in the page assignment. Code snippets, file paths, API names, and citation markers remain untranslated. If the language is Chinese, write ALL narrative text in Chinese — never fall back to English.
+2. Structure the page with a title (\`#\` heading), a brief summary paragraph, then detailed \`##\` sections.
+3. Use code blocks with language tags for code snippets. Keep code examples to the **3–8 most revealing lines** — do not paste entire functions.
+4. Use Mermaid diagrams (in \`\`\`mermaid blocks) when they help explain architecture or flow. Keep them under 30 nodes.
+5. Do not duplicate content from previously published pages — reference them with \`[cite:page:slug]\`.
+6. Stay within the scope of the current page plan. Do not cover topics assigned to other pages.
+7. List **at least 2** related pages in the JSON metadata (\`related_pages\`).
+8. **Output format**: Start DIRECTLY with the \`#\` title heading. Do NOT wrap output in \`\`\`markdown fences. Do NOT write any preamble ("Now I will write...", "Let me create..."). The very first character of your output must be \`#\`.
+9. At the end, output a JSON metadata block:
 
 \`\`\`json
 {
@@ -160,7 +175,7 @@ export function buildPageDraftUserPrompt(
   sections.push(
     `## Instructions`,
     context.revision
-      ? `**Re-write** the complete wiki page for "${input.title}" addressing every blocker and reviewer note above. Use the retrieval tools to verify facts and read additional files mentioned in "missing evidence". Output the FULL page (not a diff). End with the JSON metadata block.`
+      ? `**Re-write** the complete wiki page for "${input.title}" addressing every blocker and reviewer note above. Use the retrieval tools to verify facts and read additional files mentioned in "missing evidence". Output the FULL page (not a diff). End with the JSON metadata block.\n\n**CRITICAL**: Start your output with \`# ${input.title}\` — no preamble text, no \`\`\`markdown wrapper. Your very first character must be \`#\`.`
       : hasPreEvidence
         ? `Write the complete wiki page for "${input.title}". **Base your page on the Pre-collected Evidence section above** — it was gathered in parallel by fork.workers and represents your primary source of truth. Only call retrieval tools to verify specific claims, resolve open questions, or read a file that the ledger does not yet cover. End with the JSON metadata block.`
         : `Write the complete wiki page for "${input.title}". Use the retrieval tools to read the covered files and gather evidence. Then produce the page as Markdown with inline citations. End with the JSON metadata block.`,

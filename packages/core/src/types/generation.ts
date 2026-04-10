@@ -39,6 +39,10 @@ export type WikiJson = {
     title: string;
     rationale: string;
     covered_files: string[];
+    /** Logical section grouping (e.g. "Getting Started", "Core Architecture"). */
+    section?: string;
+    /** Optional sub-group within a section (e.g. "Backend Engine"). */
+    group?: string;
   }>;
 };
 

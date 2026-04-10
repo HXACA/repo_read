@@ -45,7 +45,9 @@ When you have enough understanding, output a JSON object with this exact structu
       "slug": "kebab-case-url-friendly-name",
       "title": "Human-readable page title",
       "rationale": "Why this page exists and what the reader will learn",
-      "covered_files": ["src/file1.ts", "src/file2.ts"]
+      "covered_files": ["src/file1.ts", "src/file2.ts"],
+      "section": "Section name that groups related pages (e.g. 'Getting Started', 'Core Architecture')",
+      "group": "Optional sub-group within a section (e.g. 'Backend Engine', 'Frontend Components')"
     }
   ]
 }
@@ -60,7 +62,9 @@ When you have enough understanding, output a JSON object with this exact structu
 5. **Slug format**: kebab-case, URL-friendly, unique across all pages.
 6. **First page**: Should always be a project overview (what it is, why it exists).
 7. **Last pages**: Can cover advanced topics, deployment, or extension points.
-8. Output ONLY the JSON object. No markdown fences, no explanation before or after.`;
+8. **Sections**: Group pages into 3-6 logical sections (e.g. "Getting Started", "Core Architecture", "Integration & Extension"). Every page must have a \`section\`. Sections should reflect a narrative arc — from overview to deep dives to advanced topics.
+9. **Groups** (optional): Within a section, use \`group\` to cluster tightly related pages (e.g. several backend modules under a "Backend Engine" group). Omit \`group\` if the section has no natural sub-clusters.
+10. Output ONLY the JSON object. No markdown fences, no explanation before or after.`;
 }
 
 export function buildCatalogUserPrompt(profile: RepoProfile, language: string): string {
