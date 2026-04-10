@@ -8,6 +8,7 @@ import type {
 import {
   buildReviewerSystemPrompt,
   buildReviewerUserPrompt,
+  type ReviewerStrictness,
 } from "./reviewer-prompt.js";
 import { createCatalogTools } from "../catalog/catalog-tools.js";
 import { extractJson } from "../utils/extract-json.js";
@@ -28,6 +29,13 @@ export type FreshReviewerOptions = {
    * 0 disables the verification requirement (budget mode).
    */
   verifyMinCitations?: number;
+  /**
+   * Controls the reviewer's verdict threshold:
+   * - `strict` rejects on any factual risk
+   * - `normal` (default) only gates on blockers
+   * - `lenient` only gates on hard blockers that actively mislead
+   */
+  strictness?: ReviewerStrictness;
 };
 
 export class FreshReviewer {
@@ -35,16 +43,21 @@ export class FreshReviewer {
   private readonly repoRoot: string;
   private readonly maxSteps: number;
   private readonly verifyMinCitations: number;
+  private readonly strictness: ReviewerStrictness;
 
   constructor(options: FreshReviewerOptions) {
     this.model = options.model;
     this.repoRoot = options.repoRoot;
     this.maxSteps = options.maxSteps ?? 10;
     this.verifyMinCitations = options.verifyMinCitations ?? 0;
+    this.strictness = options.strictness ?? "normal";
   }
 
   async review(briefing: ReviewBriefing): Promise<ReviewResult> {
-    const systemPrompt = buildReviewerSystemPrompt(this.verifyMinCitations);
+    const systemPrompt = buildReviewerSystemPrompt(
+      this.verifyMinCitations,
+      this.strictness,
+    );
     const userPrompt = buildReviewerUserPrompt(briefing);
     const tools = createCatalogTools(this.repoRoot);
 

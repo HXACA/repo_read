@@ -195,6 +195,7 @@ export class GenerationPipeline {
           repoRoot: this.repoRoot,
           maxSteps: qp.reviewerMaxSteps,
           verifyMinCitations: qp.reviewerVerifyMinCitations,
+          strictness: qp.reviewerStrictness,
         });
         const coordinator =
           qp.forkWorkers > 0

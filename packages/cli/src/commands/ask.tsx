@@ -60,7 +60,12 @@ export async function runAsk(options: AskOptions): Promise<void> {
     return;
   }
 
-  const service = new AskService({ model, storage, repoRoot });
+  const service = new AskService({
+    model,
+    storage,
+    repoRoot,
+    qualityProfile: resolvedConfig.qualityProfile,
+  });
   let sessionId: string | undefined;
 
   // Single question mode

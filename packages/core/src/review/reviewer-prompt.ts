@@ -1,6 +1,30 @@
 import type { ReviewBriefing } from "../types/review.js";
 
-export function buildReviewerSystemPrompt(minCitations = 0): string {
+export type ReviewerStrictness = "lenient" | "normal" | "strict";
+
+/**
+ * Strictness-specific phrasing for rule 6 (the verdict threshold).
+ *
+ * - `strict` — any factual risk counts, "when in doubt, revise"
+ * - `normal` — current default: zero blockers → pass, factual risks are notes
+ * - `lenient` — only hard blockers gate publication, minor issues become notes
+ */
+function strictnessRule(strictness: ReviewerStrictness): string {
+  switch (strictness) {
+    case "strict":
+      return `6. Return "pass" ONLY if blockers AND factual_risks are both empty. Any unverified load-bearing claim, any citation drift beyond ±5 lines, any scope violation forces "revise". When in doubt, return "revise" — err on the side of rejection.`;
+    case "lenient":
+      return `6. Return "pass" unless there are HARD blockers that would actively mislead the reader (wrong API signature, nonexistent file, contradictory facts). Minor factual risks, stylistic gaps, and completeness issues should go into suggested_revisions but do NOT warrant "revise".`;
+    case "normal":
+    default:
+      return `6. Use "pass" only if there are zero blockers. Even minor factual risks do not require "revise" if they don't block publication.`;
+  }
+}
+
+export function buildReviewerSystemPrompt(
+  minCitations = 0,
+  strictness: ReviewerStrictness = "normal",
+): string {
   const verifyBlock =
     minCitations > 0
       ? `
@@ -54,7 +78,7 @@ Rules:
   ]
 }
 
-6. Use "pass" only if there are zero blockers. Even minor factual risks do not require "revise" if they don't block publication.
+${strictnessRule(strictness)}
 7. Be specific and actionable — "add error handling section" is better than "needs more detail".${verifyBlock}`;
 }
 

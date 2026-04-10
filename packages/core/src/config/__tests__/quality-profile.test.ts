@@ -17,6 +17,8 @@ describe("quality profile", () => {
     expect(q.maxRevisionAttempts).toBe(3);
     expect(q.reviewerVerifyMinCitations).toBe(3);
     expect(q.reviewerStrictness).toBe("strict");
+    expect(q.askMaxSteps).toBeGreaterThan(0);
+    expect(q.researchMaxSteps).toBeGreaterThan(0);
   });
 
   it("budget preset minimizes LLM calls", () => {
@@ -30,6 +32,8 @@ describe("quality profile", () => {
     expect(b.forkWorkers).toBeLessThanOrEqual(q.forkWorkers);
     expect(b.maxRevisionAttempts).toBeLessThanOrEqual(q.maxRevisionAttempts);
     expect(b.drafterMaxSteps).toBeLessThanOrEqual(q.drafterMaxSteps);
+    expect(b.askMaxSteps).toBeLessThanOrEqual(q.askMaxSteps);
+    expect(b.researchMaxSteps).toBeLessThanOrEqual(q.researchMaxSteps);
   });
 
   it("balanced sits between quality and budget on key dimensions", () => {

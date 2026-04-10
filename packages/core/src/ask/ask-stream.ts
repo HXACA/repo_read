@@ -3,15 +3,24 @@ import { streamText, stepCountIs } from "ai";
 import type { LanguageModel, ToolSet } from "ai";
 import type { StorageAdapter } from "../storage/storage-adapter.js";
 import type { WikiJson, PageMeta, CitationRecord } from "../types/generation.js";
+import type { QualityProfile } from "../config/quality-profile.js";
 import { createCatalogTools } from "../catalog/catalog-tools.js";
-import { classifyRoute } from "./route-classifier.js";
+import { classifyRoute, type AskRoute } from "./route-classifier.js";
 import { AskSessionManager } from "./ask-session.js";
+import { ResearchService } from "../research/research-service.js";
+import type { LabeledFinding } from "../types/research.js";
 
 export type AskStreamOptions = {
   model: LanguageModel;
   storage: StorageAdapter;
   repoRoot: string;
   language?: string;
+  /**
+   * Quality profile controls per-route step budgets. When omitted, a
+   * conservative default of 10 steps is used for all routes (matches the
+   * previous hardcoded behavior).
+   */
+  qualityProfile?: QualityProfile;
 };
 
 export type AskStreamEvent =
@@ -33,6 +42,7 @@ export class AskStreamService {
   private readonly repoRoot: string;
   private readonly language: string;
   private readonly sessionManager: AskSessionManager;
+  private readonly qualityProfile?: QualityProfile;
 
   constructor(options: AskStreamOptions) {
     this.model = options.model;
@@ -40,6 +50,7 @@ export class AskStreamService {
     this.repoRoot = options.repoRoot;
     this.language = options.language ?? "zh";
     this.sessionManager = new AskSessionManager(options.storage);
+    this.qualityProfile = options.qualityProfile;
   }
 
   async *ask(
@@ -103,85 +114,248 @@ export class AskStreamService {
 
     this.sessionManager.addUserTurn(session.id, question);
 
-    const systemPrompt = this.buildSystemPrompt(route);
-    const userPrompt = this.buildUserPrompt(
-      question,
-      pageContent,
-      wiki,
-      session.turns,
-    );
-
-    const tools = createCatalogTools(this.repoRoot);
-
-    let fullText = "";
-    const citations: CitationRecord[] = [];
-
     try {
-      const result = streamText({
-        model: this.model,
-        system: systemPrompt,
-        prompt: userPrompt,
-        tools: tools as unknown as ToolSet,
-        stopWhen: stepCountIs(10),
-      });
-
-      for await (const part of result.fullStream) {
-        switch (part.type) {
-          case "reasoning-delta":
-            yield {
-              type: "reasoning-delta",
-              text: (part as { text: string }).text,
-            };
-            break;
-          case "text-delta": {
-            const delta = (part as { text: string }).text;
-            fullText += delta;
-            yield { type: "text-delta", text: delta };
-            break;
-          }
-          case "tool-call":
-            yield {
-              type: "tool-call",
-              toolName: (part as { toolName: string }).toolName,
-              input: (part as { input?: unknown }).input,
-            };
-            break;
-          case "tool-result":
-            yield {
-              type: "tool-result",
-              toolName: (part as { toolName: string }).toolName,
-            };
-            break;
-          case "error":
-            yield {
-              type: "error",
-              message: String((part as { error: unknown }).error),
-            };
-            break;
-        }
+      if (route === "research") {
+        yield* this.runResearchRoute(
+          projectSlug,
+          versionId,
+          question,
+          session.id,
+        );
+        return;
       }
 
-      // Parse citations from final text, then sanitize the answer body
-      const parsed = this.parseCitations(fullText);
-      const cleanAnswer = this.sanitizeAnswer(parsed.answer);
-      citations.push(...parsed.citations);
-
-      this.sessionManager.addAssistantTurn(
+      yield* this.runStreamingRoute(
+        route,
+        question,
+        pageContent,
+        wiki,
         session.id,
-        cleanAnswer,
-        citations,
+        session.turns,
       );
-      await this.sessionManager.persist(session.id);
-
-      yield { type: "citations", citations };
-      yield { type: "done" };
     } catch (err) {
       yield { type: "error", message: (err as Error).message };
     }
   }
 
-  private buildSystemPrompt(route: string): string {
+  /**
+   * Streaming ask for `page-first` and `page-plus-retrieval`. The two
+   * routes differ in tool exposure and step budget:
+   *
+   * - `page-first` gets no tools and a tiny budget. The answer must come
+   *   from the current page content already in the user prompt. If the
+   *   model can't answer from the page, it should say so — not fabricate.
+   * - `page-plus-retrieval` gets the full catalog toolset and the profile
+   *   budget. The page is the starting point but the model may explore.
+   */
+  private async *runStreamingRoute(
+    route: AskRoute,
+    question: string,
+    pageContent: string,
+    wiki: WikiJson | null,
+    sessionId: string,
+    turns: Array<{ role: string; content: string }>,
+  ): AsyncGenerator<AskStreamEvent> {
+    const systemPrompt = this.buildSystemPrompt(route);
+    const userPrompt = this.buildUserPrompt(
+      question,
+      pageContent,
+      wiki,
+      turns,
+    );
+
+    const profileAskBudget = this.qualityProfile?.askMaxSteps ?? 10;
+    const isPageFirst = route === "page-first";
+    const budget = isPageFirst ? 2 : profileAskBudget;
+    const toolSet: ToolSet = isPageFirst
+      ? ({} as ToolSet)
+      : (createCatalogTools(this.repoRoot) as unknown as ToolSet);
+
+    let fullText = "";
+    const citations: CitationRecord[] = [];
+
+    const result = streamText({
+      model: this.model,
+      system: systemPrompt,
+      prompt: userPrompt,
+      tools: toolSet,
+      stopWhen: stepCountIs(budget),
+    });
+
+    for await (const part of result.fullStream) {
+      switch (part.type) {
+        case "reasoning-delta":
+          yield {
+            type: "reasoning-delta",
+            text: (part as { text: string }).text,
+          };
+          break;
+        case "text-delta": {
+          const delta = (part as { text: string }).text;
+          fullText += delta;
+          yield { type: "text-delta", text: delta };
+          break;
+        }
+        case "tool-call":
+          yield {
+            type: "tool-call",
+            toolName: (part as { toolName: string }).toolName,
+            input: (part as { input?: unknown }).input,
+          };
+          break;
+        case "tool-result":
+          yield {
+            type: "tool-result",
+            toolName: (part as { toolName: string }).toolName,
+          };
+          break;
+        case "error":
+          yield {
+            type: "error",
+            message: String((part as { error: unknown }).error),
+          };
+          break;
+      }
+    }
+
+    const parsed = this.parseCitations(fullText);
+    const cleanAnswer = this.sanitizeAnswer(parsed.answer);
+    citations.push(...parsed.citations);
+
+    this.sessionManager.addAssistantTurn(sessionId, cleanAnswer, citations);
+    await this.sessionManager.persist(sessionId);
+
+    yield { type: "citations", citations };
+    yield { type: "done" };
+  }
+
+  /**
+   * Research route delegates to {@link ResearchService}, which runs the
+   * full plan → execute → synthesize pipeline and persists a
+   * {@link ResearchNote}. The result is then streamed back as text-delta
+   * chunks so the Web chat UI can render it progressively even though the
+   * underlying work is not token-streaming.
+   *
+   * Note: this is a deliberate UX trade-off. True token streaming would
+   * require plumbing streamText through every research sub-step, which is
+   * significantly more invasive. For now, the user sees "thinking..." while
+   * research runs, then the full three-label output arrives at once.
+   */
+  private async *runResearchRoute(
+    projectSlug: string,
+    versionId: string,
+    question: string,
+    sessionId: string,
+  ): AsyncGenerator<AskStreamEvent> {
+    const profile = this.qualityProfile;
+    const researchBudget = profile?.researchMaxSteps ?? 15;
+    const plannerBudget = Math.max(3, Math.ceil(researchBudget / 2));
+
+    const service = new ResearchService({
+      model: this.model,
+      storage: this.storage,
+      repoRoot: this.repoRoot,
+      plannerMaxSteps: plannerBudget,
+      executorMaxSteps: researchBudget,
+    });
+
+    // Signal to the UI that research is running so the thinking indicator
+    // can show a distinct message. The model name is a reasonable proxy.
+    yield {
+      type: "tool-call",
+      toolName: "research.plan",
+      input: { topic: question },
+    };
+
+    const result = await service.research(projectSlug, versionId, question);
+
+    yield { type: "tool-result", toolName: "research.plan" };
+
+    const answerText = this.formatResearchAnswer(result.note.summary, {
+      facts: result.note.facts,
+      inferences: result.note.inferences,
+      unconfirmed: result.note.unconfirmed,
+    });
+
+    // Stream the formatted text as a single chunk. The UI already handles
+    // text-delta accumulation, so this gives a consistent rendering path.
+    yield { type: "text-delta", text: answerText };
+
+    // Flatten every citation from facts + inferences into the wire event.
+    // unconfirmed entries have no citations by definition.
+    const citations: CitationRecord[] = [];
+    for (const f of result.note.facts) citations.push(...f.citations);
+    for (const f of result.note.inferences) citations.push(...f.citations);
+
+    this.sessionManager.addAssistantTurn(sessionId, answerText, citations);
+    await this.sessionManager.persist(sessionId);
+
+    yield { type: "citations", citations };
+    yield { type: "done" };
+  }
+
+  /**
+   * Format a ResearchNote's three buckets + summary into a compact ask
+   * answer. Intentionally plain text — the sanitizer will strip heavier
+   * markdown and the chat UI renders this as-is.
+   */
+  private formatResearchAnswer(
+    summary: string,
+    buckets: {
+      facts: LabeledFinding[];
+      inferences: LabeledFinding[];
+      unconfirmed: LabeledFinding[];
+    },
+  ): string {
     const zh = this.language === "zh";
+    const parts: string[] = [];
+
+    if (summary.trim()) {
+      parts.push(summary.trim());
+    }
+
+    if (buckets.facts.length > 0) {
+      parts.push(zh ? "**事实**" : "**Facts**");
+      for (const f of buckets.facts) {
+        parts.push(`- ${f.statement}`);
+      }
+    }
+
+    if (buckets.inferences.length > 0) {
+      parts.push(zh ? "**推断**" : "**Inferences**");
+      for (const f of buckets.inferences) {
+        parts.push(`- ${f.statement}`);
+      }
+    }
+
+    if (buckets.unconfirmed.length > 0) {
+      parts.push(zh ? "**待确认**" : "**Unconfirmed**");
+      for (const f of buckets.unconfirmed) {
+        parts.push(`- ${f.statement}`);
+      }
+    }
+
+    return parts.join("\n\n");
+  }
+
+  private buildSystemPrompt(route: AskRoute): string {
+    const zh = this.language === "zh";
+    const pageFirst = route === "page-first";
+
+    const pageFirstGuardZh = pageFirst
+      ? `
+
+## 当前路由约束（page-first）
+问题应当完全由「当前页面」内容回答。**不允许调用任何工具**。
+如果页面里没有答案，直接回复"当前页面没有相关内容，请切换到相关页面或换一种问法"——**绝不编造**。`
+      : "";
+    const pageFirstGuardEn = pageFirst
+      ? `
+
+## Current Route Constraint (page-first)
+The answer MUST come entirely from the "Current Page" content in the user prompt. **No tool calls allowed.**
+If the page does not contain the answer, reply "This page does not contain relevant content; try a different page or rephrase" — never fabricate.`
+      : "";
 
     const bodyZh = `你是代码仓库 wiki 的**检索助手**，不是文档作者。绝对禁止重写 wiki 内容。
 
@@ -222,7 +396,7 @@ export class AskStreamService {
 }
 \`\`\`
 
-现在回答用户的问题。记住：**简短、精准、必须引用**。`;
+现在回答用户的问题。记住：**简短、精准、必须引用**。${pageFirstGuardZh}`;
 
     const bodyEn = `You are a **retrieval assistant** for a codebase wiki, NOT a documentation writer. Never rewrite wiki content.
 
@@ -263,7 +437,7 @@ Output ONLY the answer body (≤120 words) + trailing JSON citations block:
 }
 \`\`\`
 
-Now answer the user. Remember: **short, precise, cited**.`;
+Now answer the user. Remember: **short, precise, cited**.${pageFirstGuardEn}`;
 
     return zh ? bodyZh : bodyEn;
   }

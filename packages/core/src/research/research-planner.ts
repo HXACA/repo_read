@@ -1,4 +1,4 @@
-import { generateText } from "ai";
+import { generateText, stepCountIs } from "ai";
 import type { LanguageModel, ToolSet } from "ai";
 import { createCatalogTools } from "../catalog/catalog-tools.js";
 
@@ -11,10 +11,21 @@ export type ResearchPlan = {
 export type ResearchPlannerOptions = {
   model: LanguageModel;
   repoRoot: string;
+  /**
+   * Upper bound on tool-call steps for the planner's single LLM call.
+   * The planner is lightweight (it only needs enough calls to understand
+   * the high-level structure), so this is capped well below executor.
+   * Defaults to 6.
+   */
+  maxSteps?: number;
 };
 
 export class ResearchPlanner {
-  constructor(private readonly options: ResearchPlannerOptions) {}
+  private readonly maxSteps: number;
+
+  constructor(private readonly options: ResearchPlannerOptions) {
+    this.maxSteps = options.maxSteps ?? 6;
+  }
 
   async plan(topic: string, context?: string): Promise<ResearchPlan> {
     const tools = createCatalogTools(this.options.repoRoot);
@@ -33,6 +44,7 @@ Return a JSON object:
 
 Use the tools to understand the codebase, then break this into focused sub-questions. Return JSON.`,
       tools: tools as unknown as ToolSet,
+      stopWhen: stepCountIs(this.maxSteps),
     });
 
     return this.parsePlan(result.text, topic);

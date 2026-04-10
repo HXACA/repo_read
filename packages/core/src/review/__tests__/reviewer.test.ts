@@ -195,6 +195,60 @@ describe("FreshReviewer", () => {
     expect(result.conclusion!.blockers.some((b) => b.includes("missing/path.ts"))).toBe(true);
   });
 
+  it("strictness=strict changes rule 6 phrasing", async () => {
+    const { generateText } = await import("ai");
+    const spy = vi.mocked(generateText);
+    spy.mockResolvedValueOnce({
+      text: passConclusion,
+    } as never);
+
+    const reviewer = new FreshReviewer({
+      model: {} as never,
+      repoRoot: "/tmp/repo",
+      strictness: "strict",
+    });
+    await reviewer.review(briefing);
+    const call = spy.mock.calls[0][0] as { system?: string };
+    expect(call.system).toContain("err on the side of rejection");
+    expect(call.system).not.toContain("Even minor factual risks do not require");
+  });
+
+  it("strictness=lenient changes rule 6 phrasing", async () => {
+    const { generateText } = await import("ai");
+    const spy = vi.mocked(generateText);
+    spy.mockResolvedValueOnce({
+      text: passConclusion,
+    } as never);
+
+    const reviewer = new FreshReviewer({
+      model: {} as never,
+      repoRoot: "/tmp/repo",
+      strictness: "lenient",
+    });
+    await reviewer.review(briefing);
+    const call = spy.mock.calls[0][0] as { system?: string };
+    expect(call.system).toContain("HARD blockers that would actively mislead");
+    expect(call.system).not.toContain("err on the side of rejection");
+  });
+
+  it("strictness defaults to normal", async () => {
+    const { generateText } = await import("ai");
+    const spy = vi.mocked(generateText);
+    spy.mockResolvedValueOnce({
+      text: passConclusion,
+    } as never);
+
+    const reviewer = new FreshReviewer({
+      model: {} as never,
+      repoRoot: "/tmp/repo",
+    });
+    await reviewer.review(briefing);
+    const call = spy.mock.calls[0][0] as { system?: string };
+    expect(call.system).toContain(
+      "Even minor factual risks do not require",
+    );
+  });
+
   it("verifyMinCitations=0 does not add the verification block", async () => {
     // When minCitations is 0, the prompt should not mention verification at all.
     // We can verify by checking that a call with only old-style fields still passes.

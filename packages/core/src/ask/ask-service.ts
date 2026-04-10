@@ -1,8 +1,9 @@
 import * as fs from "node:fs/promises";
-import { generateText } from "ai";
+import { generateText, stepCountIs } from "ai";
 import type { LanguageModel, ToolSet } from "ai";
 import type { StorageAdapter } from "../storage/storage-adapter.js";
 import type { WikiJson, PageMeta, CitationRecord } from "../types/generation.js";
+import type { QualityProfile } from "../config/quality-profile.js";
 import { createCatalogTools } from "../catalog/catalog-tools.js";
 import { classifyRoute } from "./route-classifier.js";
 import { AskSessionManager } from "./ask-session.js";
@@ -12,6 +13,7 @@ export type AskOptions = {
   model: LanguageModel;
   storage: StorageAdapter;
   repoRoot: string;
+  qualityProfile?: QualityProfile;
 };
 
 export type AskResult = {
@@ -26,12 +28,14 @@ export class AskService {
   private readonly storage: StorageAdapter;
   private readonly repoRoot: string;
   private readonly sessionManager: AskSessionManager;
+  private readonly qualityProfile?: QualityProfile;
 
   constructor(options: AskOptions) {
     this.model = options.model;
     this.storage = options.storage;
     this.repoRoot = options.repoRoot;
     this.sessionManager = new AskSessionManager(options.storage);
+    this.qualityProfile = options.qualityProfile;
   }
 
   async ask(
@@ -95,12 +99,15 @@ export class AskService {
     // Call LLM
     const tools = createCatalogTools(this.repoRoot);
 
+    const askBudget = this.qualityProfile?.askMaxSteps ?? 10;
+
     try {
       const result = await generateText({
         model: this.model,
         system: systemPrompt,
         prompt: userPrompt,
         tools: tools as unknown as ToolSet,
+        stopWhen: stepCountIs(askBudget),
       });
 
       const { answer, citations } = this.parseAnswer(result.text);

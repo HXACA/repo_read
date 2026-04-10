@@ -15,6 +15,10 @@ import type { Preset } from "../types/config.js";
  * - `reviewerVerifyMinCitations` — number of citations the reviewer MUST
  *   verify with the `read` tool. `0` disables the verification requirement.
  * - `reviewerStrictness` — tone setting for the reviewer system prompt.
+ * - `askMaxSteps` — `stepCountIs(...)` budget for AskStreamService (chat
+ *   assistant). Covers page-first and page-plus-retrieval routes.
+ * - `researchMaxSteps` — `stepCountIs(...)` budget for each research
+ *   planner/executor LLM call (per sub-question in the executor).
  */
 export type QualityProfile = {
   forkWorkers: number;
@@ -24,6 +28,8 @@ export type QualityProfile = {
   reviewerMaxSteps: number;
   reviewerVerifyMinCitations: number;
   reviewerStrictness: "lenient" | "normal" | "strict";
+  askMaxSteps: number;
+  researchMaxSteps: number;
 };
 
 /**
@@ -44,6 +50,8 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     reviewerMaxSteps: 15,
     reviewerVerifyMinCitations: 3,
     reviewerStrictness: "strict",
+    askMaxSteps: 15,
+    researchMaxSteps: 20,
   }),
   balanced: Object.freeze({
     forkWorkers: 2,
@@ -53,6 +61,8 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     reviewerMaxSteps: 10,
     reviewerVerifyMinCitations: 2,
     reviewerStrictness: "normal",
+    askMaxSteps: 10,
+    researchMaxSteps: 15,
   }),
   budget: Object.freeze({
     forkWorkers: 1,
@@ -62,6 +72,8 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     reviewerMaxSteps: 6,
     reviewerVerifyMinCitations: 0,
     reviewerStrictness: "lenient",
+    askMaxSteps: 4,
+    researchMaxSteps: 8,
   }),
   "local-only": Object.freeze({
     forkWorkers: 1,
@@ -71,6 +83,8 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     reviewerMaxSteps: 6,
     reviewerVerifyMinCitations: 0,
     reviewerStrictness: "normal",
+    askMaxSteps: 4,
+    researchMaxSteps: 8,
   }),
 });
 

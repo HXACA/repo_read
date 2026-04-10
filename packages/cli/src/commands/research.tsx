@@ -65,7 +65,16 @@ export async function runResearch(options: ResearchOptions): Promise<void> {
 
   console.log(`Researching: "${options.topic}" (version ${versionId})...`);
 
-  const service = new ResearchService({ model, storage, repoRoot });
+  // Planner gets roughly half the executor budget — it's lightweight and
+  // only needs a few tool calls to understand high-level structure.
+  const researchBudget = resolvedConfig.qualityProfile.researchMaxSteps;
+  const service = new ResearchService({
+    model,
+    storage,
+    repoRoot,
+    plannerMaxSteps: Math.max(3, Math.ceil(researchBudget / 2)),
+    executorMaxSteps: researchBudget,
+  });
 
   try {
     const result = await service.research(slug, versionId, options.topic);

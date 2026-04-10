@@ -1,4 +1,4 @@
-import { generateText } from "ai";
+import { generateText, stepCountIs } from "ai";
 import type { LanguageModel, ToolSet } from "ai";
 import type { CitationRecord } from "../types/generation.js";
 import { createCatalogTools } from "../catalog/catalog-tools.js";
@@ -13,10 +13,19 @@ export type SubQuestionResult = {
 export type ResearchExecutorOptions = {
   model: LanguageModel;
   repoRoot: string;
+  /**
+   * Upper bound on tool-call steps per sub-question investigation. Defaults
+   * to 15 to allow deeper drill-down than ask but less than drafter.
+   */
+  maxSteps?: number;
 };
 
 export class ResearchExecutor {
-  constructor(private readonly options: ResearchExecutorOptions) {}
+  private readonly maxSteps: number;
+
+  constructor(private readonly options: ResearchExecutorOptions) {
+    this.maxSteps = options.maxSteps ?? 15;
+  }
 
   async investigate(question: string): Promise<SubQuestionResult> {
     const tools = createCatalogTools(this.options.repoRoot);
@@ -34,6 +43,7 @@ Return a JSON object:
 }`,
       prompt: `Investigate: ${question}\n\nUse the tools to find evidence and return structured findings as JSON.`,
       tools: tools as unknown as ToolSet,
+      stopWhen: stepCountIs(this.maxSteps),
     });
 
     return this.parseResult(result.text, question);

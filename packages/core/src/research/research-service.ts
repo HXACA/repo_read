@@ -21,6 +21,14 @@ export type ResearchServiceOptions = {
   model: LanguageModel;
   storage: StorageAdapter;
   repoRoot: string;
+  /**
+   * Per-stage step budget. When omitted, planner and executor use their
+   * own defaults (6 and 15 respectively). In production the pipeline
+   * passes `qualityProfile.researchMaxSteps` for the executor and a
+   * tighter cap (roughly half) for the planner.
+   */
+  plannerMaxSteps?: number;
+  executorMaxSteps?: number;
 };
 
 /**
@@ -45,10 +53,12 @@ export class ResearchService {
     this.planner = new ResearchPlanner({
       model: options.model,
       repoRoot: options.repoRoot,
+      maxSteps: options.plannerMaxSteps,
     });
     this.executor = new ResearchExecutor({
       model: options.model,
       repoRoot: options.repoRoot,
+      maxSteps: options.executorMaxSteps,
     });
     this.store = new ResearchStore(options.storage);
     this.model = options.model;

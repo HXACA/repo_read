@@ -70,6 +70,7 @@ export async function POST(
     storage,
     repoRoot,
     language: resolvedConfig.language,
+    qualityProfile: resolvedConfig.qualityProfile,
   });
 
   // Create SSE stream
