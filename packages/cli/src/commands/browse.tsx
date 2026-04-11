@@ -1,6 +1,10 @@
 import * as path from "node:path";
 import * as http from "node:http";
+import { fileURLToPath } from "node:url";
 import { StorageAdapter } from "@reporead/core";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export interface BrowseOptions {
   dir: string;
@@ -42,8 +46,8 @@ function waitForServer(port: number, timeoutMs = 30000): Promise<boolean> {
   });
 }
 
-function openBrowser(url: string): void {
-  const { exec } = require("node:child_process") as typeof import("node:child_process");
+async function openBrowser(url: string): Promise<void> {
+  const { exec } = await import("node:child_process");
   const cmd =
     process.platform === "darwin"
       ? "open"
