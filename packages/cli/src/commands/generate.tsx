@@ -80,10 +80,9 @@ export async function runGenerate(options: GenerateOptions): Promise<void> {
     console.log("API key saved to config.json for web server reuse.");
   }
 
-  // 3b. Enable debug logging if --debug flag is set
-  if (process.env.REPOREAD_DEBUG === "1" || process.env.REPOREAD_DEBUG === "true") {
-    setDebugDir(path.join(storage.paths.projectDir(slug), "debug"));
-  }
+  // 3b. Enable debug fetch injection (actual dir set after job creation)
+  const isDebug = process.env.REPOREAD_DEBUG === "1" || process.env.REPOREAD_DEBUG === "true";
+  if (isDebug) setDebugDir(path.join(storage.paths.projectDir(slug), "debug"));
 
   // 4. Create models for all three roles
   let model, reviewerModel, workerModel;
@@ -217,6 +216,9 @@ export async function runGenerate(options: GenerateOptions): Promise<void> {
     job = await jobManager.create(slug, repoRoot, resolvedConfig);
     console.log(`Job ${job.id} created (version: ${job.versionId})`);
   }
+
+  // Update debug dir to job-specific path now that we have the job ID
+  if (isDebug) setDebugDir(path.join(storage.paths.jobDir(slug, job.id), "debug"));
 
   const pipeline = new GenerationPipeline({
     storage,

@@ -1,9 +1,11 @@
 /**
- * CLI progress panel — in-place refresh with terminal height awareness.
+ * CLI progress panel — in-place refresh.
  *
- * Panel height is capped at (terminal rows - 2) to prevent overflow.
- * When the chapter list exceeds the available space, a sliding window
- * is shown around the active chapter: recent ✓, current →, next few ○.
+ * Uses cursor-up + clear-to-end-of-screen (\x1b[J) instead of
+ * line-by-line clearing. This is robust against line wrapping,
+ * terminal resize, and line count mismatches.
+ *
+ * All chapters are always shown — no truncation, no sliding window.
  */
 
 import type { AppEvent } from "@reporead/core";
@@ -13,7 +15,6 @@ const R = "\x1b[0m";  // reset
 const G = "\x1b[32m"; // green
 const Y = "\x1b[33m"; // yellow
 const C = "\x1b[36m"; // cyan
-const UP_CLEAR = "\x1b[A\x1b[2K";
 const SP = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 type Page = {
@@ -116,15 +117,10 @@ export class ProgressRenderer {
       return;
     }
 
-    const termRows = process.stderr.rows || 40;
     const tw = process.stderr.columns || 100;
     const total = this.pages.length;
     const secs = new Set(this.pages.map((x) => x.section).filter(Boolean)).size;
     const done = this.skipN + this.pages.filter((x) => x.status === "done").length;
-
-    // Header (3 lines) + progress bar (2 lines) + skip line (0-1) = 5-6 fixed lines
-    const fixedLines = 5 + (this.skipN > 0 ? 1 : 0);
-    const maxChapterLines = Math.max(5, termRows - fixedLines - 2);
 
     // ── header ──
     const hdr = `── 目录 · ${total} 章${secs ? ` · ${secs} 节` : ""} `;
@@ -134,57 +130,31 @@ export class ProgressRenderer {
 
     if (this.skipN > 0) lines.push(`  ${D}⊘ 1-${this.skipN} 已完成（上次运行），跳过${R}`);
 
-    // ── build full chapter lines ──
-    const chapterLines: string[] = [];
-    const visible = this.pages.filter((p) => p.status !== "skipped");
+    // ── all chapters ──
     let lastSec = "";
-
-    for (let vi = 0; vi < visible.length; vi++) {
-      const pg = visible[vi];
-      const i = this.pages.indexOf(pg);
-      const n = String(i + 1).padStart(2);
+    for (let i = 0; i < this.pages.length; i++) {
+      const pg = this.pages[i];
+      if (pg.status === "skipped") continue;
 
       if (pg.section && pg.section !== lastSec) {
         lastSec = pg.section;
-        chapterLines.push(`${D}  ┈ ${pg.section} ┈${R}`);
+        lines.push(`${D}  ┈ ${pg.section} ┈${R}`);
       }
+
+      const n = String(i + 1).padStart(2);
 
       if (pg.status === "done") {
         const att = pg.attempt > 0 ? ` ${D}(${pg.attempt + 1}次)${R}` : "";
-        chapterLines.push(`  ${G}✓${R} ${n}. ${pg.title}${att}  ${D}${this.dur(pg.elapsed ?? 0)}${R}`);
+        lines.push(`  ${G}✓${R} ${n}. ${pg.title}${att}  ${D}${this.dur(pg.elapsed ?? 0)}${R}`);
       } else if (pg.status === "active") {
         const phase = pg.phase ?? "准备中";
         const pel = this.dur(Date.now() - (pg.startedAt ?? Date.now()));
-        chapterLines.push(`  ${C}→${R} ${n}. ${pg.title}  ${Y}[${phase}]${R} ${D}${pel}${R}`);
+        lines.push(`  ${C}→${R} ${n}. ${pg.title}  ${Y}[${phase}]${R} ${D}${pel}${R}`);
         if (pg.steps.length) {
-          chapterLines.push(`       ${D}${pg.steps.join(" → ")}${R}`);
+          lines.push(`       ${D}${pg.steps.join(" → ")}${R}`);
         }
       } else {
-        chapterLines.push(`  ${D}○ ${n}. ${pg.title}${R}`);
-      }
-    }
-
-    // ── truncate if needed ──
-    if (chapterLines.length <= maxChapterLines) {
-      lines.push(...chapterLines);
-    } else {
-      // Find the active line index in chapterLines
-      const activeIdx = chapterLines.findIndex((l) => l.includes("→"));
-      const center = activeIdx >= 0 ? activeIdx : 0;
-
-      // Show window around active: some before, active, some after
-      const before = Math.floor((maxChapterLines - 2) / 2); // -2 for fold indicators
-      const after = maxChapterLines - 2 - before;
-      let start = Math.max(0, center - before);
-      let end = Math.min(chapterLines.length, start + maxChapterLines - 2);
-      if (end - start < maxChapterLines - 2) start = Math.max(0, end - (maxChapterLines - 2));
-
-      if (start > 0) {
-        lines.push(`  ${D}  ⋮ ${start} 行已折叠${R}`);
-      }
-      lines.push(...chapterLines.slice(start, end));
-      if (end < chapterLines.length) {
-        lines.push(`  ${D}  ⋮ ${chapterLines.length - end} 行已折叠${R}`);
+        lines.push(`  ${D}○ ${n}. ${pg.title}${R}`);
       }
     }
 
@@ -204,16 +174,16 @@ export class ProgressRenderer {
   }
 
   private writeLive(lines: string[]) {
-    for (const line of lines) {
-      process.stderr.write(line + "\n");
-    }
+    // Write all lines as a single write to avoid interleaving
+    process.stderr.write(lines.join("\n") + "\n");
     this.liveLines = lines.length;
   }
 
+  /** Move cursor to panel start, then clear everything below. */
   private eraseLive() {
-    for (let i = 0; i < this.liveLines; i++) {
-      process.stderr.write(UP_CLEAR);
-    }
+    if (this.liveLines === 0) return;
+    // Move up N lines in one shot, then clear from cursor to end of screen
+    process.stderr.write(`\x1b[${this.liveLines}A\x1b[J`);
     this.liveLines = 0;
   }
 
