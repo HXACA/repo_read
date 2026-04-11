@@ -179,6 +179,21 @@ export class ProgressRenderer {
       const dts = this.pages.filter((x) => x.status === "done" && x.elapsed).map((x) => x.elapsed!);
       if (dts.length) eta = ` · 预计 ~${this.dur((total - done) * (dts.reduce((a, b) => a + b, 0) / dts.length))}`;
       lines.push(`  ${bar} ${done}/${total} ${pct}% · 总耗时 ${el}${eta}`);
+    } else if (done < total) {
+      // Between pages: previous page done, next page hasn't received its
+      // first event yet (evidence planning LLM call in progress). Show a
+      // spinner for the next pending page so the display doesn't look dead.
+      const next = this.pages.find((x) => x.status === "pending");
+      const nextTitle = next ? next.title : "";
+      lines.push(`  ${Y}${sp}${R} [${done}/${total}] ${nextTitle}  ${D}[准备中] ${el}${R}`);
+      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+      const bw = 20;
+      const filled = total > 0 ? Math.round((done / total) * bw) : 0;
+      const bar = "▓".repeat(filled) + "░".repeat(bw - filled);
+      let eta = "";
+      const dts = this.pages.filter((x) => x.status === "done" && x.elapsed).map((x) => x.elapsed!);
+      if (dts.length) eta = ` · 预计 ~${this.dur((total - done) * (dts.reduce((a, b) => a + b, 0) / dts.length))}`;
+      lines.push(`  ${bar} ${done}/${total} ${pct}% · 总耗时 ${el}${eta}`);
     } else if (total > 0) {
       lines.push(`  ${D}${done}/${total} 完成 · ${el}${R}`);
     }
