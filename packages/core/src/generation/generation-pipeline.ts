@@ -238,13 +238,19 @@ export class GenerationPipeline {
 
           // === EVIDENCE COLLECTION ===
           // Run on first attempt, or on retries where reviewer flagged
-          // missing_evidence (suggesting we need to look at more files).
+          // missing_evidence, factual_risks, or scope_violations
+          // (suggesting we need to look at more/different files).
           const shouldCollectEvidence =
             coordinator !== null &&
             (attempt === 0 ||
-              (reviewResult?.conclusion?.missing_evidence?.length ?? 0) > 0);
+              (reviewResult?.conclusion?.missing_evidence?.length ?? 0) > 0 ||
+              (reviewResult?.conclusion?.factual_risks?.length ?? 0) > 0 ||
+              (reviewResult?.conclusion?.scope_violations?.length ?? 0) > 0);
+
+          let evidenceJustCollected = false;
 
           if (shouldCollectEvidence) {
+            evidenceJustCollected = true;
             evidenceResult = await coordinator!.collect({
               pageTitle: page.title,
               pageRationale: page.rationale,
@@ -256,7 +262,21 @@ export class GenerationPipeline {
               workerContext: [
                 `Project: ${wiki.summary}`,
                 `Page plan: ${page.rationale}`,
-              ].join("\n\n"),
+                ...(attempt > 0 && reviewResult?.conclusion
+                  ? [
+                      `\nPrevious review feedback (attempt ${attempt}):`,
+                      ...(reviewResult.conclusion.factual_risks?.length
+                        ? [`Factual risks: ${reviewResult.conclusion.factual_risks.join("; ")}`]
+                        : []),
+                      ...(reviewResult.conclusion.missing_evidence?.length
+                        ? [`Missing evidence: ${reviewResult.conclusion.missing_evidence.join("; ")}`]
+                        : []),
+                      ...(reviewResult.conclusion.scope_violations?.length
+                        ? [`Scope violations: ${reviewResult.conclusion.scope_violations.join("; ")}`]
+                        : []),
+                    ]
+                  : []),
+              ].join("\n"),
             });
             await emitter.pageEvidencePlanned(
               page.slug,
@@ -272,10 +292,10 @@ export class GenerationPipeline {
           }
 
           // === OUTLINE PLANNING ===
-          // Plan the outline once (first attempt after evidence is ready).
-          // Reuse across retries — the structure stays the same, only the
-          // prose changes when the drafter revises.
-          if (outline === null && evidenceResult) {
+          // Plan the outline after evidence is collected. Re-plan when
+          // evidence was just re-collected on a retry (the evidence base
+          // changed, so the outline should reflect the new findings).
+          if (evidenceResult && (outline === null || evidenceJustCollected)) {
             outline = await outlinePlanner.plan({
               pageTitle: page.title,
               pageRationale: page.rationale,
