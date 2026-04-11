@@ -1,20 +1,19 @@
 /**
- * CLI progress panel — in-place refresh.
+ * CLI progress panel — alternate screen buffer approach.
  *
- * Uses cursor-up + clear-to-end-of-screen (\x1b[J) instead of
- * line-by-line clearing. This is robust against line wrapping,
- * terminal resize, and line count mismatches.
- *
- * All chapters are always shown — no truncation, no sliding window.
+ * Uses the terminal's alternate screen (\x1b[?1049h) like vim/htop.
+ * Each frame: cursor to home (\x1b[H), clear screen (\x1b[J), write.
+ * No cursor-up counting. No line wrapping issues. No height overflow.
+ * On exit: restores the original screen (\x1b[?1049l).
  */
 
 import type { AppEvent } from "@reporead/core";
 
-const D = "\x1b[2m";  // dim
-const R = "\x1b[0m";  // reset
-const G = "\x1b[32m"; // green
-const Y = "\x1b[33m"; // yellow
-const C = "\x1b[36m"; // cyan
+const D = "\x1b[2m";
+const R = "\x1b[0m";
+const G = "\x1b[32m";
+const Y = "\x1b[33m";
+const C = "\x1b[36m";
 const SP = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 type Page = {
@@ -31,7 +30,7 @@ export class ProgressRenderer {
   private tick = 0;
   private skipN = 0;
   private catalogDone = false;
-  private liveLines = 0;
+  private altScreen = false;
 
   setPageList(p: Array<{ slug: string; title: string; section?: string }>) {
     this.pages = p.map((x) => ({
@@ -47,10 +46,20 @@ export class ProgressRenderer {
 
   start() {
     this.started = Date.now();
+    // Enter alternate screen buffer
+    process.stderr.write("\x1b[?1049h");
+    this.altScreen = true;
     this.timer = setInterval(() => this.render(), 500);
   }
 
-  stop() { if (this.timer) { clearInterval(this.timer); this.timer = null; } }
+  stop() {
+    if (this.timer) { clearInterval(this.timer); this.timer = null; }
+    // Leave alternate screen buffer — restores original terminal content
+    if (this.altScreen) {
+      process.stderr.write("\x1b[?1049l");
+      this.altScreen = false;
+    }
+  }
 
   readonly onEvent = (e: AppEvent) => {
     this.handle(e);
@@ -58,8 +67,10 @@ export class ProgressRenderer {
   };
 
   printSummary(ok: boolean, job: { versionId: string; id: string; summary: { succeededPages?: number; totalPages?: number } }) {
+    // Render one last frame so the user sees the final state briefly
+    this.render();
+    // Wait a moment, then exit alt screen and print summary on main screen
     this.stop();
-    this.eraseLive();
     const el = this.dur(Date.now() - this.started);
     const ts = this.pages.filter((p) => p.status === "done" && p.elapsed).map((p) => p.elapsed!);
     const avg = ts.length ? this.dur(ts.reduce((a, b) => a + b, 0) / ts.length) : "N/A";
@@ -101,36 +112,30 @@ export class ProgressRenderer {
       (() => { const x: Page = { slug: s, title: s, status: "active", startedAt: Date.now(), attempt: 0, steps: [] }; this.pages.push(x); return x; })();
   }
 
-  // ── render ──
-
   private render() {
     this.tick++;
-    this.eraseLive();
-
     const lines: string[] = [];
     const sp = SP[this.tick % SP.length];
     const el = this.dur(Date.now() - this.started);
 
     if (!this.catalogDone) {
+      lines.push("");
       lines.push(`  ${sp} 正在分析仓库结构... ${D}${el}${R}`);
-      this.writeLive(lines);
+      this.paint(lines);
       return;
     }
 
-    const tw = process.stderr.columns || 100;
     const total = this.pages.length;
     const secs = new Set(this.pages.map((x) => x.section).filter(Boolean)).size;
     const done = this.skipN + this.pages.filter((x) => x.status === "done").length;
 
-    // ── header ──
-    const hdr = `── 目录 · ${total} 章${secs ? ` · ${secs} 节` : ""} `;
-    lines.push(`${D}${hdr}${"─".repeat(Math.max(0, tw - vis(hdr)))}${R}`);
+    lines.push("");
+    lines.push(`${D}── 目录 · ${total} 章${secs ? ` · ${secs} 节` : ""} ──${R}`);
     lines.push(`  ${G}✓${R} 目录规划  ${D}[完成]${R}`);
     lines.push("");
 
     if (this.skipN > 0) lines.push(`  ${D}⊘ 1-${this.skipN} 已完成（上次运行），跳过${R}`);
 
-    // ── all chapters ──
     let lastSec = "";
     for (let i = 0; i < this.pages.length; i++) {
       const pg = this.pages[i];
@@ -160,7 +165,6 @@ export class ProgressRenderer {
 
     lines.push("");
 
-    // ── progress bar ──
     const pct = total > 0 ? Math.round((done / total) * 100) : 0;
     const bw = 20;
     const filled = total > 0 ? Math.round((done / total) * bw) : 0;
@@ -170,21 +174,13 @@ export class ProgressRenderer {
     if (dts.length) eta = ` · 预计 ~${this.dur((total - done) * (dts.reduce((a, b) => a + b, 0) / dts.length))}`;
     lines.push(`  ${bar} ${done}/${total} ${pct}% · 总耗时 ${el}${eta}`);
 
-    this.writeLive(lines);
+    this.paint(lines);
   }
 
-  private writeLive(lines: string[]) {
-    // Write all lines as a single write to avoid interleaving
-    process.stderr.write(lines.join("\n") + "\n");
-    this.liveLines = lines.length;
-  }
-
-  /** Move cursor to panel start, then clear everything below. */
-  private eraseLive() {
-    if (this.liveLines === 0) return;
-    // Move up N lines in one shot, then clear from cursor to end of screen
-    process.stderr.write(`\x1b[${this.liveLines}A\x1b[J`);
-    this.liveLines = 0;
+  /** Clear alternate screen and write all lines from top. */
+  private paint(lines: string[]) {
+    // Cursor to home (0,0) + clear entire screen
+    process.stderr.write("\x1b[H\x1b[J" + lines.join("\n") + "\n");
   }
 
   private dur(ms: number): string {
