@@ -49,6 +49,11 @@ export class ProgressRenderer {
     // Enter alternate screen buffer
     process.stderr.write("\x1b[?1049h");
     this.altScreen = true;
+    // Ensure alternate screen is exited on SIGINT/SIGTERM/exit
+    const cleanup = () => this.stop();
+    process.on("exit", cleanup);
+    process.on("SIGINT", () => { cleanup(); process.exit(130); });
+    process.on("SIGTERM", () => { cleanup(); process.exit(143); });
     this.timer = setInterval(() => this.render(), 500);
   }
 
