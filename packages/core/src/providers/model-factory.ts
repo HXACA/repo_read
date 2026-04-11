@@ -3,6 +3,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModel } from "ai";
 import type { ResolvedConfig, RoleName, ProviderSdk } from "../types/config.js";
+import { parseModelId } from "../types/config.js";
 import { AppError } from "../errors.js";
 
 export type ModelFactoryOptions = {
@@ -15,37 +16,41 @@ export function createModelForRole(
   options: ModelFactoryOptions,
 ): LanguageModel {
   const route = config.roles[role];
+  const { provider: providerName, model: modelName } = parseModelId(route.primaryModel);
+
+  // Find the provider config: explicit from model prefix, or resolved from route
+  const resolvedProviderName = providerName ?? route.resolvedProvider;
   const providerConfig = config.providers.find(
-    (p) => p.provider === route.resolvedProvider && p.enabled,
+    (p) => p.provider === resolvedProviderName && p.enabled,
   );
 
-  const apiKey = options.apiKeys[route.resolvedProvider];
+  const apiKey = options.apiKeys[resolvedProviderName];
   if (!apiKey) {
     throw new AppError(
       "PROVIDER_AUTH_FAILED",
-      `No API key found for provider "${route.resolvedProvider}" (role: ${role})`,
+      `No API key found for provider "${resolvedProviderName}" (role: ${role})`,
     );
   }
 
-  const sdk = providerConfig?.sdk ?? inferSdk(route.resolvedProvider);
-  return createModel(sdk, route.resolvedProvider, route.primaryModel, apiKey, providerConfig?.baseUrl);
+  const npm = providerConfig?.npm ?? inferNpm(resolvedProviderName);
+  return createModel(npm, resolvedProviderName, modelName, apiKey, providerConfig?.baseUrl);
 }
 
-/** Fallback: infer SDK from provider name for configs that omit `sdk`. */
-function inferSdk(provider: string): ProviderSdk {
+/** Fallback: infer npm package from provider name for legacy configs without `npm`. */
+function inferNpm(provider: string): ProviderSdk {
   if (provider === "anthropic") return "@ai-sdk/anthropic";
-  if (provider === "openai") return "@ai-sdk/openai:responses";
+  if (provider === "openai") return "@ai-sdk/openai";
   return "@ai-sdk/openai-compatible";
 }
 
 function createModel(
-  sdk: ProviderSdk,
+  npm: ProviderSdk,
   providerName: string,
   modelId: string,
   apiKey: string,
   baseUrl?: string,
 ): LanguageModel {
-  switch (sdk) {
+  switch (npm) {
     case "@ai-sdk/anthropic": {
       const authOpts = baseUrl
         ? { authToken: apiKey, baseURL: baseUrl }
@@ -54,13 +59,6 @@ function createModel(
       return anthropic(modelId);
     }
     case "@ai-sdk/openai": {
-      const openai = createOpenAI({
-        apiKey,
-        ...(baseUrl ? { baseURL: baseUrl } : {}),
-      });
-      return openai(modelId);
-    }
-    case "@ai-sdk/openai:responses": {
       const openai = createOpenAI({
         apiKey,
         ...(baseUrl ? { baseURL: baseUrl } : {}),

@@ -1,4 +1,5 @@
 import type { UserEditableConfig, ResolvedConfig, ResolvedRoleRoute, RoleName } from "../types/config.js";
+import { parseModelId } from "../types/config.js";
 import type { ModelCapability } from "../types/provider.js";
 import { getQualityProfile } from "./quality-profile.js";
 
@@ -11,7 +12,7 @@ const PRESET_RETRIEVAL = {
 
 export function detectModelFamily(model: string, provider: string): string {
   if (provider === "anthropic" || model.startsWith("claude")) return "anthropic-claude";
-  if (provider === "openai" || model.startsWith("gpt") || model.startsWith("o1") || model.startsWith("o3")) return "openai-gpt";
+  if (provider === "openai" || model.startsWith("gpt") || model.startsWith("o1") || model.startsWith("o3") || model.startsWith("o4")) return "openai-gpt";
   if (provider === "google" || model.startsWith("gemini")) return "google-gemini";
   return "generic-openai-compatible";
 }
@@ -23,10 +24,13 @@ function resolveRole(
 ): ResolvedRoleRoute {
   const roleConfig = config.roles[roleName];
   const primaryModel = roleConfig.model;
+  const { provider: modelProvider } = parseModelId(primaryModel);
+
+  // Provider from model prefix (e.g. "glm/glm-5.1" → "glm"), then capability match, then first provider
   const cap = capabilities.find((c) => c.model === primaryModel && c.health !== "unavailable");
-  // Explicit provider in role config takes precedence, then capability match, then first provider
-  const resolvedProvider = roleConfig.provider ?? cap?.provider ?? config.providers[0].provider;
-  const family = detectModelFamily(primaryModel, resolvedProvider);
+  const resolvedProvider = modelProvider ?? cap?.provider ?? config.providers[0].provider;
+  const { model: bareModel } = parseModelId(primaryModel);
+  const family = detectModelFamily(bareModel, resolvedProvider);
 
   return {
     role: roleName,

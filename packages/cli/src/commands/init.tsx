@@ -17,22 +17,22 @@ const FALLBACK_CONFIG: UserEditableConfig = {
   providers: [
     {
       provider: "anthropic",
-      sdk: "@ai-sdk/anthropic",
+      npm: "@ai-sdk/anthropic",
       secretRef: "ANTHROPIC_API_KEY",
       enabled: true,
     },
   ],
   roles: {
     "main.author": {
-      model: "claude-sonnet-4-6",
+      model: "anthropic/claude-sonnet-4-6",
       fallback_models: [],
     },
     "fork.worker": {
-      model: "claude-sonnet-4-6",
+      model: "anthropic/claude-sonnet-4-6",
       fallback_models: [],
     },
     "fresh.reviewer": {
-      model: "claude-sonnet-4-6",
+      model: "anthropic/claude-sonnet-4-6",
       fallback_models: [],
     },
   },

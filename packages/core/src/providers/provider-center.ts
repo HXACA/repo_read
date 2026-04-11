@@ -1,4 +1,5 @@
 import type { UserEditableConfig, ResolvedConfig, RoleName } from "../types/config.js";
+import { parseModelId } from "../types/config.js";
 import type { ModelCapability } from "../types/provider.js";
 import { getStaticCapabilities } from "./capability.js";
 import { resolveConfig } from "../config/resolver.js";
@@ -33,12 +34,6 @@ export class ProviderCenter {
   }
 
   private gatherCapabilities(config: UserEditableConfig): ModelCapability[] {
-    // Build a map from model → explicitly declared provider (from roles config)
-    const modelProviderMap = new Map<string, string>();
-    for (const role of Object.values(config.roles)) {
-      if (role.provider) modelProviderMap.set(role.model, role.provider);
-    }
-
     const models = new Set<string>();
     for (const role of Object.values(config.roles)) {
       models.add(role.model);
@@ -46,27 +41,20 @@ export class ProviderCenter {
     }
 
     const capabilities: ModelCapability[] = [];
-    for (const model of models) {
-      const cached = this.capabilityCache.get(model);
+    for (const fullModelId of models) {
+      const cached = this.capabilityCache.get(fullModelId);
       if (cached) {
         capabilities.push(cached);
         continue;
       }
-      // Prefer explicitly declared provider, fall back to inference
-      const provider = modelProviderMap.get(model) ?? this.inferProvider(model, config);
-      const cap = getStaticCapabilities(model, provider);
-      this.capabilityCache.set(model, cap);
+      // Provider comes from "provider/model" prefix, or fallback to first config provider
+      const { provider: modelProvider, model: bareModel } = parseModelId(fullModelId);
+      const provider = modelProvider ?? config.providers[0]?.provider ?? "openai-compatible";
+      const cap = getStaticCapabilities(bareModel, provider);
+      this.capabilityCache.set(fullModelId, cap);
       capabilities.push(cap);
     }
 
     return capabilities;
-  }
-
-  /** Infer provider from model name — fallback when role config has no explicit `provider` field. */
-  private inferProvider(model: string, config: UserEditableConfig): string {
-    if (model.startsWith("claude")) return "anthropic";
-    if (model.startsWith("gpt") || model.startsWith("o1") || model.startsWith("o3") || model.startsWith("o4")) return "openai";
-    if (model.startsWith("gemini")) return "google";
-    return config.providers[0]?.provider ?? "openai-compatible";
   }
 }

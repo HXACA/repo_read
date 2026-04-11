@@ -2,33 +2,29 @@ export type Preset = "quality" | "balanced" | "budget" | "local-only";
 export type RoleName = "main.author" | "fork.worker" | "fresh.reviewer";
 
 export type RoleModelConfig = {
+  /** Model identifier in `provider/model` format, e.g. `"openrouter/qwen/qwen3.6-plus"` or `"glm/glm-5.1"`.
+   *  The part before the first `/` must match a `provider` name in `providers[]`. */
   model: string;
   fallback_models: string[];
-  /** Explicitly bind this role to a provider declared in `providers[]`. When
-   *  omitted, the system infers the provider from the model name. */
-  provider?: string;
 };
 
 export type ProjectRoleConfig = Record<RoleName, RoleModelConfig>;
 
 /**
- * Which AI SDK adapter to use for this provider.
- * Maps directly to npm packages:
+ * Which AI SDK npm package to use for this provider.
  * - `"@ai-sdk/anthropic"` — Anthropic native
- * - `"@ai-sdk/openai"` — OpenAI Chat Completions
- * - `"@ai-sdk/openai:responses"` — OpenAI Responses API
- * - `"@ai-sdk/openai-compatible"` — Any OpenAI-compatible endpoint (default)
+ * - `"@ai-sdk/openai"` — OpenAI Responses API (standard for OpenAI)
+ * - `"@ai-sdk/openai-compatible"` — OpenAI Chat Completions compatible (default)
  */
 export type ProviderSdk =
   | "@ai-sdk/anthropic"
   | "@ai-sdk/openai"
-  | "@ai-sdk/openai:responses"
   | "@ai-sdk/openai-compatible";
 
 export type ProviderCredentialConfig = {
   provider: string;
-  /** Which AI SDK adapter to use. Defaults to `"@ai-sdk/openai-compatible"`. */
-  sdk?: ProviderSdk;
+  /** AI SDK npm package. Defaults to `"@ai-sdk/openai-compatible"`. */
+  npm?: ProviderSdk;
   secretRef: string;
   apiKey?: string;
   baseUrl?: string;
@@ -60,7 +56,7 @@ export type ResolvedConfig = {
   language: string;
   providers: Array<{
     provider: string;
-    sdk?: ProviderSdk;
+    npm?: ProviderSdk;
     secretRef: string;
     apiKey?: string;
     baseUrl?: string;
@@ -74,3 +70,15 @@ export type ResolvedConfig = {
   };
   qualityProfile: import("../config/quality-profile.js").QualityProfile;
 };
+
+/**
+ * Parse `"provider/model"` format. First `/` splits provider from model.
+ * e.g. `"openrouter/qwen/qwen3.6-plus"` → `{ provider: "openrouter", model: "qwen/qwen3.6-plus" }`
+ *      `"glm/glm-5.1"` → `{ provider: "glm", model: "glm-5.1" }`
+ *      `"claude-sonnet-4-6"` → `{ provider: undefined, model: "claude-sonnet-4-6" }` (legacy)
+ */
+export function parseModelId(modelId: string): { provider: string | undefined; model: string } {
+  const idx = modelId.indexOf("/");
+  if (idx === -1) return { provider: undefined, model: modelId };
+  return { provider: modelId.slice(0, idx), model: modelId.slice(idx + 1) };
+}
