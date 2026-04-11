@@ -59,7 +59,7 @@ export type PageMeta = {
   commitHash: string;
   citationFile: string;
   summary: string;
-  reviewStatus: "accepted" | "accepted_with_notes";
+  reviewStatus: "accepted" | "accepted_with_notes" | "unverified";
   reviewSummary: string;
   reviewDigest: string;
   revisionAttempts?: number;
