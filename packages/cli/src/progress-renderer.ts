@@ -60,8 +60,6 @@ export class ProgressRenderer {
     }));
     const sections = new Set(pages.map((p) => p.section).filter(Boolean));
     this.sectionCount = sections.size;
-    // Now we have page data — start the render loop
-    if (this.pages.length > 0) this.startRenderLoop();
   }
 
   setResumeSkipped(n: number): void {
@@ -73,16 +71,22 @@ export class ProgressRenderer {
 
   start(): void {
     this.startedAt = Date.now();
-    // Don't start the render loop here — it starts when we have pages.
-    // During catalog, we print a static line via onEvent.
-    process.stderr.write(`  ⠋ 正在分析仓库结构...\n`);
-    this.lastLineCount = 1;
-  }
-
-  /** Start the render loop once we have pages to display. */
-  private startRenderLoop(): void {
-    if (this.refreshTimer) return;
-    this.refreshTimer = setInterval(() => this.render(), 200);
+    // Start with a catalog-phase spinner. Once pages arrive,
+    // render() switches to the full panel automatically.
+    this.refreshTimer = setInterval(() => {
+      if (this.pages.length > 0) {
+        this.render();
+      } else {
+        // Lightweight spinner for catalog phase
+        this.clearLines();
+        this.tick++;
+        const s = SPINNER[this.tick % SPINNER.length];
+        const elapsed = this.fmtDur(Date.now() - this.startedAt);
+        const line = `  ${s} 正在分析仓库结构... ${DIM}${elapsed}${RESET}\n`;
+        process.stderr.write(line);
+        this.lastLineCount = 1;
+      }
+    }, 200);
   }
 
   stop(): void {
@@ -148,8 +152,6 @@ export class ProgressRenderer {
 
       case "job.resumed":
         this.catalogDone = true;
-        // For resume, pages were already set via setPageList before start().
-        if (this.pages.length > 0) this.startRenderLoop();
         break;
 
       case "page.evidence_planned":
