@@ -1,9 +1,8 @@
 /**
- * CLI progress renderer — scrolling log mode.
+ * CLI progress panel — full chapter list with in-place refresh.
  *
- * Completed pages print as permanent lines (never erased).
- * Current page uses \r to overwrite a single status line.
- * No multi-line ANSI cursor movement — works in any terminal.
+ * Uses save/restore cursor + clear-to-end-of-screen for redraws.
+ * Falls back to scrolling log if pages aren't available yet.
  */
 
 import type { AppEvent } from "@reporead/core";
@@ -12,6 +11,8 @@ const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 const GREEN = "\x1b[32m";
 const YELLOW = "\x1b[33m";
+const SAVE_CURSOR = "\x1b[s";
+const RESTORE_AND_CLEAR = "\x1b[u\x1b[J";
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 type PageState = {
@@ -33,11 +34,7 @@ export class ProgressRenderer {
   private tick = 0;
   private resumeSkipped = 0;
   private catalogDone = false;
-  /** Track what we've permanently printed so we don't repeat. */
-  private printedDoneCount = 0;
-  private lastStatusLine = "";
-
-  // ── Public API ────────────────────────────────────────────────
+  private cursorSaved = false;
 
   setPageList(pages: Array<{ slug: string; title: string; section?: string }>): void {
     this.pages = pages.map((p) => ({
@@ -55,7 +52,10 @@ export class ProgressRenderer {
 
   start(): void {
     this.startedAt = Date.now();
-    this.timer = setInterval(() => this.renderStatusLine(), 200);
+    // Save cursor position — all future renders restore to this point
+    process.stderr.write(SAVE_CURSOR);
+    this.cursorSaved = true;
+    this.timer = setInterval(() => this.render(), 250);
   }
 
   stop(): void {
@@ -64,9 +64,7 @@ export class ProgressRenderer {
 
   readonly onEvent = (event: AppEvent): void => {
     this.handleEvent(event);
-    // After state change, flush any newly completed pages
-    this.flushCompleted();
-    this.renderStatusLine();
+    this.render();
   };
 
   printSummary(
@@ -74,15 +72,16 @@ export class ProgressRenderer {
     job: { versionId: string; id: string; summary: { succeededPages?: number; totalPages?: number } },
   ): void {
     this.stop();
-    this.clearStatusLine();
-    this.flushCompleted();
+    // Final render then move past it
+    this.render();
+    // Write summary below the panel
+    process.stderr.write("\n");
     const elapsed = this.fmtDur(Date.now() - this.startedAt);
     const doneTimes = this.pages.filter((p) => p.status === "done" && p.elapsed).map((p) => p.elapsed!);
     const avg = doneTimes.length > 0
       ? this.fmtDur(doneTimes.reduce((a, b) => a + b, 0) / doneTimes.length)
       : "N/A";
 
-    console.log();
     if (success) {
       console.log(`  ${GREEN}✓${RESET} 生成完成!`);
       console.log(`    版本:     ${job.versionId}`);
@@ -98,7 +97,7 @@ export class ProgressRenderer {
     console.log();
   }
 
-  // ── Event handling ────────────────────────────────────────────
+  // ── Events ────────────────────────────────────────────────────
 
   private handleEvent(event: AppEvent): void {
     const slug = event.pageSlug ?? "";
@@ -108,56 +107,40 @@ export class ProgressRenderer {
       case "catalog.completed":
         this.catalogDone = true;
         break;
-
       case "job.resumed":
         this.catalogDone = true;
-        if (this.resumeSkipped > 0) {
-          console.log(`  ${DIM}⊘ 1-${this.resumeSkipped} 已完成（上次运行），跳过${RESET}`);
-        }
         break;
-
       case "page.evidence_planned":
-        this.activatePage(slug);
-        this.pageFor(slug).currentPhase = "收集证据";
+        this.activate(slug).currentPhase = "收集证据";
         break;
-
       case "page.evidence_collected": {
         const p = this.pageFor(slug);
-        const n = (payload.citationCount as number) ?? 0;
-        p.steps.push(`${n}条引用`);
+        p.steps.push(`${(payload.citationCount as number) ?? 0}条引用`);
         p.currentPhase = "规划大纲";
         break;
       }
-
       case "page.drafting": {
-        const p = this.activatePage(slug);
-        if (p.attempt > 0) {
-          p.currentPhase = "重写中";
-        } else {
-          if (p.steps.length > 0 && !p.steps.some((s) => s.includes("大纲"))) {
+        const p = this.activate(slug);
+        if (p.attempt > 0) { p.currentPhase = "重写中"; }
+        else {
+          if (p.steps.length > 0 && !p.steps.some((s) => s.includes("大纲")))
             p.steps.push("大纲");
-          }
           p.currentPhase = "撰写中";
         }
         break;
       }
-
       case "page.drafted":
         this.pageFor(slug).currentPhase = "审阅中";
         break;
-
       case "page.reviewed": {
         const p = this.pageFor(slug);
         if ((payload.verdict as string) === "revise") {
           p.attempt++;
           p.steps.push(`修订#${p.attempt}`);
           p.currentPhase = "重写中";
-        } else {
-          p.currentPhase = "校验中";
-        }
+        } else { p.currentPhase = "校验中"; }
         break;
       }
-
       case "page.validated": {
         const p = this.pageFor(slug);
         p.status = "done";
@@ -168,13 +151,10 @@ export class ProgressRenderer {
     }
   }
 
-  private activatePage(slug: string): PageState {
+  private activate(slug: string): PageState {
     const p = this.pageFor(slug);
     if (p.status !== "active") {
-      p.status = "active";
-      p.startedAt = Date.now();
-      p.steps = [];
-      p.attempt = 0;
+      p.status = "active"; p.startedAt = Date.now(); p.steps = []; p.attempt = 0;
     }
     return p;
   }
@@ -184,74 +164,118 @@ export class ProgressRenderer {
       (() => { const p: PageState = { slug, title: slug, status: "active", startedAt: Date.now(), attempt: 0, steps: [] }; this.pages.push(p); return p; })();
   }
 
-  // ── Output ────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────
 
-  /** Print any newly-completed pages as permanent log lines. */
-  private flushCompleted(): void {
-    // Print catalog line once
-    if (this.catalogDone && this.printedDoneCount === 0 && this.pages.length > 0) {
-      this.clearStatusLine();
-      const total = this.pages.length;
-      const sections = new Set(this.pages.map((p) => p.section).filter(Boolean)).size;
-      console.log(`  ${GREEN}✓${RESET} 目录: ${total} 章${sections > 0 ? ` · ${sections} 节` : ""}`);
-    }
-
-    let i = this.resumeSkipped; // start after skipped pages
-    let printed = 0;
-    for (; i < this.pages.length; i++) {
-      const p = this.pages[i];
-      if (p.status !== "done") break;
-      printed++;
-      if (printed <= this.printedDoneCount) continue;
-      // New completion — print it
-      this.clearStatusLine();
-      const num = String(i + 1).padStart(2);
-      const elapsed = this.fmtDur(p.elapsed ?? 0);
-      const attempts = p.attempt > 0 ? ` (${p.attempt + 1}次)` : "";
-      console.log(`  ${GREEN}✓${RESET} ${num}. ${p.title}${attempts}  ${DIM}${elapsed}${RESET}`);
-    }
-    this.printedDoneCount = printed;
-  }
-
-  /** Overwrite the single status line with current page info + progress. */
-  private renderStatusLine(): void {
+  private render(): void {
     this.tick++;
     const s = SPINNER[this.tick % SPINNER.length];
-    const doneCount = this.resumeSkipped + this.pages.filter((p) => p.status === "done").length;
-    const total = this.pages.length || "?";
+    const tw = process.stderr.columns || 100;
     const elapsed = this.fmtDur(Date.now() - this.startedAt);
+    const lines: string[] = [];
 
-    const active = this.pages.find((p) => p.status === "active");
-    let line: string;
-
-    if (!this.catalogDone) {
-      line = `  ${s} 正在分析仓库结构... ${DIM}${elapsed}${RESET}`;
-    } else if (active) {
-      const num = this.pages.indexOf(active) + 1;
-      const phase = active.currentPhase ?? "准备中";
-      const chain = active.steps.length > 0 ? ` ${DIM}${active.steps.join(" → ")}${RESET}` : "";
-      const pageElapsed = this.fmtDur(Date.now() - (active.startedAt ?? Date.now()));
-      line = `  ${YELLOW}${s}${RESET} ${num}/${total} ${active.title} ${DIM}[${phase}]${RESET}${chain} ${DIM}${pageElapsed}${RESET}  ${DIM}总${elapsed}${RESET}`;
+    if (this.pages.length === 0) {
+      // Catalog phase — minimal display
+      lines.push(`  ${s} 正在分析仓库结构... ${DIM}${elapsed}${RESET}`);
     } else {
-      line = `  ${DIM}${doneCount}/${total} ${elapsed}${RESET}`;
+      // Full panel
+      const total = this.pages.length;
+      const doneCount = this.pages.filter((p) => p.status === "done" || p.status === "skipped").length;
+      const sections = new Set(this.pages.map((p) => p.section).filter(Boolean)).size;
+
+      // Header
+      const hdr = `── 目录 · ${total} 章${sections > 0 ? ` · ${sections} 节` : ""} `;
+      lines.push(`${DIM}${hdr}${"─".repeat(Math.max(0, tw - this.visLen(hdr)))}${RESET}`);
+
+      // Catalog status
+      if (this.catalogDone) {
+        lines.push(this.fmtLine(`  ${GREEN}✓${RESET} 目录规划`, `${DIM}[完成]${RESET}`, tw));
+      }
+
+      // Skip line
+      if (this.resumeSkipped > 0) {
+        lines.push(`  ${DIM}⊘ 1-${this.resumeSkipped} 已完成（上次运行），跳过${RESET}`);
+      }
+
+      // Active section header
+      const activeIdx = this.pages.findIndex((p) => p.status === "active");
+      if (activeIdx >= 0) {
+        const secHdr = `── 文章 ${activeIdx + 1}/${total} `;
+        lines.push(`${DIM}${secHdr}${"─".repeat(Math.max(0, tw - this.visLen(secHdr)))}${RESET}`);
+      }
+
+      // Pages
+      let lastSec = "";
+      for (let i = 0; i < this.pages.length; i++) {
+        const p = this.pages[i];
+        if (p.status === "skipped") continue;
+
+        // Section divider
+        if (p.section && p.section !== lastSec) {
+          lastSec = p.section;
+          lines.push(`${DIM}  ┈ ${p.section} ┈${RESET}`);
+        }
+
+        const num = String(i + 1).padStart(2);
+        switch (p.status) {
+          case "done": {
+            const el = this.fmtDur(p.elapsed ?? 0);
+            const att = p.attempt > 0 ? ` (${p.attempt + 1}次)` : "";
+            lines.push(this.fmtLine(
+              `  ${GREEN}✓${RESET} ${num}. ${p.title}${att}`,
+              `${DIM}[完成] ${el}${RESET}`, tw,
+            ));
+            break;
+          }
+          case "active": {
+            const el = this.fmtDur(Date.now() - (p.startedAt ?? Date.now()));
+            const phase = p.currentPhase ?? "准备中";
+            lines.push(this.fmtLine(
+              `${YELLOW}> ${s}${RESET} ${num}. ${p.title}`,
+              `${YELLOW}[${phase}]${RESET} ${DIM}${el}${RESET}`, tw,
+            ));
+            if (p.steps.length > 0) {
+              lines.push(`${DIM}       ${p.steps.join(" → ")}${RESET}`);
+            }
+            break;
+          }
+          case "pending": {
+            lines.push(this.fmtLine(
+              `  ${DIM}○ ${num}. ${p.title}${RESET}`,
+              `${DIM}[等待]${RESET}`, tw,
+            ));
+            break;
+          }
+        }
+      }
+
+      // Progress bar
+      const pct = Math.round((doneCount / total) * 100);
+      const barW = 20;
+      const filled = Math.round((doneCount / total) * barW);
+      const bar = "▓".repeat(filled) + "░".repeat(barW - filled);
+      let eta = "";
+      const doneTimes = this.pages.filter((p) => p.status === "done" && p.elapsed).map((p) => p.elapsed!);
+      if (doneTimes.length > 0) {
+        const avgMs = doneTimes.reduce((a, b) => a + b, 0) / doneTimes.length;
+        eta = ` · 预计 ~${this.fmtDur((total - doneCount) * avgMs)}`;
+      }
+      lines.push("");
+      lines.push(`  ${bar} ${doneCount}/${total} ${pct}% · ${elapsed}${eta}`);
     }
 
-    // Use \r to overwrite in place. Pad with spaces to clear previous longer line.
-    const tw = process.stderr.columns || 120;
-    const padded = line.length < tw ? line + " ".repeat(Math.max(0, tw - this.visLen(line))) : line;
-    process.stderr.write(`\r${padded}`);
-    this.lastStatusLine = line;
-  }
-
-  private clearStatusLine(): void {
-    if (this.lastStatusLine) {
-      const tw = process.stderr.columns || 120;
-      process.stderr.write(`\r${" ".repeat(tw)}\r`);
-      this.lastStatusLine = "";
+    // Write: restore cursor to saved position, clear everything below, then write
+    if (this.cursorSaved) {
+      process.stderr.write(RESTORE_AND_CLEAR);
     }
+    process.stderr.write(lines.join("\n") + "\n");
   }
 
   // ── Helpers ───────────────────────────────────────────────────
+
+  private fmtLine(left: string, right: string, tw: number): string {
+    const gap = Math.max(1, tw - this.visLen(left) - this.visLen(right) - 1);
+    return `${left}${" ".repeat(gap)}${right}`;
+  }
 
   private visLen(s: string): number {
     return s.replace(/\x1b\[[0-9;]*m/g, "").length;
@@ -261,8 +285,8 @@ export class ProgressRenderer {
     const sec = Math.round(ms / 1000);
     if (sec < 60) return `${sec}s`;
     const min = Math.floor(sec / 60);
-    const s = sec % 60;
-    if (min < 60) return s > 0 ? `${min}m${s}s` : `${min}m`;
+    const sv = sec % 60;
+    if (min < 60) return sv > 0 ? `${min}m${sv}s` : `${min}m`;
     const hr = Math.floor(min / 60);
     const m = min % 60;
     return m > 0 ? `${hr}h${m}m` : `${hr}h`;
