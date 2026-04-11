@@ -5,6 +5,7 @@ import type { LanguageModel } from "ai";
 import type { ResolvedConfig, RoleName, ProviderSdk } from "../types/config.js";
 import { parseModelId } from "../types/config.js";
 import { AppError } from "../errors.js";
+import { getDebugDir, createDebugFetch } from "../utils/debug-fetch.js";
 
 export type ModelFactoryOptions = {
   apiKeys: Record<string, string>;
@@ -18,7 +19,6 @@ export function createModelForRole(
   const route = config.roles[role];
   const { provider: providerName, model: modelName } = parseModelId(route.primaryModel);
 
-  // Find the provider config: explicit from model prefix, or resolved from route
   const resolvedProviderName = providerName ?? route.resolvedProvider;
   const providerConfig = config.providers.find(
     (p) => p.provider === resolvedProviderName && p.enabled,
@@ -33,10 +33,11 @@ export function createModelForRole(
   }
 
   const npm = providerConfig?.npm ?? inferNpm(resolvedProviderName);
-  return createModel(npm, resolvedProviderName, modelName, apiKey, providerConfig?.baseUrl);
+  // Inject debug fetch when debug mode is active
+  const fetchFn = getDebugDir() ? createDebugFetch() : undefined;
+  return createModel(npm, resolvedProviderName, modelName, apiKey, providerConfig?.baseUrl, fetchFn);
 }
 
-/** Fallback: infer npm package from provider name for legacy configs without `npm`. */
 function inferNpm(provider: string): ProviderSdk {
   if (provider === "anthropic") return "@ai-sdk/anthropic";
   if (provider === "openai") return "@ai-sdk/openai";
@@ -49,19 +50,21 @@ function createModel(
   modelId: string,
   apiKey: string,
   baseUrl?: string,
+  fetchFn?: typeof globalThis.fetch,
 ): LanguageModel {
   switch (npm) {
     case "@ai-sdk/anthropic": {
       const authOpts = baseUrl
         ? { authToken: apiKey, baseURL: baseUrl }
         : { apiKey };
-      const anthropic = createAnthropic(authOpts);
+      const anthropic = createAnthropic({ ...authOpts, ...(fetchFn ? { fetch: fetchFn } : {}) });
       return anthropic(modelId);
     }
     case "@ai-sdk/openai": {
       const openai = createOpenAI({
         apiKey,
         ...(baseUrl ? { baseURL: baseUrl } : {}),
+        ...(fetchFn ? { fetch: fetchFn } : {}),
       });
       return openai.responses(modelId);
     }
@@ -71,6 +74,7 @@ function createModel(
         name: providerName,
         apiKey,
         baseURL: baseUrl ?? `https://api.${providerName}.com/v1`,
+        ...(fetchFn ? { fetch: fetchFn } : {}),
       });
       return compatible(modelId);
     }

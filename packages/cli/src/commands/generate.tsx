@@ -11,6 +11,7 @@ import {
   GenerationPipeline,
   JobStateManager,
   createModelForRole,
+  setDebugDir,
 } from "@reporead/core";
 import type {
   GenerationJob,
@@ -77,6 +78,12 @@ export async function runGenerate(options: GenerateOptions): Promise<void> {
   if (configDirty) {
     await saveProjectConfig(storage.paths.projectDir(slug), config);
     console.log("API key saved to config.json for web server reuse.");
+  }
+
+  // 3b. Enable debug logging if --debug flag is set
+  if (process.env.REPOREAD_DEBUG === "1" || process.env.REPOREAD_DEBUG === "true") {
+    const ts = new Date().toISOString().replace(/[:.]/g, "-");
+    setDebugDir(path.join(storage.paths.projectDir(slug), "debug", ts));
   }
 
   // 4. Create models for all three roles

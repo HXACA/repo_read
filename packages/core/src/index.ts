@@ -27,6 +27,7 @@ export type {
   ResumePoint, GenerationPipelineOptions, PipelineResult,
 } from "./generation/index.js";
 export { PathPolicy, validateBashCommand } from "./policy/index.js";
+export { setDebugDir } from "./utils/debug-fetch.js";
 export type { BashValidationResult } from "./policy/index.js";
 export {
   readFile, grepSearch, findFiles,

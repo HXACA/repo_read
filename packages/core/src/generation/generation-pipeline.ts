@@ -19,7 +19,6 @@ import { Publisher } from "./publisher.js";
 import { EvidenceCoordinator, type EvidenceCollectionResult } from "./evidence-coordinator.js";
 import { OutlinePlanner } from "./outline-planner.js";
 import type { PageOutline } from "../types/agent.js";
-import { setDebugDir } from "../utils/generate-via-stream.js";
 
 export type GenerationPipelineOptions = {
   storage: StorageAdapter;
@@ -100,11 +99,6 @@ export class GenerationPipeline {
       options.onEvent,
     );
     const isResume = !!options.resumeWith;
-
-    // Enable debug logging under the job directory when REPOREAD_DEBUG is set
-    if (process.env.REPOREAD_DEBUG === "1" || process.env.REPOREAD_DEBUG === "true") {
-      setDebugDir(path.join(this.storage.paths.jobDir(slug, jobId), "debug"));
-    }
 
     try {
       let wiki: WikiJson;
@@ -578,10 +572,8 @@ export class GenerationPipeline {
         job.summary.failedPages ?? 0,
       );
 
-      setDebugDir(null);
       return { success: true, job };
     } catch (err) {
-      setDebugDir(null);
       return this.failJob(job, emitter, (err as Error).message);
     }
   }
