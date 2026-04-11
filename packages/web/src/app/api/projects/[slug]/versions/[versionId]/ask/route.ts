@@ -3,6 +3,7 @@ import {
   AskStreamService,
   loadProjectConfig,
   ProviderCenter,
+  resolveApiKeys,
   createModelForRole,
 } from "@reporead/core";
 
@@ -50,10 +51,7 @@ export async function POST(
   const providerCenter = new ProviderCenter();
   const resolvedConfig = providerCenter.resolve(config);
 
-  const apiKeys: Record<string, string> = {};
-  for (const p of config.providers) {
-    if (p.enabled && p.apiKey) apiKeys[p.provider] = p.apiKey;
-  }
+  const apiKeys = resolveApiKeys(config);
 
   let model;
   try {

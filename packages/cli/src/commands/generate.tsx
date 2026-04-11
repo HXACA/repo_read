@@ -5,9 +5,8 @@ import {
   ProjectModel,
   profileRepo,
   loadProjectConfig,
-  saveProjectConfig,
   ProviderCenter,
-  SecretStore,
+  resolveApiKeys,
   GenerationPipeline,
   JobStateManager,
   createModelForRole,
@@ -57,28 +56,8 @@ export async function runGenerate(options: GenerateOptions): Promise<void> {
   const resolvedConfig = providerCenter.resolve(config);
   console.log(`Config resolved: preset=${resolvedConfig.preset}`);
 
-  // 3. Gather API keys — check env vars, then config.apiKey
-  const secretStore = new SecretStore({ backend: "env" });
-  const apiKeys: Record<string, string> = {};
-  let configDirty = false;
-  for (const p of config.providers) {
-    if (!p.enabled) continue;
-    const envKey = await secretStore.get(p.secretRef);
-    if (envKey) {
-      apiKeys[p.provider] = envKey;
-      // Persist env key to config.json so web server can reuse it
-      if (!p.apiKey || p.apiKey !== envKey) {
-        p.apiKey = envKey;
-        configDirty = true;
-      }
-    } else if (p.apiKey) {
-      apiKeys[p.provider] = p.apiKey;
-    }
-  }
-  if (configDirty) {
-    await saveProjectConfig(storage.paths.projectDir(slug), config);
-    console.log("API key saved to config.json for web server reuse.");
-  }
+  // 3. Gather API keys — env var > config.apiKey
+  const apiKeys = resolveApiKeys(config);
 
   // 3b. Enable debug fetch injection (actual dir set after job creation)
   const isDebug = process.env.REPOREAD_DEBUG === "1" || process.env.REPOREAD_DEBUG === "true";

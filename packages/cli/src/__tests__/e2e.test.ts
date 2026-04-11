@@ -33,6 +33,16 @@ vi.mock("@reporead/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@reporead/core")>();
   return {
     ...actual,
+    resolveApiKeys: vi.fn((config: any) => {
+      const keys: Record<string, string> = {};
+      for (const p of config.providers ?? []) {
+        if (!p.enabled) continue;
+        const envKey = process.env[p.secretRef] ?? null;
+        if (envKey) keys[p.provider] = envKey;
+        else if (p.apiKey) keys[p.provider] = p.apiKey;
+      }
+      return keys;
+    }),
     createModelForRole: vi.fn(() => "mock-model"),
   };
 });

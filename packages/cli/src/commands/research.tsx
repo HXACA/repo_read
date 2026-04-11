@@ -4,7 +4,7 @@ import {
   ProjectModel,
   loadProjectConfig,
   ProviderCenter,
-  SecretStore,
+  resolveApiKeys,
   createModelForRole,
   ResearchService,
 } from "@reporead/core";
@@ -32,14 +32,7 @@ export async function runResearch(options: ResearchOptions): Promise<void> {
   const providerCenter = new ProviderCenter();
   const resolvedConfig = providerCenter.resolve(config);
 
-  const secretStore = new SecretStore({ backend: "env" });
-  const apiKeys: Record<string, string> = {};
-  for (const p of resolvedConfig.providers) {
-    if (p.enabled) {
-      const key = await secretStore.get(p.secretRef);
-      if (key) apiKeys[p.provider] = key;
-    }
-  }
+  const apiKeys = resolveApiKeys(config);
 
   let model;
   try {

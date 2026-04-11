@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
-import { StorageAdapter, ProjectModel, loadProjectConfig } from "@reporead/core";
+import { StorageAdapter, ProjectModel, loadProjectConfig, resolveApiKeys } from "@reporead/core";
 import type { UserEditableConfig } from "@reporead/core";
 
 export interface DoctorOptions {
@@ -26,8 +26,8 @@ export async function runDoctor(options: DoctorOptions): Promise<void> {
   console.log("\n  Environment");
   const nodeVer = process.version;
   const major = parseInt(nodeVer.slice(1));
-  if (major >= 18) ok(`Node.js ${nodeVer}`);
-  else fail(`Node.js ${nodeVer} (need \u226518)`);
+  if (major >= 22) ok(`Node.js ${nodeVer}`);
+  else fail(`Node.js ${nodeVer} (need \u226522)`);
 
   try {
     const { execSync } = await import("node:child_process");
@@ -45,11 +45,12 @@ export async function runDoctor(options: DoctorOptions): Promise<void> {
     const gc = JSON.parse(raw) as Partial<UserEditableConfig>;
     ok(`${globalPath} found`);
     if (gc.providers) {
+      const gcConfig = { projectSlug: "", repoRoot: "", preset: "default", providers: gc.providers, roles: {} } as unknown as UserEditableConfig;
+      const gcKeys = resolveApiKeys(gcConfig);
       for (const p of gc.providers) {
         if (!p.enabled) continue;
-        const hasKey = !!(p.apiKey || process.env[p.secretRef]);
-        if (hasKey) ok(`Provider: ${p.provider} (API key set)`);
-        else warn(`Provider: ${p.provider} (no API key \u2014 set ${p.secretRef})`);
+        if (gcKeys[p.provider]) ok(`Provider: ${p.provider} (API key set)`);
+        else warn(`Provider: ${p.provider} (no API key \u2014 set ${p.secretRef} or add apiKey to config)`);
       }
     }
   } catch {
@@ -76,11 +77,11 @@ export async function runDoctor(options: DoctorOptions): Promise<void> {
     const config = await loadProjectConfig(storage.paths.projectDir(slug));
     ok("Config valid");
     // Check project providers
+    const apiKeys = resolveApiKeys(config);
     for (const p of config.providers) {
       if (!p.enabled) continue;
-      const hasKey = !!(p.apiKey || process.env[p.secretRef]);
-      if (hasKey) ok(`Provider: ${p.provider} (API key set)`);
-      else warn(`Provider: ${p.provider} (no API key \u2014 set ${p.secretRef})`);
+      if (apiKeys[p.provider]) ok(`Provider: ${p.provider} (API key set)`);
+      else warn(`Provider: ${p.provider} (no API key \u2014 set ${p.secretRef} or add apiKey to config)`);
     }
   } catch {
     fail("Config invalid or missing");
