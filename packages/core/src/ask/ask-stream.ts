@@ -61,7 +61,7 @@ export class AskStreamService {
   ): AsyncGenerator<AskStreamEvent> {
     // Session setup
     let session = opts?.sessionId
-      ? this.sessionManager.get(opts.sessionId)
+      ? await this.sessionManager.get(opts.sessionId, projectSlug)
       : null;
     if (!session) {
       session = this.sessionManager.create(

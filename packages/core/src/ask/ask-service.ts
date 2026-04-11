@@ -47,7 +47,7 @@ export class AskService {
     // Get or create session
     let session: AskSession;
     if (options?.sessionId) {
-      const existing = this.sessionManager.get(options.sessionId);
+      const existing = await this.sessionManager.get(options.sessionId, projectSlug);
       if (existing) {
         session = existing;
       } else {

@@ -30,9 +30,9 @@ describe("AskSessionManager", () => {
     expect(session.turns).toHaveLength(0);
   });
 
-  it("retrieves created session", () => {
+  it("retrieves created session", async () => {
     const session = manager.create("proj", "v1");
-    const retrieved = manager.get(session.id);
+    const retrieved = await manager.get(session.id);
     expect(retrieved).toBe(session);
   });
 

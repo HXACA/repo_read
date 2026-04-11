@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import * as fs from "node:fs/promises";
 import type { StorageAdapter } from "../storage/storage-adapter.js";
 import type { AskSession } from "../types/events.js";
 import type { CitationRecord } from "../types/generation.js";
@@ -22,8 +23,20 @@ export class AskSessionManager {
     return session;
   }
 
-  get(sessionId: string): AskSession | undefined {
-    return this.sessions.get(sessionId);
+  async get(sessionId: string, projectSlug?: string): Promise<AskSession | undefined> {
+    const cached = this.sessions.get(sessionId);
+    if (cached) return cached;
+
+    if (projectSlug) {
+      const filePath = this.storage.paths.askSessionJson(projectSlug, sessionId);
+      const loaded = await this.storage.readJson<AskSession>(filePath);
+      if (loaded) {
+        this.sessions.set(loaded.id, loaded);
+        return loaded;
+      }
+    }
+
+    return undefined;
   }
 
   addUserTurn(sessionId: string, content: string): void {
@@ -43,8 +56,33 @@ export class AskSessionManager {
   async persist(sessionId: string): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session) return;
-    const dir = this.storage.paths.projectDir(session.projectSlug);
-    const filePath = `${dir}/ask/${sessionId}.json`;
+    const filePath = this.storage.paths.askSessionJson(session.projectSlug, sessionId);
     await this.storage.writeJson(filePath, session);
+  }
+
+  async list(projectSlug: string): Promise<AskSession[]> {
+    const dir = this.storage.paths.askDir(projectSlug);
+    let entries: string[];
+    try {
+      entries = await fs.readdir(dir);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        return [];
+      }
+      throw err;
+    }
+
+    const sessions: AskSession[] = [];
+    for (const entry of entries) {
+      if (!entry.endsWith(".json")) continue;
+      const sessionId = entry.replace(/\.json$/, "");
+      const filePath = this.storage.paths.askSessionJson(projectSlug, sessionId);
+      const loaded = await this.storage.readJson<AskSession>(filePath);
+      if (loaded) {
+        this.sessions.set(loaded.id, loaded);
+        sessions.push(loaded);
+      }
+    }
+    return sessions;
   }
 }

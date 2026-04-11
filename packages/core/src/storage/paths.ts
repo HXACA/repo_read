@@ -98,4 +98,14 @@ export class StoragePaths {
   researchNoteJson(slug: string, versionId: string, noteId: string): string {
     return path.join(this.researchDir(slug, versionId), `${noteId}.json`);
   }
+
+  /** Directory holding ask sessions for a project. */
+  askDir(slug: string): string {
+    return path.join(this.projectDir(slug), "ask");
+  }
+
+  /** Single ask session file. */
+  askSessionJson(slug: string, sessionId: string): string {
+    return path.join(this.askDir(slug), `${sessionId}.json`);
+  }
 }
