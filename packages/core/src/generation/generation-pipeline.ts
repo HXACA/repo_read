@@ -59,6 +59,8 @@ export type PipelineRunOptions = {
     wiki: WikiJson;
     skipPageSlugs: Set<string>;
   };
+  /** Real-time event callback for CLI progress display. */
+  onEvent?: (event: import("../types/events.js").AppEvent) => void;
 };
 
 export class GenerationPipeline {
@@ -89,7 +91,13 @@ export class GenerationPipeline {
     const slug = job.projectSlug;
     const jobId = job.id;
     const versionId = job.versionId;
-    const emitter = new JobEventEmitter(this.storage, slug, jobId, versionId);
+    const emitter = new JobEventEmitter(
+      this.storage,
+      slug,
+      jobId,
+      versionId,
+      options.onEvent,
+    );
     const isResume = !!options.resumeWith;
 
     try {

@@ -1,21 +1,27 @@
 import type { StorageAdapter } from "../storage/storage-adapter.js";
 import { createAppEvent } from "../events/app-event.js";
+import type { AppEvent } from "../types/events.js";
 import { EventWriter } from "../events/event-writer.js";
 import type { JobStatus } from "../types/generation.js";
 import type { ReviewVerdict } from "../types/review.js";
 
+export type PipelineEventCallback = (event: AppEvent) => void;
+
 export class JobEventEmitter {
   private readonly writer: EventWriter;
+  private readonly listener?: PipelineEventCallback;
 
   constructor(
     storage: StorageAdapter,
     private readonly projectSlug: string,
     private readonly jobId: string,
     private readonly versionId: string,
+    listener?: PipelineEventCallback,
   ) {
     this.writer = new EventWriter(
       storage.paths.eventsNdjson(projectSlug, jobId),
     );
+    this.listener = listener;
   }
 
   async jobStarted(): Promise<void> {
@@ -90,5 +96,6 @@ export class JobEventEmitter {
       pageSlug,
     });
     await this.writer.write(event);
+    this.listener?.(event);
   }
 }

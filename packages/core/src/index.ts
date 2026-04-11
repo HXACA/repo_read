@@ -20,6 +20,7 @@ export {
   buildPageDraftSystemPrompt, buildPageDraftUserPrompt,
   buildForkWorkerSystemPrompt, buildForkWorkerUserPrompt,
 } from "./generation/index.js";
+export type { PipelineEventCallback } from "./generation/generation-events.js";
 export type {
   PageDraftResult, PageDrafterOptions, PageDraftPromptInput,
   ForkWorkerResponse, ForkWorkerOptions, ForkWorkerInput,

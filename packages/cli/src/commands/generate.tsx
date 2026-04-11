@@ -16,6 +16,7 @@ import type {
   WikiJson,
   PageMeta,
 } from "@reporead/core";
+import { ProgressRenderer } from "../progress-renderer.js";
 
 export interface GenerateOptions {
   dir: string;
@@ -221,23 +222,24 @@ export async function runGenerate(options: GenerateOptions): Promise<void> {
     commitHash,
   });
 
-  console.log("Running generation pipeline...");
-  const result = await pipeline.run(job, resumeWith ? { resumeWith } : {});
+  const progress = new ProgressRenderer();
 
-  if (result.success) {
-    console.log(`\nGeneration complete!`);
-    console.log(`  Version: ${result.job.versionId}`);
-    console.log(
-      `  Pages: ${result.job.summary.succeededPages ?? 0}/${result.job.summary.totalPages ?? 0}`,
-    );
-    console.log(`  Status: ${result.job.status}`);
-  } else {
-    console.error(`\nGeneration failed: ${result.error}`);
-    console.error(`  Job: ${result.job.id}`);
-    console.error(`  Status: ${result.job.status}`);
-    console.error(
-      `  To resume: repo-read generate -d ${repoRoot} --resume ${result.job.id}`,
-    );
+  // For resume runs, pre-populate the progress state so the bar starts
+  // from the right place instead of 0/0.
+  if (resumeWith) {
+    progress.setTotalPages(resumeWith.wiki.reading_order.length);
+    progress.setCompletedPages(resumeWith.skipPageSlugs.size);
+  }
+
+  console.log("Running generation pipeline...\n");
+  const result = await pipeline.run(job, {
+    ...(resumeWith ? { resumeWith } : {}),
+    onEvent: progress.onEvent,
+  });
+
+  progress.printSummary(result.success, result.job);
+
+  if (!result.success) {
     process.exitCode = 1;
   }
 }
