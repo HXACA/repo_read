@@ -31,7 +31,8 @@ export function createDebugFetch(): typeof globalThis.fetch {
   return async (input: string | URL | globalThis.Request, init?: RequestInit): Promise<Response> => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : (input as Request).url;
     const ts = new Date().toISOString().replace(/[:.]/g, "-");
-    const filePath = path.join(debugDir!, `${ts}.json`);
+    const rand = Math.random().toString(36).slice(2, 6);
+    const filePath = path.join(debugDir!, `${ts}-${rand}.json`);
 
     // Parse request body
     let requestBody: unknown = null;
