@@ -103,7 +103,13 @@ Write ALL page titles, summaries, and rationales in **${langName}**. Slugs remai
 }
 
 function suggestPageCount(profile: RepoProfile): string {
-  if (profile.sourceFileCount <= 20) return "6-12";
-  if (profile.sourceFileCount <= 200) return "12-25";
-  return "25-40";
+  const files = profile.sourceFileCount;
+  const dirs = profile.importantDirs.length;
+  // Use whichever signal suggests more complexity: file count or
+  // important directory count (a proxy for module breadth).
+  const complexity = Math.max(files, dirs * 5);
+  if (complexity <= 15) return "6-10";
+  if (complexity <= 50) return "15-25";
+  if (complexity <= 200) return "20-35";
+  return "30-50";
 }
