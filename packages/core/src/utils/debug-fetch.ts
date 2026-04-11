@@ -1,10 +1,12 @@
 /**
  * Logging fetch wrapper for AI SDK debug mode.
  *
- * Each HTTP request produces ONE file: <timestamp>.json
- * Written in two phases:
+ * Each HTTP call = one file: <timestamp>-<rand>.json
  *   1. Request sent → file created with request data
- *   2. Response received → file overwritten with request + response
+ *   2. Response complete → file overwritten with request + full response
+ *
+ * For streaming (SSE) responses, the body is collected as it flows through
+ * to the SDK, then the complete body is written when the stream ends.
  */
 
 import * as fs from "node:fs/promises";
@@ -44,13 +46,14 @@ export function createDebugFetch(): typeof globalThis.fetch {
       }
     }
 
-    // Write request immediately
     const record: Record<string, unknown> = {
       url,
       method: init?.method ?? "POST",
       request: requestBody,
       requestAt: new Date().toISOString(),
     };
+
+    // Write request immediately
     await writeJson(filePath, record);
 
     // Execute real fetch
@@ -66,15 +69,12 @@ export function createDebugFetch(): typeof globalThis.fetch {
       throw error;
     }
 
-    // Capture response
     record.status = response.status;
-    record.durationMs = Date.now() - start;
-    record.responseAt = new Date().toISOString();
-
     const contentType = response.headers.get("content-type") ?? "";
-    if (contentType.includes("event-stream") || contentType.includes("stream")) {
-      record.response = "(streaming)";
-    } else {
+    const isStreaming = contentType.includes("event-stream") || contentType.includes("stream");
+
+    if (!isStreaming || !response.body) {
+      // Non-streaming: read full body immediately
       try {
         const clone = response.clone();
         const body = await clone.text();
@@ -82,9 +82,43 @@ export function createDebugFetch(): typeof globalThis.fetch {
       } catch {
         record.response = "(failed to read)";
       }
+      record.durationMs = Date.now() - start;
+      record.responseAt = new Date().toISOString();
+      await writeJson(filePath, record);
+      return response;
     }
 
-    await writeJson(filePath, record);
-    return response;
+    // Streaming: pipe through a TransformStream that collects chunks,
+    // then writes the complete body when the stream ends.
+    const chunks: string[] = [];
+    const decoder = new TextDecoder();
+    const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        chunks.push(decoder.decode(chunk, { stream: true }));
+        controller.enqueue(chunk);
+      },
+      flush() {
+        // Stream ended — write the complete response (fire-and-forget)
+        const fullBody = chunks.join("");
+        record.response = fullBody;
+        record.durationMs = Date.now() - start;
+        record.responseAt = new Date().toISOString();
+        writeJson(filePath, record);
+      },
+    });
+
+    response.body.pipeTo(writable).catch(() => {
+      // Stream error — still write what we have
+      record.response = chunks.join("") || "(stream error)";
+      record.durationMs = Date.now() - start;
+      record.responseAt = new Date().toISOString();
+      writeJson(filePath, record);
+    });
+
+    return new Response(readable, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
   };
 }
