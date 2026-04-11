@@ -24,9 +24,7 @@ export type CatalogPlanResult = {
 export class CatalogPlanner {
   private readonly model: LanguageModel;
   private readonly language: string;
-
   private readonly maxSteps: number;
-
   private readonly maxRetries: number;
 
   constructor(options: CatalogPlannerOptions) {
@@ -38,12 +36,17 @@ export class CatalogPlanner {
 
   async plan(profile: RepoProfile): Promise<CatalogPlanResult> {
     const systemPrompt = buildCatalogSystemPrompt();
-    const userPrompt = buildCatalogUserPrompt(profile, this.language);
     const tools = createCatalogTools(profile.repoRoot);
 
     let lastError = "";
     for (let attempt = 0; attempt < this.maxRetries; attempt++) {
       try {
+        // On retry, append the previous error so the model knows what went wrong
+        let userPrompt = buildCatalogUserPrompt(profile, this.language);
+        if (attempt > 0 && lastError) {
+          userPrompt += `\n\n## Previous Attempt Failed (attempt ${attempt}/${this.maxRetries})\n\nError: ${lastError}\n\nPlease fix the issue and output a valid JSON object with "summary" and "reading_order" fields. Output ONLY the JSON object.`;
+        }
+
         const result = await generateText({
           model: this.model,
           system: systemPrompt,
@@ -65,10 +68,6 @@ export class CatalogPlanner {
         };
       } catch (err) {
         lastError = (err as Error).message;
-        // Retry on empty/invalid response, stop on other errors
-        if (!lastError.includes("Invalid wiki.json") && !lastError.includes("missing summary")) {
-          break;
-        }
       }
     }
     return { success: false, error: `Catalog planning failed after ${this.maxRetries} attempts: ${lastError}` };
@@ -77,7 +76,7 @@ export class CatalogPlanner {
   private parseWikiJson(text: string): WikiJson {
     const parsed = extractJson(text);
     if (!parsed || !parsed.summary || !Array.isArray(parsed.reading_order)) {
-      throw new Error("Invalid wiki.json structure: missing summary or reading_order");
+      throw new Error(`Invalid wiki.json structure: missing summary or reading_order. Model output was ${text.length} chars: "${text.slice(0, 200)}"`);
     }
     return parsed as unknown as WikiJson;
   }
