@@ -34,7 +34,9 @@ export function createProgram(): Command {
       "--resume <jobId>",
       "Resume a previously failed or interrupted job, skipping pages that were already validated",
     )
+    .option("--debug", "Log full model request/response pairs to .reporead/debug/")
     .action(async (opts) => {
+      if (opts.debug) process.env.REPOREAD_DEBUG = "1";
       await runGenerate({
         dir: opts.dir,
         name: opts.name,
