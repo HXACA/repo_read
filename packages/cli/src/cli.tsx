@@ -6,6 +6,7 @@ import { runJobs } from "./commands/jobs.js";
 import { runVersions } from "./commands/versions.js";
 import { runAsk } from "./commands/ask.js";
 import { runResearch } from "./commands/research.js";
+import { runDoctor } from "./commands/doctor.js";
 
 export function createProgram(): Command {
   const program = new Command();
@@ -89,6 +90,15 @@ export function createProgram(): Command {
     .option("-n, --name <slug>", "Project slug name")
     .action(async (opts) => {
       await runResearch({ dir: opts.dir, name: opts.name, topic: opts.topic });
+    });
+
+  program
+    .command("doctor")
+    .description("Diagnose environment, config, and project health")
+    .option("-d, --dir <path>", "Repository root directory", process.cwd())
+    .option("-n, --name <slug>", "Project slug name")
+    .action(async (opts) => {
+      await runDoctor({ dir: opts.dir, name: opts.name });
     });
 
   program
