@@ -60,6 +60,8 @@ export class ProgressRenderer {
     }));
     const sections = new Set(pages.map((p) => p.section).filter(Boolean));
     this.sectionCount = sections.size;
+    // Now we have page data — start the render loop
+    if (this.pages.length > 0) this.startRenderLoop();
   }
 
   setResumeSkipped(n: number): void {
@@ -71,7 +73,16 @@ export class ProgressRenderer {
 
   start(): void {
     this.startedAt = Date.now();
-    this.refreshTimer = setInterval(() => this.render(), 100);
+    // Don't start the render loop here — it starts when we have pages.
+    // During catalog, we print a static line via onEvent.
+    process.stderr.write(`  ⠋ 正在分析仓库结构...\n`);
+    this.lastLineCount = 1;
+  }
+
+  /** Start the render loop once we have pages to display. */
+  private startRenderLoop(): void {
+    if (this.refreshTimer) return;
+    this.refreshTimer = setInterval(() => this.render(), 200);
   }
 
   stop(): void {
@@ -129,17 +140,16 @@ export class ProgressRenderer {
 
     switch (event.type) {
       case "catalog.completed": {
-        const total = (payload.totalPages as number) ?? 0;
         this.catalogDone = true;
-        // If pages weren't set yet (fresh gen), we'll get them from generate.tsx
-        if (this.pages.length === 0) {
-          // Placeholder — generate.tsx will call setPageList right after
-        }
+        // generate.tsx will call setPageList right after this event,
+        // which triggers startRenderLoop.
         break;
       }
 
       case "job.resumed":
         this.catalogDone = true;
+        // For resume, pages were already set via setPageList before start().
+        if (this.pages.length > 0) this.startRenderLoop();
         break;
 
       case "page.evidence_planned":
