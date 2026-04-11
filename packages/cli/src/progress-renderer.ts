@@ -169,7 +169,7 @@ export class ProgressRenderer {
       const phase = active.phase ?? "准备中";
       const chain = active.steps.length ? `  ${D}${active.steps.join(" → ")}${R}` : "";
       const pel = this.dur(Date.now() - (active.startedAt ?? Date.now()));
-      lines.push(`  ${Y}${sp}${R} [${done}/${total}] ${active.title}  ${D}[${phase}]${R}  ${D}${pel}${R}${chain}`);
+      lines.push(`  ${Y}${sp}${R} [${done}/${total}] ${active.title}  ${D}[${phase}] ${pel}${R}${chain}`);
       // Progress bar
       const pct = total > 0 ? Math.round((done / total) * 100) : 0;
       const bw = 20;
@@ -178,7 +178,7 @@ export class ProgressRenderer {
       let eta = "";
       const dts = this.pages.filter((x) => x.status === "done" && x.elapsed).map((x) => x.elapsed!);
       if (dts.length) eta = ` · 预计 ~${this.dur((total - done) * (dts.reduce((a, b) => a + b, 0) / dts.length))}`;
-      lines.push(`  ${bar} ${done}/${total} ${pct}% · ${el}${eta}`);
+      lines.push(`  ${bar} ${done}/${total} ${pct}% · 总耗时 ${el}${eta}`);
     } else if (total > 0) {
       lines.push(`  ${D}${done}/${total} 完成 · ${el}${R}`);
     }
