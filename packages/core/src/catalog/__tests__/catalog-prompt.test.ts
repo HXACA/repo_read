@@ -33,9 +33,10 @@ describe("buildCatalogSystemPrompt", () => {
     expect(prompt).toContain("reading_order");
   });
 
-  it("includes page limit", () => {
+  it("includes section and group rules", () => {
     const prompt = buildCatalogSystemPrompt();
-    expect(prompt).toContain("50");
+    expect(prompt).toContain("section");
+    expect(prompt).toContain("group");
   });
 });
 
