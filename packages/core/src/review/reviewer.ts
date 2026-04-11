@@ -1,5 +1,6 @@
-import { generateText, stepCountIs } from "ai";
+import { stepCountIs } from "ai";
 import type { LanguageModel, ToolSet } from "ai";
+import { generateViaStream as generateText } from "../utils/generate-via-stream.js";
 import type {
   ReviewBriefing,
   ReviewConclusion,

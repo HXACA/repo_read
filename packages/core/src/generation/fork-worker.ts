@@ -1,5 +1,5 @@
-import { generateText } from "ai";
 import type { LanguageModel, ToolSet } from "ai";
+import { generateViaStream as generateText } from "../utils/generate-via-stream.js";
 import type { ForkWorkerResult } from "../types/agent.js";
 import { buildForkWorkerSystemPrompt, buildForkWorkerUserPrompt } from "./fork-worker-prompt.js";
 import type { ForkWorkerInput } from "./fork-worker-prompt.js";

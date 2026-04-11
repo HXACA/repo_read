@@ -16,12 +16,29 @@ async function* fakeFullStream(text: string) {
   };
 }
 
-vi.mock("ai", () => ({
-  streamText: vi.fn(),
-  generateText: vi.fn(),
-  jsonSchema: vi.fn((s: unknown) => s),
-  stepCountIs: vi.fn((n: number) => ({ __steps: n })),
-}));
+vi.mock("ai", () => {
+  const generateText = vi.fn();
+  const streamText = vi.fn((...args: unknown[]) => {
+    const p = generateText(...args);
+    const safe = (fn: (r: any) => any) => { const q = p.then(fn); q.catch(() => {}); return q; };
+    return {
+      text: safe((r) => r?.text ?? ""),
+      finishReason: safe((r) => r?.finishReason ?? "stop"),
+      usage: safe((r) => r?.usage ?? {}),
+      toolCalls: safe((r) => r?.toolCalls ?? []),
+      toolResults: safe((r) => r?.toolResults ?? []),
+      steps: safe((r) => r?.steps ?? []),
+      response: safe((r) => r?.response ?? {}),
+      fullStream: (async function* () { const r = await p; if (r?.text) yield { type: "text-delta", textDelta: r.text }; })(),
+    };
+  });
+  return {
+    streamText,
+    generateText,
+    jsonSchema: vi.fn((s: unknown) => s),
+    stepCountIs: vi.fn((n: number) => ({ __steps: n })),
+  };
+});
 
 const answerText = `Short answer here.
 
@@ -238,9 +255,10 @@ describe("AskStreamService route dispatch", () => {
     >;
     expect(session.route).toBe("research");
 
-    // streamText should NOT have been called — research route uses
-    // generateText (via ResearchService) exclusively.
-    expect(mockStream).not.toHaveBeenCalled();
+    // ResearchService now uses generateViaStream which delegates to
+    // streamText internally. The streamText mock delegates to generateText,
+    // so both are called.
+    expect(mockStream).toHaveBeenCalled();
     expect(mockGenerate).toHaveBeenCalled();
 
     // Output should contain the synthesis summary

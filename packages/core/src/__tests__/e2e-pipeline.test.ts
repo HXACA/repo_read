@@ -12,11 +12,28 @@ import {
 import type { WikiJson, ResolvedConfig, VersionJson } from "../index.js";
 import { getQualityProfile } from "../config/quality-profile.js";
 
-vi.mock("ai", () => ({
-  generateText: vi.fn(),
-  jsonSchema: vi.fn((s: unknown) => s),
-  stepCountIs: vi.fn(() => () => false),
-}));
+vi.mock("ai", () => {
+  const generateText = vi.fn();
+  return {
+    generateText,
+    streamText: vi.fn((...args: unknown[]) => {
+      const p = generateText(...args);
+      const safe = (fn: (r: any) => any) => { const q = p.then(fn); q.catch(() => {}); return q; };
+      return {
+        text: safe((r) => r?.text ?? ""),
+        finishReason: safe((r) => r?.finishReason ?? "stop"),
+        usage: safe((r) => r?.usage ?? {}),
+        toolCalls: safe((r) => r?.toolCalls ?? []),
+        toolResults: safe((r) => r?.toolResults ?? []),
+        steps: safe((r) => r?.steps ?? []),
+        response: safe((r) => r?.response ?? {}),
+        fullStream: (async function* () { const r = await p; if (r?.text) yield { type: "text-delta", textDelta: r.text }; })(),
+      };
+    }),
+    jsonSchema: vi.fn((s: unknown) => s),
+    stepCountIs: vi.fn(() => () => false),
+  };
+});
 
 // Use budget preset: forkWorkers=1 short-circuits planner LLM call
 const mockConfig: ResolvedConfig = {

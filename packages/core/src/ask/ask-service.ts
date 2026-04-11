@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
-import { generateText, stepCountIs } from "ai";
+import { stepCountIs } from "ai";
 import type { LanguageModel, ToolSet } from "ai";
+import { generateViaStream as generateText } from "../utils/generate-via-stream.js";
 import type { StorageAdapter } from "../storage/storage-adapter.js";
 import type { WikiJson, PageMeta, CitationRecord } from "../types/generation.js";
 import type { QualityProfile } from "../config/quality-profile.js";

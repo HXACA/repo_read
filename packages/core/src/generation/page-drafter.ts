@@ -1,5 +1,6 @@
-import { generateText, stepCountIs } from "ai";
+import { stepCountIs } from "ai";
 import type { LanguageModel, ToolSet } from "ai";
+import { generateViaStream as generateText } from "../utils/generate-via-stream.js";
 import type { MainAuthorContext } from "../types/agent.js";
 import type { CitationRecord } from "../types/generation.js";
 import { buildPageDraftSystemPrompt, buildPageDraftUserPrompt } from "./page-drafter-prompt.js";

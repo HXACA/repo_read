@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { generateText } from "ai";
 import type { LanguageModel } from "ai";
+import { generateViaStream as generateText } from "../utils/generate-via-stream.js";
 import type { StorageAdapter } from "../storage/storage-adapter.js";
 import type { CitationRecord } from "../types/generation.js";
 import type { LabeledFinding, ResearchNote } from "../types/research.js";

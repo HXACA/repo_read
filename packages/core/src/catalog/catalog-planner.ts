@@ -1,5 +1,6 @@
-import { generateText, stepCountIs } from "ai";
+import { stepCountIs } from "ai";
 import type { LanguageModel, ToolSet } from "ai";
+import { generateViaStream as generateText } from "../utils/generate-via-stream.js";
 import type { RepoProfile } from "../types/project.js";
 import type { WikiJson } from "../types/generation.js";
 import { buildCatalogSystemPrompt, buildCatalogUserPrompt } from "./catalog-prompt.js";
@@ -47,9 +48,9 @@ export class CatalogPlanner {
         success: true,
         wiki,
         usage: result.usage ? {
-          promptTokens: result.usage.inputTokens ?? 0,
-          completionTokens: result.usage.outputTokens ?? 0,
-          totalTokens: (result.usage.inputTokens ?? 0) + (result.usage.outputTokens ?? 0),
+          promptTokens: (result.usage as { inputTokens?: number }).inputTokens ?? 0,
+          completionTokens: (result.usage as { outputTokens?: number }).outputTokens ?? 0,
+          totalTokens: ((result.usage as { inputTokens?: number }).inputTokens ?? 0) + ((result.usage as { outputTokens?: number }).outputTokens ?? 0),
         } : undefined,
       };
     } catch (err) {

@@ -1,5 +1,5 @@
-import { generateText } from "ai";
 import type { LanguageModel } from "ai";
+import { generateViaStream as generateText } from "../utils/generate-via-stream.js";
 import type { PageOutline, PageOutlineSection } from "../types/agent.js";
 import { extractJson } from "../utils/extract-json.js";
 
