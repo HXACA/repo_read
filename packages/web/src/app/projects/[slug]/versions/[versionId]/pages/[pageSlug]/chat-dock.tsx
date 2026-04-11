@@ -91,6 +91,14 @@ export function ChatDock({
   const [sessionId, setSessionId] = useState<string | undefined>();
   const [hydrated, setHydrated] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Abort any in-flight SSE stream on unmount (page navigation)
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
 
   // Load persisted chat on mount
   useEffect(() => {
@@ -151,6 +159,11 @@ export function ChatDock({
       },
     ]);
 
+    // Abort any previous in-flight stream
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
       const res = await fetch(
         `/api/projects/${slug}/versions/${versionId}/ask`,
@@ -162,6 +175,7 @@ export function ChatDock({
             currentPageSlug: pageSlug,
             sessionId,
           }),
+          signal: controller.signal,
         },
       );
 
@@ -169,9 +183,7 @@ export function ChatDock({
         const errText = await res.text();
         setTurns((prev) => {
           const copy = [...prev];
-          const last = copy[copy.length - 1];
-          last.content = `Error: ${errText}`;
-          last.streaming = false;
+          copy[copy.length - 1] = { ...copy[copy.length - 1], content: `Error: ${errText}`, streaming: false };
           return copy;
         });
         return;
@@ -197,45 +209,41 @@ export function ChatDock({
           if (!line.startsWith("data: ")) continue;
           try {
             const data = JSON.parse(line.slice(6));
+            // Use immutable update to prevent double-append in React
+            // concurrent mode: always clone the Turn object before mutating.
             setTurns((prev) => {
               const copy = [...prev];
-              const last = copy[copy.length - 1];
+              const last = { ...copy[copy.length - 1] };
+              copy[copy.length - 1] = last;
               switch (data.type) {
                 case "session":
                   if (data.sessionId) setSessionId(data.sessionId);
                   break;
                 case "reasoning-delta":
-                  last.thinking += data.text;
+                  last.thinking = last.thinking + data.text;
                   break;
                 case "text-delta":
-                  last.content += data.text;
+                  last.content = last.content + data.text;
                   break;
                 case "tool-call":
-                  last.toolCalls.push(data.toolName);
+                  last.toolCalls = [...last.toolCalls, data.toolName];
                   break;
                 case "citations":
                   last.citations = data.citations;
                   break;
                 case "done":
                   last.streaming = false;
-                  // Strip trailing JSON citations block
+                  // Strip trailing JSON citations block + sanitize
                   last.content = last.content
                     .replace(/```json\s*\n[\s\S]*?\n```\s*$/, "")
-                    .trim();
-                  // Sanitize: strip disallowed markdown structures
-                  last.content = last.content
-                    // Convert any headings to bold (safety net if LLM ignores prompt)
-                    .replace(/^(#{1,6})\s+(.+)$/gm, (_m, _h, title) => `**${title.trim()}**`)
-                    // Strip horizontal rules
+                    .replace(/^(#{1,6})\s+(.+)$/gm, (_m: string, _h: string, title: string) => `**${title.trim()}**`)
                     .replace(/^---+$/gm, "")
-                    // Strip block quotes
                     .replace(/^>\s?/gm, "")
-                    // Collapse excessive blank lines
                     .replace(/\n{3,}/g, "\n\n")
                     .trim();
                   break;
                 case "error":
-                  last.content += `\n\n[Error: ${data.message}]`;
+                  last.content = last.content + `\n\n[Error: ${data.message}]`;
                   last.streaming = false;
                   break;
               }
@@ -247,11 +255,10 @@ export function ChatDock({
         }
       }
     } catch (err) {
+      if ((err as Error).name === "AbortError") return; // page navigation, not an error
       setTurns((prev) => {
         const copy = [...prev];
-        const last = copy[copy.length - 1];
-        last.content = `Error: ${(err as Error).message}`;
-        last.streaming = false;
+        copy[copy.length - 1] = { ...copy[copy.length - 1], content: `Error: ${(err as Error).message}`, streaming: false };
         return copy;
       });
     } finally {
