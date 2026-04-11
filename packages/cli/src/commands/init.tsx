@@ -1,4 +1,6 @@
+import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import * as os from "node:os";
 import { StorageAdapter, ProjectModel, saveProjectConfig } from "@reporead/core";
 import type { UserEditableConfig } from "@reporead/core";
 
@@ -7,32 +9,64 @@ export interface InitOptions {
   projectSlug?: string;
 }
 
-function createDefaultConfig(slug: string, repoRoot: string): UserEditableConfig {
+const FALLBACK_CONFIG: UserEditableConfig = {
+  projectSlug: "",
+  repoRoot: "",
+  preset: "quality",
+  language: "zh",
+  providers: [
+    {
+      provider: "anthropic",
+      secretRef: "ANTHROPIC_API_KEY",
+      enabled: true,
+    },
+  ],
+  roles: {
+    "main.author": {
+      model: "claude-sonnet-4-6",
+      fallback_models: [],
+    },
+    "fork.worker": {
+      model: "claude-sonnet-4-6",
+      fallback_models: [],
+    },
+    "fresh.reviewer": {
+      model: "claude-sonnet-4-6",
+      fallback_models: [],
+    },
+  },
+};
+
+/**
+ * Load `~/.reporead/config.json` as the base for new projects. If it
+ * exists, its providers/roles/language are used instead of the hardcoded
+ * fallback. This way users configure their model provider once globally
+ * and every `repo-read init` inherits it.
+ */
+async function loadGlobalConfig(): Promise<Partial<UserEditableConfig>> {
+  const globalPath = path.join(os.homedir(), ".reporead", "config.json");
+  try {
+    const raw = await fs.readFile(globalPath, "utf-8");
+    return JSON.parse(raw) as Partial<UserEditableConfig>;
+  } catch {
+    return {};
+  }
+}
+
+async function createDefaultConfig(
+  slug: string,
+  repoRoot: string,
+): Promise<UserEditableConfig> {
+  const global = await loadGlobalConfig();
   return {
+    ...FALLBACK_CONFIG,
     projectSlug: slug,
     repoRoot,
-    preset: "quality",
-    providers: [
-      {
-        provider: "anthropic",
-        secretRef: "ANTHROPIC_API_KEY",
-        enabled: true,
-      },
-    ],
-    roles: {
-      "main.author": {
-        model: "claude-sonnet-4-6",
-        fallback_models: ["claude-haiku-4-5-20251001"],
-      },
-      "fork.worker": {
-        model: "claude-haiku-4-5-20251001",
-        fallback_models: [],
-      },
-      "fresh.reviewer": {
-        model: "claude-sonnet-4-6",
-        fallback_models: ["claude-haiku-4-5-20251001"],
-      },
-    },
+    // Global config overrides
+    ...(global.providers ? { providers: global.providers } : {}),
+    ...(global.roles ? { roles: global.roles } : {}),
+    ...(global.language ? { language: global.language } : {}),
+    ...(global.preset ? { preset: global.preset } : {}),
   };
 }
 
@@ -50,8 +84,8 @@ export async function runInit(options: InitOptions): Promise<void> {
     branch: "main",
   });
 
-  // Write default config
-  const config = createDefaultConfig(slug, repoRoot);
+  // Write config — inherits from ~/.reporead/config.json if present
+  const config = await createDefaultConfig(slug, repoRoot);
   await saveProjectConfig(storage.paths.projectDir(slug), config);
 
   await storage.writeJson(storage.paths.currentJson, {
@@ -59,5 +93,8 @@ export async function runInit(options: InitOptions): Promise<void> {
     repoRoot: project.repoRoot,
   });
 
+  const source = config.providers[0]?.provider ?? "anthropic";
   console.log(`Initialized RepoRead project "${slug}" at ${repoRoot}`);
+  console.log(`  Provider: ${source} (from ${config.providers[0]?.apiKey ? "global config" : "default"})`);
+  console.log(`  Language: ${config.language ?? "zh"}`);
 }

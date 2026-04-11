@@ -55,8 +55,7 @@ When you have enough understanding, output a JSON object with this exact structu
 
 ## Rules
 
-1. **Page count**: Minimum 6, maximum 50. Adjust based on repository complexity.
-2. **Reading order matters**: Page N should build on knowledge from pages 1..N-1.
+1. **Reading order matters**: Page N should build on knowledge from pages 1..N-1.
 3. **Every page must cover real files**: \`covered_files\` must list actual files in the repository.
 4. **No catch-all pages**: Do not create pages like "Other Details" or "Miscellaneous".
 5. **Slug format**: kebab-case, URL-friendly, unique across all pages.
@@ -98,18 +97,6 @@ Write ALL page titles, summaries, and rationales in **${langName}**. Slugs remai
 
 1. Use the tools to explore the repository structure, read key files, and understand the architecture.
 2. Based on your analysis, produce a wiki.json with a logical reading order.
-3. Target ${suggestPageCount(profile)} pages (adjust based on what you find).
-4. Output ONLY the JSON object.`;
+3. Output ONLY the JSON object.`;
 }
 
-function suggestPageCount(profile: RepoProfile): string {
-  const files = profile.sourceFileCount;
-  const dirs = profile.importantDirs.length;
-  // Use whichever signal suggests more complexity: file count or
-  // important directory count (a proxy for module breadth).
-  const complexity = Math.max(files, dirs * 5);
-  if (complexity <= 15) return "6-10";
-  if (complexity <= 50) return "15-25";
-  if (complexity <= 200) return "20-35";
-  return "30-50";
-}
