@@ -41,19 +41,18 @@ export function PageReaderClient({
   allPages: PageItem[];
 }) {
   const { locale } = useSettings();
-  const [tocCollapsed, setTocCollapsed] = useState(false);
-  const [navCollapsed, setNavCollapsed] = useState(false);
+  // Read localStorage synchronously in initializer to avoid flash of
+  // wrong state (sidebar expands then immediately collapses).
+  const [tocCollapsed, setTocCollapsed] = useState(() => {
+    try { return localStorage.getItem(TOC_LS_KEY) === "true"; } catch { return false; }
+  });
+  const [navCollapsed, setNavCollapsed] = useState(() => {
+    try { return localStorage.getItem(NAV_LS_KEY) === "true"; } catch { return false; }
+  });
   const [mounted, setMounted] = useState(false);
 
-  // Load persisted state
   useEffect(() => {
     setMounted(true);
-    try {
-      if (localStorage.getItem(TOC_LS_KEY) === "true") setTocCollapsed(true);
-      if (localStorage.getItem(NAV_LS_KEY) === "true") setNavCollapsed(true);
-    } catch {
-      /* ignore */
-    }
   }, []);
 
   // Persist state
