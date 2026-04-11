@@ -6,11 +6,26 @@ import * as os from "node:os";
 // Mock ai module before any imports. The vitest.config.ts alias ensures
 // "ai" resolves to the same physical module that @reporead/core uses,
 // so this single vi.mock intercepts all generateText calls.
-vi.mock("ai", () => ({
-  generateText: vi.fn(),
-  jsonSchema: vi.fn((s: unknown) => s),
-  stepCountIs: vi.fn(() => () => false),
-}));
+vi.mock("ai", () => {
+  const generateText = vi.fn();
+  return {
+    generateText,
+    streamText: vi.fn((...args: unknown[]) => {
+      const q = generateText(...args).catch(() => ({}));
+      return {
+        text: q.then((r: any) => r?.text ?? ""),
+        finishReason: q.then((r: any) => r?.finishReason ?? "stop"),
+        usage: q.then((r: any) => r?.usage ?? {}),
+        toolCalls: q.then((r: any) => r?.toolCalls ?? []),
+        toolResults: q.then((r: any) => r?.toolResults ?? []),
+        steps: q.then((r: any) => r?.steps ?? []),
+        response: q.then((r: any) => r?.response ?? {}),
+      };
+    }),
+    jsonSchema: vi.fn((s: unknown) => s),
+    stepCountIs: vi.fn(() => () => false),
+  };
+});
 
 // Mock createModelForRole so it returns a dummy model string instead of
 // trying to instantiate real provider SDKs (which need API keys).

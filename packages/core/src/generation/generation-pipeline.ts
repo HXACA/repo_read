@@ -433,7 +433,7 @@ export class GenerationPipeline {
 
           await emitter.pageReviewed(
             page.slug,
-            reviewResult.conclusion.verdict,
+            reviewResult.conclusion!.verdict,
           );
 
           // Decide whether to retry: if the reviewer says "revise" and we
@@ -441,7 +441,7 @@ export class GenerationPipeline {
           // blockers, factual_risks, missing_evidence, or suggested_revisions.
           // Previously we required non-empty blockers, but that let pages
           // through when the reviewer flagged issues in other fields only.
-          const verdict = reviewResult.conclusion.verdict;
+          const verdict = reviewResult.conclusion!.verdict;
           const canRetry = attempt < MAX_REVISION_ATTEMPTS;
 
           if (verdict === "pass" || !canRetry) {

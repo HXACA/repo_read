@@ -45,7 +45,7 @@ async function writeDebugLog(params: StreamTextParams, result: GenerateViaStream
     if (params.prompt) request.prompt = params.prompt;
     if (params.messages) request.messages = params.messages;
     if (params.tools) request.toolNames = Object.keys(params.tools);
-    if (params.maxSteps) request.maxSteps = params.maxSteps;
+    if ((params as Record<string, unknown>).maxSteps) request.maxSteps = (params as Record<string, unknown>).maxSteps;
     // Model info — try to get model ID
     if (params.model) {
       const m = params.model as Record<string, unknown>;
