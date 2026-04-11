@@ -4,6 +4,9 @@ export type RoleName = "main.author" | "fork.worker" | "fresh.reviewer";
 export type RoleModelConfig = {
   model: string;
   fallback_models: string[];
+  /** Explicitly bind this role to a provider declared in `providers[]`. When
+   *  omitted, the system infers the provider from the model name. */
+  provider?: string;
 };
 
 export type ProjectRoleConfig = Record<RoleName, RoleModelConfig>;

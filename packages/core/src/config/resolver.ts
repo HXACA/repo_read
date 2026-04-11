@@ -24,7 +24,8 @@ function resolveRole(
   const roleConfig = config.roles[roleName];
   const primaryModel = roleConfig.model;
   const cap = capabilities.find((c) => c.model === primaryModel && c.health !== "unavailable");
-  const resolvedProvider = cap?.provider ?? config.providers[0].provider;
+  // Explicit provider in role config takes precedence, then capability match, then first provider
+  const resolvedProvider = roleConfig.provider ?? cap?.provider ?? config.providers[0].provider;
   const family = detectModelFamily(primaryModel, resolvedProvider);
 
   return {

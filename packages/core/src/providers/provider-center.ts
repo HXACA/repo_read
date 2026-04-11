@@ -33,6 +33,12 @@ export class ProviderCenter {
   }
 
   private gatherCapabilities(config: UserEditableConfig): ModelCapability[] {
+    // Build a map from model → explicitly declared provider (from roles config)
+    const modelProviderMap = new Map<string, string>();
+    for (const role of Object.values(config.roles)) {
+      if (role.provider) modelProviderMap.set(role.model, role.provider);
+    }
+
     const models = new Set<string>();
     for (const role of Object.values(config.roles)) {
       models.add(role.model);
@@ -46,7 +52,8 @@ export class ProviderCenter {
         capabilities.push(cached);
         continue;
       }
-      const provider = this.detectProvider(model, config);
+      // Prefer explicitly declared provider, fall back to inference
+      const provider = modelProviderMap.get(model) ?? this.inferProvider(model, config);
       const cap = getStaticCapabilities(model, provider);
       this.capabilityCache.set(model, cap);
       capabilities.push(cap);
@@ -55,17 +62,11 @@ export class ProviderCenter {
     return capabilities;
   }
 
-  private detectProvider(model: string, config: UserEditableConfig): string {
+  /** Infer provider from model name — fallback when role config has no explicit `provider` field. */
+  private inferProvider(model: string, config: UserEditableConfig): string {
     if (model.startsWith("claude")) return "anthropic";
     if (model.startsWith("gpt") || model.startsWith("o1") || model.startsWith("o3") || model.startsWith("o4")) return "openai";
     if (model.startsWith("gemini")) return "google";
-    if (model.startsWith("glm")) return "glm";
-    // Models with org/ prefix (e.g. "qwen/qwen3.6-plus") — match against
-    // configured providers by checking if any provider name appears in the
-    // model string or vice versa.
-    for (const p of config.providers) {
-      if (model.includes(p.provider) || model.startsWith(`${p.provider}/`)) return p.provider;
-    }
     return config.providers[0]?.provider ?? "openai-compatible";
   }
 }
