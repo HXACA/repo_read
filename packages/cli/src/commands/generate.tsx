@@ -82,8 +82,7 @@ export async function runGenerate(options: GenerateOptions): Promise<void> {
 
   // 3b. Enable debug logging if --debug flag is set
   if (process.env.REPOREAD_DEBUG === "1" || process.env.REPOREAD_DEBUG === "true") {
-    const ts = new Date().toISOString().replace(/[:.]/g, "-");
-    setDebugDir(path.join(storage.paths.projectDir(slug), "debug", ts));
+    setDebugDir(path.join(storage.paths.projectDir(slug), "debug"));
   }
 
   // 4. Create models for all three roles
