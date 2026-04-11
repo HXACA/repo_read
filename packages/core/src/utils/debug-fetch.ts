@@ -2,11 +2,8 @@
  * Logging fetch wrapper for AI SDK debug mode.
  *
  * Each HTTP call = one file: <timestamp>-<rand>.json
- *   1. Request sent → file created with request data
- *   2. Response complete → file overwritten with request + full response
- *
- * For streaming (SSE) responses, the body is collected as it flows through
- * to the SDK, then the complete body is written when the stream ends.
+ * Streaming responses are reassembled into a complete non-streaming response
+ * object (content + tool_calls + usage merged from SSE deltas).
  */
 
 import * as fs from "node:fs/promises";
@@ -27,6 +24,67 @@ async function writeJson(filePath: string, data: unknown): Promise<void> {
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await fs.writeFile(filePath, JSON.stringify(data, null, 2), "utf-8");
   } catch { /* never break the pipeline */ }
+}
+
+/** Parse SSE lines and merge deltas into a single non-streaming response. */
+function assembleStreamResponse(raw: string): unknown {
+  const lines = raw.split("\n");
+  let content = "";
+  let role = "assistant";
+  const toolCalls: Map<number, { id: string; type: string; function: { name: string; arguments: string } }> = new Map();
+  let usage: unknown = null;
+  let model = "";
+  let finishReason = "";
+
+  for (const line of lines) {
+    if (!line.startsWith("data: ") || line === "data: [DONE]") continue;
+    let chunk: any;
+    try { chunk = JSON.parse(line.slice(6)); } catch { continue; }
+
+    if (chunk.model) model = chunk.model;
+    if (chunk.usage) usage = chunk.usage;
+
+    const choice = chunk.choices?.[0];
+    if (!choice) continue;
+    if (choice.finish_reason) finishReason = choice.finish_reason;
+
+    const delta = choice.delta;
+    if (!delta) continue;
+    if (delta.role) role = delta.role;
+    if (delta.content) content += delta.content;
+
+    // Accumulate tool calls by index
+    if (delta.tool_calls) {
+      for (const tc of delta.tool_calls) {
+        const idx = tc.index ?? 0;
+        const existing = toolCalls.get(idx);
+        if (!existing) {
+          toolCalls.set(idx, {
+            id: tc.id ?? "",
+            type: tc.type ?? "function",
+            function: { name: tc.function?.name ?? "", arguments: tc.function?.arguments ?? "" },
+          });
+        } else {
+          if (tc.id) existing.id = tc.id;
+          if (tc.function?.name) existing.function.name += tc.function.name;
+          if (tc.function?.arguments) existing.function.arguments += tc.function.arguments;
+        }
+      }
+    }
+  }
+
+  const message: Record<string, unknown> = { role, content };
+  if (toolCalls.size > 0) {
+    message.tool_calls = Array.from(toolCalls.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([, v]) => v);
+  }
+
+  return {
+    model,
+    choices: [{ message, finish_reason: finishReason }],
+    ...(usage ? { usage } : {}),
+  };
 }
 
 export function createDebugFetch(): typeof globalThis.fetch {
@@ -74,7 +132,7 @@ export function createDebugFetch(): typeof globalThis.fetch {
     const isStreaming = contentType.includes("event-stream") || contentType.includes("stream");
 
     if (!isStreaming || !response.body) {
-      // Non-streaming: read full body immediately
+      // Non-streaming: read full body
       try {
         const clone = response.clone();
         const body = await clone.text();
@@ -88,8 +146,7 @@ export function createDebugFetch(): typeof globalThis.fetch {
       return response;
     }
 
-    // Streaming: pipe through a TransformStream that collects chunks,
-    // then writes the complete body when the stream ends.
+    // Streaming: pipe through, collect chunks, assemble on end
     const chunks: string[] = [];
     const decoder = new TextDecoder();
     const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>({
@@ -98,9 +155,8 @@ export function createDebugFetch(): typeof globalThis.fetch {
         controller.enqueue(chunk);
       },
       flush() {
-        // Stream ended — write the complete response (fire-and-forget)
-        const fullBody = chunks.join("");
-        record.response = fullBody;
+        const raw = chunks.join("");
+        try { record.response = assembleStreamResponse(raw); } catch { record.response = raw; }
         record.durationMs = Date.now() - start;
         record.responseAt = new Date().toISOString();
         writeJson(filePath, record);
@@ -108,8 +164,8 @@ export function createDebugFetch(): typeof globalThis.fetch {
     });
 
     response.body.pipeTo(writable).catch(() => {
-      // Stream error — still write what we have
-      record.response = chunks.join("") || "(stream error)";
+      const raw = chunks.join("");
+      try { record.response = assembleStreamResponse(raw); } catch { record.response = raw || "(stream error)"; }
       record.durationMs = Date.now() - start;
       record.responseAt = new Date().toISOString();
       writeJson(filePath, record);
