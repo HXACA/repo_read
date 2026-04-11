@@ -1,11 +1,11 @@
 /**
- * CLI progress panel. Uses cursor-up + clear-line for in-place refresh.
- * Terminal support verified: \r, \x1b[A, \x1b[2K all work.
+ * CLI progress panel — full-panel in-place refresh.
  *
- * Approach: write N lines, remember N, next render moves up N lines
- * and overwrites. Only the "live zone" is refreshed — permanent lines
- * (catalog header, chapter list) are printed once via console.log and
- * never touched again.
+ * Every 500ms (and on each pipeline event), the entire panel is erased
+ * and redrawn using cursor-up (\x1b[A) + clear-line (\x1b[2K). Each
+ * chapter line updates in-place: ○ pending → → active → ✓ done.
+ *
+ * No "permanent zone" — everything is part of the live panel.
  */
 
 import type { AppEvent } from "@reporead/core";
@@ -14,6 +14,7 @@ const D = "\x1b[2m";  // dim
 const R = "\x1b[0m";  // reset
 const G = "\x1b[32m"; // green
 const Y = "\x1b[33m"; // yellow
+const C = "\x1b[36m"; // cyan
 const UP_CLEAR = "\x1b[A\x1b[2K"; // move up 1 line + clear it
 const SP = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -30,10 +31,8 @@ export class ProgressRenderer {
   private timer: ReturnType<typeof setInterval> | null = null;
   private tick = 0;
   private skipN = 0;
-  private catalogPrinted = false;
-  private listPrinted = false;
-  private donePrinted = 0;
-  /** How many "live zone" lines were written last time. */
+  private catalogDone = false;
+  /** How many lines were written last frame. */
   private liveLines = 0;
 
   setPageList(p: Array<{ slug: string; title: string; section?: string }>) {
@@ -50,15 +49,14 @@ export class ProgressRenderer {
 
   start() {
     this.started = Date.now();
-    this.timer = setInterval(() => this.refreshLive(), 500);
+    this.timer = setInterval(() => this.render(), 500);
   }
 
   stop() { if (this.timer) { clearInterval(this.timer); this.timer = null; } }
 
   readonly onEvent = (e: AppEvent) => {
     this.handle(e);
-    this.printNewDone();
-    this.refreshLive();
+    this.render();
   };
 
   printSummary(ok: boolean, job: { versionId: string; id: string; summary: { succeededPages?: number; totalPages?: number } }) {
@@ -83,8 +81,10 @@ export class ProgressRenderer {
     const s = e.pageSlug ?? "";
     const p = e.payload as Record<string, unknown>;
     switch (e.type) {
-      case "catalog.completed": this.doCatalog(); break;
-      case "job.resumed": this.doCatalog(); break;
+      case "catalog.completed":
+      case "job.resumed":
+        this.catalogDone = true;
+        break;
       case "page.evidence_planned": this.act(s).phase = "收集证据"; break;
       case "page.evidence_collected": { const pg = this.pg(s); pg.steps.push(`${(p.citationCount as number) ?? 0}条引用`); pg.phase = "规划大纲"; break; }
       case "page.drafting": { const pg = this.act(s); pg.phase = pg.attempt > 0 ? "重写中" : "撰写中"; if (pg.attempt === 0 && pg.steps.length && !pg.steps.some((x) => x.includes("大纲"))) pg.steps.push("大纲"); break; }
@@ -105,106 +105,90 @@ export class ProgressRenderer {
       (() => { const x: Page = { slug: s, title: s, status: "active", startedAt: Date.now(), attempt: 0, steps: [] }; this.pages.push(x); return x; })();
   }
 
-  // ── permanent prints (never erased) ──
+  // ── full-panel render ──
 
-  private doCatalog() {
-    if (this.catalogPrinted) return;
-    this.catalogPrinted = true;
-    this.eraseLive(); // clear spinner
-    const tw = process.stderr.columns || 100;
-    const total = this.pages.length;
-    const secs = new Set(this.pages.map((x) => x.section).filter(Boolean)).size;
-    const hdr = `── 目录 · ${total} 章${secs ? ` · ${secs} 节` : ""} `;
-    console.log(`${D}${hdr}${"─".repeat(Math.max(0, tw - vis(hdr)))}${R}`);
-    console.log(`  ${G}✓${R} 目录规划  ${D}[完成]${R}`);
-    console.log();
-    // Print full chapter list
-    if (this.skipN > 0) console.log(`  ${D}⊘ 1-${this.skipN} 已完成（上次运行），跳过${R}`);
-    let lastSec = "";
-    for (let i = 0; i < this.pages.length; i++) {
-      const pg = this.pages[i];
-      if (pg.status === "skipped") continue;
-      if (pg.section && pg.section !== lastSec) { lastSec = pg.section; console.log(`${D}  ┈ ${pg.section} ┈${R}`); }
-      console.log(`  ${D}○ ${String(i + 1).padStart(2)}. ${pg.title}${R}`);
-    }
-    console.log();
-    this.listPrinted = true;
-  }
-
-  /** Print newly completed pages — permanent lines above the live zone. */
-  private printNewDone() {
-    let count = 0;
-    for (let i = this.skipN; i < this.pages.length; i++) {
-      if (this.pages[i].status !== "done") break;
-      count++;
-      if (count <= this.donePrinted) continue;
-      this.eraseLive();
-      const pg = this.pages[i];
-      const n = String(i + 1).padStart(2);
-      const el = this.dur(pg.elapsed ?? 0);
-      const att = pg.attempt > 0 ? ` (${pg.attempt + 1}次)` : "";
-      console.log(`  ${G}✓${R} ${n}. ${pg.title}${att}  ${D}${el}${R}`);
-    }
-    this.donePrinted = count;
-  }
-
-  // ── live zone (erased + redrawn on each refresh) ──
-
-  private refreshLive() {
+  private render() {
     this.tick++;
     this.eraseLive();
 
     const lines: string[] = [];
     const sp = SP[this.tick % SP.length];
     const el = this.dur(Date.now() - this.started);
-    const done = this.skipN + this.pages.filter((x) => x.status === "done").length;
-    const total = this.pages.length;
-    const active = this.pages.find((x) => x.status === "active");
 
-    if (!this.catalogPrinted) {
-      // Catalog phase
+    if (!this.catalogDone) {
       lines.push(`  ${sp} 正在分析仓库结构... ${D}${el}${R}`);
-    } else if (active) {
-      const idx = this.pages.indexOf(active) + 1;
-      const phase = active.phase ?? "准备中";
-      const chain = active.steps.length ? `  ${D}${active.steps.join(" → ")}${R}` : "";
-      const pel = this.dur(Date.now() - (active.startedAt ?? Date.now()));
-      lines.push(`  ${Y}${sp}${R} [${done}/${total}] ${active.title}  ${D}[${phase}] ${pel}${R}${chain}`);
-      // Progress bar
-      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-      const bw = 20;
-      const filled = total > 0 ? Math.round((done / total) * bw) : 0;
-      const bar = "▓".repeat(filled) + "░".repeat(bw - filled);
-      let eta = "";
-      const dts = this.pages.filter((x) => x.status === "done" && x.elapsed).map((x) => x.elapsed!);
-      if (dts.length) eta = ` · 预计 ~${this.dur((total - done) * (dts.reduce((a, b) => a + b, 0) / dts.length))}`;
-      lines.push(`  ${bar} ${done}/${total} ${pct}% · 总耗时 ${el}${eta}`);
-    } else if (done < total) {
-      // Between pages: previous page done, next page hasn't received its
-      // first event yet (evidence planning LLM call in progress). Show a
-      // spinner for the next pending page so the display doesn't look dead.
-      const next = this.pages.find((x) => x.status === "pending");
-      const nextTitle = next ? next.title : "";
-      lines.push(`  ${Y}${sp}${R} [${done}/${total}] ${nextTitle}  ${D}[准备中] ${el}${R}`);
-      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-      const bw = 20;
-      const filled = total > 0 ? Math.round((done / total) * bw) : 0;
-      const bar = "▓".repeat(filled) + "░".repeat(bw - filled);
-      let eta = "";
-      const dts = this.pages.filter((x) => x.status === "done" && x.elapsed).map((x) => x.elapsed!);
-      if (dts.length) eta = ` · 预计 ~${this.dur((total - done) * (dts.reduce((a, b) => a + b, 0) / dts.length))}`;
-      lines.push(`  ${bar} ${done}/${total} ${pct}% · 总耗时 ${el}${eta}`);
-    } else if (total > 0) {
-      lines.push(`  ${D}${done}/${total} 完成 · ${el}${R}`);
+      this.writeLive(lines);
+      return;
     }
 
+    const tw = process.stderr.columns || 100;
+    const total = this.pages.length;
+    const secs = new Set(this.pages.map((x) => x.section).filter(Boolean)).size;
+    const done = this.skipN + this.pages.filter((x) => x.status === "done").length;
+
+    // ── header ──
+    const hdr = `── 目录 · ${total} 章${secs ? ` · ${secs} 节` : ""} `;
+    lines.push(`${D}${hdr}${"─".repeat(Math.max(0, tw - vis(hdr)))}${R}`);
+    lines.push(`  ${G}✓${R} 目录规划  ${D}[完成]${R}`);
+    lines.push("");
+
+    // ── skip line (resume) ──
+    if (this.skipN > 0) lines.push(`  ${D}⊘ 1-${this.skipN} 已完成（上次运行），跳过${R}`);
+
+    // ── chapter list ──
+    let lastSec = "";
+    for (let i = 0; i < this.pages.length; i++) {
+      const pg = this.pages[i];
+      if (pg.status === "skipped") continue;
+
+      // Section header
+      if (pg.section && pg.section !== lastSec) {
+        lastSec = pg.section;
+        lines.push(`${D}  ┈ ${pg.section} ┈${R}`);
+      }
+
+      const n = String(i + 1).padStart(2);
+
+      if (pg.status === "done") {
+        const att = pg.attempt > 0 ? ` ${D}(${pg.attempt + 1}次)${R}` : "";
+        lines.push(`  ${G}✓${R} ${n}. ${pg.title}${att}  ${D}${this.dur(pg.elapsed ?? 0)}${R}`);
+      } else if (pg.status === "active") {
+        const phase = pg.phase ?? "准备中";
+        const pel = this.dur(Date.now() - (pg.startedAt ?? Date.now()));
+        lines.push(`  ${C}→${R} ${n}. ${pg.title}  ${Y}[${phase}]${R} ${D}${pel}${R}`);
+        // Sub-step chain on next line
+        if (pg.steps.length) {
+          lines.push(`       ${D}${pg.steps.join(" → ")}${R}`);
+        }
+      } else {
+        // pending
+        lines.push(`  ${D}○ ${n}. ${pg.title}${R}`);
+      }
+    }
+
+    lines.push("");
+
+    // ── progress bar ──
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+    const bw = 20;
+    const filled = total > 0 ? Math.round((done / total) * bw) : 0;
+    const bar = "▓".repeat(filled) + "░".repeat(bw - filled);
+    let eta = "";
+    const dts = this.pages.filter((x) => x.status === "done" && x.elapsed).map((x) => x.elapsed!);
+    if (dts.length) eta = ` · 预计 ~${this.dur((total - done) * (dts.reduce((a, b) => a + b, 0) / dts.length))}`;
+    lines.push(`  ${bar} ${done}/${total} ${pct}% · 总耗时 ${el}${eta}`);
+
+    this.writeLive(lines);
+  }
+
+  private writeLive(lines: string[]) {
     for (const line of lines) {
       process.stderr.write(line + "\n");
     }
     this.liveLines = lines.length;
   }
 
-  /** Erase the live zone by moving up + clearing each line. */
+  /** Erase the live panel by moving up + clearing each line. */
   private eraseLive() {
     for (let i = 0; i < this.liveLines; i++) {
       process.stderr.write(UP_CLEAR);
