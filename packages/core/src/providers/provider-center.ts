@@ -57,8 +57,15 @@ export class ProviderCenter {
 
   private detectProvider(model: string, config: UserEditableConfig): string {
     if (model.startsWith("claude")) return "anthropic";
-    if (model.startsWith("gpt") || model.startsWith("o1") || model.startsWith("o3")) return "openai";
+    if (model.startsWith("gpt") || model.startsWith("o1") || model.startsWith("o3") || model.startsWith("o4")) return "openai";
     if (model.startsWith("gemini")) return "google";
+    if (model.startsWith("glm")) return "glm";
+    // Models with org/ prefix (e.g. "qwen/qwen3.6-plus") — match against
+    // configured providers by checking if any provider name appears in the
+    // model string or vice versa.
+    for (const p of config.providers) {
+      if (model.includes(p.provider) || model.startsWith(`${p.provider}/`)) return p.provider;
+    }
     return config.providers[0]?.provider ?? "openai-compatible";
   }
 }
