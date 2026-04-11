@@ -17,6 +17,7 @@ const FALLBACK_CONFIG: UserEditableConfig = {
   providers: [
     {
       provider: "anthropic",
+      sdk: "@ai-sdk/anthropic",
       secretRef: "ANTHROPIC_API_KEY",
       enabled: true,
     },

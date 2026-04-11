@@ -5,19 +5,19 @@ import { getQualityProfile } from "../../config/quality-profile.js";
 
 // Mock the AI SDK providers
 vi.mock("@ai-sdk/anthropic", () => ({
-  createAnthropic: vi.fn(() => vi.fn((modelId: string) => ({ modelId, provider: "anthropic" }))),
+  createAnthropic: vi.fn(() => vi.fn((modelId: string) => ({ modelId, sdk: "anthropic" }))),
 }));
 
 vi.mock("@ai-sdk/openai", () => ({
   createOpenAI: vi.fn(() => {
-    const fn = vi.fn((modelId: string) => ({ modelId, provider: "openai" }));
-    fn.responses = vi.fn((modelId: string) => ({ modelId, provider: "openai-responses" }));
+    const fn = vi.fn((modelId: string) => ({ modelId, sdk: "openai" }));
+    fn.responses = vi.fn((modelId: string) => ({ modelId, sdk: "openai-responses" }));
     return fn;
   }),
 }));
 
 vi.mock("@ai-sdk/openai-compatible", () => ({
-  createOpenAICompatible: vi.fn(() => vi.fn((modelId: string) => ({ modelId, provider: "compatible" }))),
+  createOpenAICompatible: vi.fn(() => vi.fn((modelId: string) => ({ modelId, sdk: "openai-compatible" }))),
 }));
 
 const mockConfig: ResolvedConfig = {
@@ -35,42 +35,64 @@ const mockConfig: ResolvedConfig = {
     },
     "fork.worker": {
       role: "fork.worker",
-      primaryModel: "claude-haiku-4-5-20251001",
+      primaryModel: "qwen/qwen3.6-plus",
       fallbackModels: [],
-      resolvedProvider: "anthropic",
-      systemPromptTuningId: "claude",
+      resolvedProvider: "openrouter",
+      systemPromptTuningId: "generic-openai-compatible",
     },
     "fresh.reviewer": {
       role: "fresh.reviewer",
       primaryModel: "gpt-4o",
       fallbackModels: [],
       resolvedProvider: "openai",
-      systemPromptTuningId: "openai",
+      systemPromptTuningId: "openai-gpt",
     },
   },
   providers: [
-    { provider: "anthropic", secretRef: "ANTHROPIC_API_KEY", enabled: true, capabilities: [] },
-    { provider: "openai", secretRef: "OPENAI_API_KEY", enabled: true, capabilities: [] },
+    { provider: "anthropic", sdk: "@ai-sdk/anthropic", secretRef: "ANTHROPIC_API_KEY", enabled: true, capabilities: [] },
+    { provider: "openai", sdk: "@ai-sdk/openai:responses", secretRef: "OPENAI_API_KEY", enabled: true, capabilities: [] },
+    { provider: "openrouter", sdk: "@ai-sdk/openai-compatible", secretRef: "OPENROUTER_API_KEY", baseUrl: "https://openrouter.ai/api/v1", enabled: true, capabilities: [] },
   ],
   retrieval: { maxParallelReadsPerPage: 5, maxReadWindowLines: 500, allowControlledBash: true },
   qualityProfile: getQualityProfile("quality"),
 };
 
 describe("createModelForRole", () => {
-  it("creates an Anthropic model for main.author", () => {
+  it("uses @ai-sdk/anthropic when sdk is declared", () => {
     const model = createModelForRole(mockConfig, "main.author", {
-      apiKeys: { anthropic: "sk-ant-test", openai: "sk-test" },
+      apiKeys: { anthropic: "sk-ant-test", openai: "sk-test", openrouter: "sk-or-test" },
     });
-    expect(model).toBeDefined();
+    expect((model as any).sdk).toBe("anthropic");
     expect((model as any).modelId).toBe("claude-sonnet-4-6");
   });
 
-  it("creates an OpenAI model for fresh.reviewer", () => {
+  it("uses @ai-sdk/openai:responses when sdk is declared", () => {
     const model = createModelForRole(mockConfig, "fresh.reviewer", {
-      apiKeys: { anthropic: "sk-ant-test", openai: "sk-test" },
+      apiKeys: { anthropic: "sk-ant-test", openai: "sk-test", openrouter: "sk-or-test" },
     });
-    expect(model).toBeDefined();
+    expect((model as any).sdk).toBe("openai-responses");
     expect((model as any).modelId).toBe("gpt-4o");
+  });
+
+  it("uses @ai-sdk/openai-compatible when sdk is declared", () => {
+    const model = createModelForRole(mockConfig, "fork.worker", {
+      apiKeys: { anthropic: "sk-ant-test", openai: "sk-test", openrouter: "sk-or-test" },
+    });
+    expect((model as any).sdk).toBe("openai-compatible");
+    expect((model as any).modelId).toBe("qwen/qwen3.6-plus");
+  });
+
+  it("infers sdk from provider name when sdk is omitted", () => {
+    const configNoSdk = {
+      ...mockConfig,
+      providers: [
+        { provider: "anthropic", secretRef: "ANTHROPIC_API_KEY", enabled: true, capabilities: [] as never[] },
+      ],
+    };
+    const model = createModelForRole(configNoSdk, "main.author", {
+      apiKeys: { anthropic: "sk-ant-test" },
+    });
+    expect((model as any).sdk).toBe("anthropic");
   });
 
   it("throws when API key is missing", () => {
@@ -79,7 +101,7 @@ describe("createModelForRole", () => {
     ).toThrow("No API key");
   });
 
-  it("falls back to openai-compatible for unknown providers", () => {
+  it("defaults to openai-compatible for unknown providers without sdk", () => {
     const customConfig = {
       ...mockConfig,
       roles: {
@@ -89,10 +111,13 @@ describe("createModelForRole", () => {
           resolvedProvider: "deepseek",
         },
       },
+      providers: [
+        { provider: "deepseek", secretRef: "DEEPSEEK_API_KEY", enabled: true, capabilities: [] as never[] },
+      ],
     };
     const model = createModelForRole(customConfig, "main.author", {
       apiKeys: { deepseek: "sk-deep-test" },
     });
-    expect(model).toBeDefined();
+    expect((model as any).sdk).toBe("openai-compatible");
   });
 });

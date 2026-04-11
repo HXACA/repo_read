@@ -11,8 +11,24 @@ export type RoleModelConfig = {
 
 export type ProjectRoleConfig = Record<RoleName, RoleModelConfig>;
 
+/**
+ * Which AI SDK adapter to use for this provider.
+ * Maps directly to npm packages:
+ * - `"@ai-sdk/anthropic"` — Anthropic native
+ * - `"@ai-sdk/openai"` — OpenAI Chat Completions
+ * - `"@ai-sdk/openai:responses"` — OpenAI Responses API
+ * - `"@ai-sdk/openai-compatible"` — Any OpenAI-compatible endpoint (default)
+ */
+export type ProviderSdk =
+  | "@ai-sdk/anthropic"
+  | "@ai-sdk/openai"
+  | "@ai-sdk/openai:responses"
+  | "@ai-sdk/openai-compatible";
+
 export type ProviderCredentialConfig = {
   provider: string;
+  /** Which AI SDK adapter to use. Defaults to `"@ai-sdk/openai-compatible"`. */
+  sdk?: ProviderSdk;
   secretRef: string;
   apiKey?: string;
   baseUrl?: string;
@@ -44,6 +60,7 @@ export type ResolvedConfig = {
   language: string;
   providers: Array<{
     provider: string;
+    sdk?: ProviderSdk;
     secretRef: string;
     apiKey?: string;
     baseUrl?: string;
