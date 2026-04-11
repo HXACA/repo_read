@@ -224,17 +224,45 @@ export async function runGenerate(options: GenerateOptions): Promise<void> {
 
   const progress = new ProgressRenderer();
 
-  // For resume runs, pre-populate the progress state so the bar starts
-  // from the right place instead of 0/0.
   if (resumeWith) {
-    progress.setTotalPages(resumeWith.wiki.reading_order.length);
-    progress.setCompletedPages(resumeWith.skipPageSlugs.size);
+    progress.setPageList(
+      resumeWith.wiki.reading_order.map((p) => ({
+        slug: p.slug,
+        title: p.title,
+        section: p.section,
+      })),
+    );
+    progress.setResumeSkipped(resumeWith.skipPageSlugs.size);
   }
 
-  console.log("Running generation pipeline...\n");
+  console.log();
+  progress.start();
   const result = await pipeline.run(job, {
     ...(resumeWith ? { resumeWith } : {}),
-    onEvent: progress.onEvent,
+    onEvent: (event) => {
+      // On catalog.completed, read the wiki.json to populate the page list
+      // for fresh generation (resume already has it from the CLI).
+      if (event.type === "catalog.completed" && !resumeWith) {
+        const p = event.payload as { totalPages?: number };
+        // Read wiki.json synchronously from the draft dir to get titles
+        // This is a pragmatic shortcut — the file was just written by the pipeline.
+        try {
+          const fs = require("node:fs");
+          const wikiPath = storage.paths.draftWikiJson(slug, job.id, job.versionId);
+          const wiki = JSON.parse(fs.readFileSync(wikiPath, "utf-8")) as WikiJson;
+          progress.setPageList(
+            wiki.reading_order.map((pg: { slug: string; title: string; section?: string }) => ({
+              slug: pg.slug,
+              title: pg.title,
+              section: pg.section,
+            })),
+          );
+        } catch {
+          // Fallback: renderer will show slugs instead of titles
+        }
+      }
+      progress.onEvent(event);
+    },
   });
 
   progress.printSummary(result.success, result.job);
