@@ -40,8 +40,8 @@ describe("UserEditableConfigSchema", () => {
     expect(() => parseUserEditableConfig(bad)).toThrow();
   });
 
-  it("rejects extra fields on role", () => {
-    const bad = {
+  it("strips unknown fields on role without throwing", () => {
+    const input = {
       ...validConfig,
       roles: {
         ...validConfig.roles,
@@ -52,7 +52,8 @@ describe("UserEditableConfigSchema", () => {
         },
       },
     };
-    expect(() => parseUserEditableConfig(bad)).toThrow();
+    const parsed = parseUserEditableConfig(input);
+    expect((parsed.roles["main.author"] as Record<string, unknown>).customPrompt).toBeUndefined();
   });
 
   it("accepts optional baseUrl on provider", () => {
