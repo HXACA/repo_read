@@ -54,8 +54,9 @@ export class SecretStore {
 
   private async getFromKeychain(key: string): Promise<string | null> {
     try {
-      // @ts-expect-error keytar is an optional peer dependency
-      const keytar = await import("keytar");
+      // Dynamic import hidden from bundlers (Next.js can't resolve native 'keytar' module)
+      const importDynamic = new Function("specifier", "return import(specifier)") as (s: string) => Promise<typeof import("keytar")>;
+      const keytar = await importDynamic("keytar");
       const value = await keytar.getPassword(this.service, key);
       return value ?? null;
     } catch {
@@ -65,8 +66,9 @@ export class SecretStore {
 
   private async setToKeychain(key: string, value: string): Promise<void> {
     try {
-      // @ts-expect-error keytar is an optional peer dependency
-      const keytar = await import("keytar");
+      // Dynamic import hidden from bundlers (Next.js can't resolve native 'keytar' module)
+      const importDynamic = new Function("specifier", "return import(specifier)") as (s: string) => Promise<typeof import("keytar")>;
+      const keytar = await importDynamic("keytar");
       await keytar.setPassword(this.service, key, value);
     } catch {
       throw new AppError(
@@ -79,8 +81,9 @@ export class SecretStore {
 
   private async deleteFromKeychain(key: string): Promise<void> {
     try {
-      // @ts-expect-error keytar is an optional peer dependency
-      const keytar = await import("keytar");
+      // Dynamic import hidden from bundlers (Next.js can't resolve native 'keytar' module)
+      const importDynamic = new Function("specifier", "return import(specifier)") as (s: string) => Promise<typeof import("keytar")>;
+      const keytar = await importDynamic("keytar");
       await keytar.deletePassword(this.service, key);
     } catch {
       throw new AppError(
@@ -100,8 +103,9 @@ export class SecretStore {
 
   static async createDefault(): Promise<SecretStore> {
     try {
-      // @ts-expect-error keytar is an optional peer dependency
-      await import("keytar");
+      // Dynamic import hidden from bundlers (Next.js can't resolve native 'keytar' module)
+      const importDynamic = new Function("specifier", "return import(specifier)") as (s: string) => Promise<typeof import("keytar")>;
+      await importDynamic("keytar");
       return new SecretStore({ backend: "keychain" });
     } catch {
       return new SecretStore({ backend: "env" });
