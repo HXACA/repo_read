@@ -38,6 +38,8 @@ export type UserEditableConfig = {
   language?: string;
   providers: ProviderCredentialConfig[];
   roles: ProjectRoleConfig;
+  /** Override individual QualityProfile fields from the preset defaults. */
+  qualityOverrides?: Partial<import("../config/quality-profile.js").QualityProfile>;
 };
 
 export type ResolvedRoleRoute = {

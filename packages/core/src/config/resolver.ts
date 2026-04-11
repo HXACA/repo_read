@@ -62,6 +62,6 @@ export function resolveConfig(
       capabilities: capabilities.filter((c) => c.provider === p.provider),
     })),
     retrieval: { ...PRESET_RETRIEVAL[config.preset] },
-    qualityProfile: getQualityProfile(config.preset),
+    qualityProfile: { ...getQualityProfile(config.preset), ...config.qualityOverrides },
   };
 }
