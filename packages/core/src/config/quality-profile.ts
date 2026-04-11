@@ -28,6 +28,7 @@ export type QualityProfile = {
   reviewerMaxSteps: number;
   reviewerVerifyMinCitations: number;
   reviewerStrictness: "lenient" | "normal" | "strict";
+  catalogMaxSteps: number;
   askMaxSteps: number;
   researchMaxSteps: number;
 };
@@ -46,6 +47,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     forkWorkers: 3,
     forkWorkerConcurrency: 3,
     maxRevisionAttempts: 3,
+    catalogMaxSteps: 40,
     drafterMaxSteps: 30,
     reviewerMaxSteps: 15,
     reviewerVerifyMinCitations: 3,
@@ -57,6 +59,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     forkWorkers: 2,
     forkWorkerConcurrency: 2,
     maxRevisionAttempts: 2,
+    catalogMaxSteps: 30,
     drafterMaxSteps: 20,
     reviewerMaxSteps: 10,
     reviewerVerifyMinCitations: 2,
@@ -68,6 +71,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     forkWorkers: 1,
     forkWorkerConcurrency: 1,
     maxRevisionAttempts: 1,
+    catalogMaxSteps: 20,
     drafterMaxSteps: 12,
     reviewerMaxSteps: 6,
     reviewerVerifyMinCitations: 0,
@@ -79,6 +83,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     forkWorkers: 1,
     forkWorkerConcurrency: 1,
     maxRevisionAttempts: 1,
+    catalogMaxSteps: 20,
     drafterMaxSteps: 12,
     reviewerMaxSteps: 6,
     reviewerVerifyMinCitations: 0,

@@ -10,6 +10,7 @@ import { extractJson } from "../utils/extract-json.js";
 export type CatalogPlannerOptions = {
   model: LanguageModel;
   language: string;
+  maxSteps?: number;
 };
 
 export type CatalogPlanResult = {
@@ -23,9 +24,12 @@ export class CatalogPlanner {
   private readonly model: LanguageModel;
   private readonly language: string;
 
+  private readonly maxSteps: number;
+
   constructor(options: CatalogPlannerOptions) {
     this.model = options.model;
     this.language = options.language;
+    this.maxSteps = options.maxSteps ?? 20;
   }
 
   async plan(profile: RepoProfile): Promise<CatalogPlanResult> {
@@ -39,7 +43,7 @@ export class CatalogPlanner {
         system: systemPrompt,
         prompt: userPrompt,
         tools: tools as unknown as ToolSet,
-        stopWhen: stepCountIs(20),
+        stopWhen: stepCountIs(this.maxSteps),
       });
 
       const wiki = this.parseWikiJson(result.text);

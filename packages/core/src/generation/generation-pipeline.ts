@@ -121,6 +121,7 @@ export class GenerationPipeline {
         const catalogPlanner = new CatalogPlanner({
           model: this.model,
           language: this.config.language,
+          maxSteps: this.config.qualityProfile.catalogMaxSteps,
         });
         const profileResult = await profileRepo(this.repoRoot, slug);
 
