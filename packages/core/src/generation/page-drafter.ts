@@ -5,7 +5,7 @@ import type { CitationRecord } from "../types/generation.js";
 import { buildPageDraftSystemPrompt, buildPageDraftUserPrompt } from "./page-drafter-prompt.js";
 import type { PageDraftPromptInput } from "./page-drafter-prompt.js";
 import { createCatalogTools } from "../catalog/catalog-tools.js";
-import { extractJson } from "../utils/extract-json.js";
+
 
 export type PageDraftResult = {
   success: boolean;
@@ -132,55 +132,84 @@ export class PageDrafter {
   }
 
   private parseOutput(text: string): PageDraftResult {
-    // Strip LLM preamble + outer ```markdown fence before any JSON parsing
+    // Strip LLM preamble + outer ```markdown fence
     const cleaned = stripDraftOutputWrappers(text);
 
-    // Try to find JSON metadata block (code fence at end)
-    const jsonMatch = cleaned.match(/```json\s*\n([\s\S]*?)\n```\s*$/);
-    let markdown: string;
-    let metadata: Record<string, unknown> | null;
+    // If the model DID produce a trailing ```json block, strip it from the
+    // markdown (we'll extract metadata deterministically anyway).
+    const jsonMatch = cleaned.match(/```json\s*\n[\s\S]*?\n```\s*$/);
+    const markdown = jsonMatch
+      ? cleaned.slice(0, jsonMatch.index).trim()
+      : cleaned.trim();
 
-    if (jsonMatch) {
-      markdown = cleaned.slice(0, jsonMatch.index).trim();
-      try {
-        metadata = JSON.parse(jsonMatch[1]);
-      } catch {
-        metadata = extractJson(jsonMatch[1]);
-      }
-    } else {
-      metadata = extractJson(cleaned);
-      if (metadata) {
-        const braceStart = cleaned.lastIndexOf("{");
-        markdown = cleaned.slice(0, braceStart).trim();
-      } else {
-        markdown = cleaned.trim();
-        metadata = { summary: markdown.slice(0, 200), citations: [], related_pages: [] };
-      }
-    }
+    // === Deterministic metadata extraction ===
+    // Instead of relying on the model to produce a JSON metadata block
+    // (which MiniMax and GLM both frequently omit), we derive all three
+    // metadata fields directly from the markdown content.
+    const metadata = extractMetadataFromMarkdown(markdown);
 
-    if (!metadata) {
-      return {
-        success: true,
-        markdown,
-        metadata: { summary: markdown.slice(0, 200), citations: [], related_pages: [] },
-      };
-    }
-
-    return {
-      success: true,
-      markdown,
-      metadata: {
-        summary: (metadata.summary as string) ?? markdown.slice(0, 200),
-        citations: (Array.isArray(metadata.citations) ? metadata.citations : []).map(
-          (c: Record<string, unknown>) => ({
-            kind: (c.kind as string) ?? "file",
-            target: c.target as string,
-            locator: c.locator as string | undefined,
-            note: c.note as string | undefined,
-          }),
-        ) as CitationRecord[],
-        related_pages: (metadata.related_pages as string[]) ?? [],
-      },
-    };
+    return { success: true, markdown, metadata };
   }
+}
+
+/**
+ * Extract summary, citations, and related_pages deterministically from
+ * the page markdown. This is more reliable than asking the model to
+ * duplicate this information in a trailing JSON block.
+ *
+ * Exported for unit testing.
+ */
+export function extractMetadataFromMarkdown(markdown: string): {
+  summary: string;
+  citations: CitationRecord[];
+  related_pages: string[];
+} {
+  // --- Summary: first non-heading, non-empty paragraph after the # title ---
+  const lines = markdown.split("\n");
+  let summary = "";
+  let pastTitle = false;
+  let inCodeFence = false;
+  for (const line of lines) {
+    // Track code fence state to skip content inside fenced blocks
+    if (line.trimStart().startsWith("```")) {
+      inCodeFence = !inCodeFence;
+      continue;
+    }
+    if (inCodeFence) continue;
+    if (!pastTitle) {
+      if (line.startsWith("# ")) pastTitle = true;
+      continue;
+    }
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    // Skip headings, lists, tables
+    if (/^(#{1,6}\s|[-*]\s|\|)/.test(trimmed)) continue;
+    summary = trimmed;
+    break;
+  }
+  if (!summary) summary = markdown.slice(0, 200);
+
+  // --- Citations: scan all [cite:kind:target:locator] markers ---
+  const citationRegex = /\[cite:(\w+):([^\]:\s]+?)(?::([^\]]+?))?\]/g;
+  const seen = new Set<string>();
+  const citations: CitationRecord[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = citationRegex.exec(markdown)) !== null) {
+    const kind = m[1] as CitationRecord["kind"];
+    const target = m[2];
+    const locator = m[3] || undefined;
+    const key = `${kind}:${target}:${locator ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    citations.push({ kind, target, locator });
+  }
+
+  // --- Related pages: extract slugs from [cite:page:slug] markers ---
+  const relatedSet = new Set<string>();
+  for (const c of citations) {
+    if (c.kind === "page") relatedSet.add(c.target);
+  }
+  const related_pages = [...relatedSet];
+
+  return { summary, citations, related_pages };
 }

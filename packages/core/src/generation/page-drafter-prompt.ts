@@ -40,18 +40,7 @@ Write as if you are explaining the codebase to a smart colleague who just joined
 5. Use Mermaid diagrams (in \`\`\`mermaid blocks) when they help explain architecture or flow.
 6. Do not duplicate content from previously published pages — reference them with \`[cite:page:slug]\`.
 7. Stay within the scope of the current page plan. Do not cover topics assigned to other pages.
-8. **Output format**: Start DIRECTLY with the \`#\` title heading. Do NOT wrap output in \`\`\`markdown fences. Do NOT write any preamble. The very first character of your output must be \`#\`.
-9. At the end, output a JSON metadata block:
-
-\`\`\`json
-{
-  "summary": "One-paragraph summary of this page",
-  "citations": [
-    { "kind": "file", "target": "path/to/file.ts", "locator": "42-60", "note": "Engine constructor" }
-  ],
-  "related_pages": ["setup", "cli"]
-}
-\`\`\``;
+8. **Output format**: Start DIRECTLY with the \`#\` title heading. Do NOT wrap output in \`\`\`markdown fences. Do NOT write any preamble. The very first character of your output must be \`#\`. Do NOT append a JSON metadata block at the end — metadata is extracted automatically from your citations.`;
 }
 
 export function buildPageDraftUserPrompt(
@@ -186,10 +175,10 @@ export function buildPageDraftUserPrompt(
   sections.push(
     `## Instructions`,
     context.revision
-      ? `**Re-write** the complete wiki page for "${input.title}" addressing every blocker and reviewer note above. Use the retrieval tools to verify facts and read additional files mentioned in "missing evidence". Output the FULL page (not a diff). End with the JSON metadata block.\n\n**CRITICAL**: Start your output with \`# ${input.title}\` — no preamble text, no \`\`\`markdown wrapper. Your very first character must be \`#\`.`
+      ? `**Re-write** the complete wiki page for "${input.title}" addressing every blocker and reviewer note above. Use the retrieval tools to verify facts and read additional files mentioned in "missing evidence". Output the FULL page (not a diff).\n\n**CRITICAL**: Start your output with \`# ${input.title}\` — no preamble text, no \`\`\`markdown wrapper. Your very first character must be \`#\`.`
       : hasPreEvidence
-        ? `Write the complete wiki page for "${input.title}". **Base your page on the Pre-collected Evidence section above** — it was gathered in parallel by fork.workers and represents your primary source of truth. Only call retrieval tools to verify specific claims, resolve open questions, or read a file that the ledger does not yet cover. End with the JSON metadata block.`
-        : `Write the complete wiki page for "${input.title}". Use the retrieval tools to read the covered files and gather evidence. Then produce the page as Markdown with inline citations. End with the JSON metadata block.`,
+        ? `Write the complete wiki page for "${input.title}". **Base your page on the Pre-collected Evidence section above** — it was gathered in parallel by fork.workers and represents your primary source of truth. Only call retrieval tools to verify specific claims, resolve open questions, or read a file that the ledger does not yet cover.`
+        : `Write the complete wiki page for "${input.title}". Use the retrieval tools to read the covered files and gather evidence. Then produce the page as Markdown with inline citations.`,
   );
 
   return sections.join("\n\n");

@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { PageDrafter, stripDraftOutputWrappers } from "../page-drafter.js";
+import {
+  PageDrafter,
+  stripDraftOutputWrappers,
+  extractMetadataFromMarkdown,
+} from "../page-drafter.js";
 import type { MainAuthorContext } from "../../types/agent.js";
 
 vi.mock("ai", () => ({
@@ -58,10 +62,10 @@ describe("PageDrafter", () => {
 
     expect(result.success).toBe(true);
     expect(result.markdown).toContain("# Core Engine");
-    expect(result.metadata!.summary).toBe("Explains the core engine architecture");
+    // Metadata is now extracted deterministically from the markdown
     expect(result.metadata!.citations).toHaveLength(1);
     expect(result.metadata!.citations[0].target).toBe("src/engine.ts");
-    expect(result.metadata!.related_pages).toEqual(["setup"]);
+    expect(result.metadata!.citations[0].locator).toBe("1-50");
   });
 
   it("gracefully handles LLM output with no JSON block", async () => {
@@ -185,9 +189,10 @@ The core engine handles pipeline orchestration.
     expect(result.markdown).not.toContain("```markdown");
     // The inner [cite:...] marker should survive
     expect(result.markdown).toContain("[cite:file:src/engine.ts:1-50]");
-    // JSON metadata should still parse
+    // Metadata is now extracted deterministically from the markdown
     expect(result.metadata!.citations).toHaveLength(1);
-    expect(result.metadata!.summary).toBe("Explains the core engine architecture");
+    // Summary is the first prose paragraph, not from the (stripped) JSON block
+    expect(result.metadata!.summary).toContain("core engine");
   });
 
   it("strips preamble AND outer markdown fence together", async () => {
@@ -402,5 +407,42 @@ describe("stripDraftOutputWrappers", () => {
     expect(out).toContain("print('hi')");
     // Inner fence opener should still be there
     expect(out.match(/```python/g)).toHaveLength(1);
+  });
+});
+
+describe("extractMetadataFromMarkdown", () => {
+  it("extracts summary from first paragraph after title", () => {
+    const md = `# My Page\n\nThis is the summary paragraph.\n\n## Section\n\nMore text.`;
+    const meta = extractMetadataFromMarkdown(md);
+    expect(meta.summary).toBe("This is the summary paragraph.");
+  });
+
+  it("extracts deduplicated citations", () => {
+    const md = `# Page\n\nText [cite:file:src/a.ts:10-20] and [cite:file:src/b.ts:30-40].\n\nAlso [cite:file:src/a.ts:10-20] again.\n\nAnd [cite:commit:abc1234].`;
+    const meta = extractMetadataFromMarkdown(md);
+    expect(meta.citations).toHaveLength(3);
+    expect(meta.citations[0]).toEqual({ kind: "file", target: "src/a.ts", locator: "10-20" });
+    expect(meta.citations[1]).toEqual({ kind: "file", target: "src/b.ts", locator: "30-40" });
+    expect(meta.citations[2]).toEqual({ kind: "commit", target: "abc1234", locator: undefined });
+  });
+
+  it("extracts related_pages from page citations", () => {
+    const md = `# Page\n\nSee [cite:page:setup] and [cite:page:overview] for details.\n\nAlso [cite:file:src/x.ts:1-5].`;
+    const meta = extractMetadataFromMarkdown(md);
+    expect(meta.related_pages).toEqual(["setup", "overview"]);
+  });
+
+  it("handles markdown with no citations", () => {
+    const md = `# Empty Page\n\nNo citations here.`;
+    const meta = extractMetadataFromMarkdown(md);
+    expect(meta.citations).toEqual([]);
+    expect(meta.related_pages).toEqual([]);
+    expect(meta.summary).toBe("No citations here.");
+  });
+
+  it("skips headings, lists, and code fences when finding summary", () => {
+    const md = `# Title\n\n## First Section\n\n- A list item\n\n\`\`\`ts\ncode()\n\`\`\`\n\nActual summary text.`;
+    const meta = extractMetadataFromMarkdown(md);
+    expect(meta.summary).toBe("Actual summary text.");
   });
 });
