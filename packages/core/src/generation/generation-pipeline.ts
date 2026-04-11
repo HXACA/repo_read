@@ -227,12 +227,15 @@ export class GenerationPipeline {
         let reviewResult: Awaited<ReturnType<typeof reviewer.review>> | null =
           null;
         let attempt = 0;
+        let reviewUnverified = false;
         // Cached across retries — only re-run when reviewer asks for more evidence
         let evidenceResult: EvidenceCollectionResult | null = null;
         // Outline is planned once after evidence collection and reused across retries
         let outline: PageOutline | null = null;
 
         while (true) {
+          reviewUnverified = false;
+
           // === EVIDENCE COLLECTION ===
           // Run on first attempt, or on retries where reviewer flagged
           // missing_evidence (suggesting we need to look at more files).
@@ -380,13 +383,32 @@ export class GenerationPipeline {
             ],
           };
 
-          reviewResult = await reviewer.review(briefing);
+          try {
+            reviewResult = await reviewer.review(briefing);
+          } catch (reviewErr) {
+            reviewResult = {
+              success: false,
+              error: `Review threw: ${(reviewErr as Error).message}`,
+            };
+          }
+
           if (!reviewResult.success || !reviewResult.conclusion) {
-            return this.failJob(
-              job,
-              emitter,
-              reviewResult.error ?? `Page ${page.slug} review failed`,
-            );
+            // Synthesize an unverified pass so the page can proceed.
+            // The page will be flagged for later re-review.
+            reviewResult = {
+              success: true,
+              conclusion: {
+                verdict: "pass",
+                blockers: [],
+                factual_risks: [
+                  `Reviewer unavailable: ${reviewResult.error ?? "unknown error"}. This page has not been verified.`,
+                ],
+                missing_evidence: [],
+                scope_violations: [],
+                suggested_revisions: [],
+              },
+            };
+            reviewUnverified = true;
           }
 
           await emitter.pageReviewed(
@@ -468,8 +490,9 @@ export class GenerationPipeline {
           commitHash: this.commitHash,
           citationFile: `citations/${page.slug}.citations.json`,
           summary: finalDraft.metadata!.summary,
-          reviewStatus:
-            finalReview.conclusion!.verdict === "pass"
+          reviewStatus: reviewUnverified
+            ? "unverified"
+            : finalReview.conclusion!.verdict === "pass"
               ? "accepted"
               : "accepted_with_notes",
           reviewSummary:
