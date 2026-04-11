@@ -2,6 +2,7 @@ import { stepCountIs } from "ai";
 import type { LanguageModel, ToolSet } from "ai";
 import { generateViaStream as generateText } from "../utils/generate-via-stream.js";
 import type { ForkWorkerResult } from "../types/agent.js";
+import type { CitationKind } from "../types/generation.js";
 import { buildForkWorkerSystemPrompt, buildForkWorkerUserPrompt } from "./fork-worker-prompt.js";
 import type { ForkWorkerInput } from "./fork-worker-prompt.js";
 import { createCatalogTools } from "../catalog/catalog-tools.js";
@@ -61,7 +62,7 @@ export class ForkWorker {
         directive: data.directive as string,
         findings: data.findings as string[],
         citations: (Array.isArray(data.citations) ? data.citations : []).map((c: Record<string, string>) => ({
-          kind: c.kind ?? "file",
+          kind: (c.kind ?? "file") as CitationKind,
           target: c.target,
           locator: c.locator,
           note: c.note,

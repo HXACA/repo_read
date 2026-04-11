@@ -35,6 +35,7 @@ const QualityOverridesSchema = z.object({
   maxRevisionAttempts: z.number().optional(),
   catalogMaxSteps: z.number().optional(),
   drafterMaxSteps: z.number().optional(),
+  workerMaxSteps: z.number().optional(),
   reviewerMaxSteps: z.number().optional(),
   reviewerVerifyMinCitations: z.number().optional(),
   reviewerStrictness: z.enum(["lenient", "normal", "strict"]).optional(),

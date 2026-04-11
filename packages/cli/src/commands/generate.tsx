@@ -82,6 +82,7 @@ export async function runGenerate(options: GenerateOptions): Promise<void> {
   let job: GenerationJob;
   let resumeWith: { wiki: WikiJson; skipPageSlugs: Set<string> } | undefined;
   let commitHash = "unknown";
+  let repoProfile: Awaited<ReturnType<typeof profileRepo>> | undefined;
 
   if (options.resume) {
     // --- RESUME PATH ---
@@ -177,9 +178,9 @@ export async function runGenerate(options: GenerateOptions): Promise<void> {
   } else {
     // --- FRESH GENERATION PATH ---
     console.log("Profiling repository...");
-    const profile = await profileRepo(repoRoot, slug);
+    repoProfile = await profileRepo(repoRoot, slug);
     console.log(
-      `Found ${profile.sourceFileCount} source files, languages: ${profile.languages.join(", ") || "unknown"}`,
+      `Found ${repoProfile.sourceFileCount} source files, languages: ${repoProfile.languages.join(", ") || "unknown"}`,
     );
 
     try {
@@ -227,6 +228,9 @@ export async function runGenerate(options: GenerateOptions): Promise<void> {
   progress.start();
   const result = await pipeline.run(job, {
     ...(resumeWith ? { resumeWith } : {}),
+    // Pass the profile we already computed so the pipeline skips a duplicate
+    // profileRepo() call during catalog planning.
+    ...(repoProfile ? { repoProfile } : {}),
     onEvent: (event) => {
       // On catalog.completed, read the wiki.json to populate the page list
       // for fresh generation (resume already has it from the CLI).

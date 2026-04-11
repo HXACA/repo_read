@@ -6,6 +6,7 @@ import type { GenerationJob, WikiJson, PageMeta } from "../types/generation.js";
 import type { ResolvedConfig } from "../types/config.js";
 import type { MainAuthorContext } from "../types/agent.js";
 import type { ReviewBriefing } from "../types/review.js";
+import type { RepoProfile } from "../types/project.js";
 import { JobStateManager } from "./job-state.js";
 import { JobEventEmitter } from "./generation-events.js";
 import { profileRepo } from "../project/repo-profiler.js";
@@ -61,6 +62,11 @@ export type PipelineRunOptions = {
   };
   /** Real-time event callback for CLI progress display. */
   onEvent?: (event: import("../types/events.js").AppEvent) => void;
+  /**
+   * Pre-computed repo profile.  When supplied the pipeline skips its own
+   * `profileRepo()` call, avoiding a duplicate filesystem walk.
+   */
+  repoProfile?: RepoProfile;
 };
 
 export class GenerationPipeline {
@@ -123,7 +129,8 @@ export class GenerationPipeline {
           language: this.config.language,
           maxSteps: this.config.qualityProfile.catalogMaxSteps,
         });
-        const profileResult = await profileRepo(this.repoRoot, slug);
+        const profileResult =
+          options.repoProfile ?? (await profileRepo(this.repoRoot, slug));
 
         const catalogResult = await catalogPlanner.plan(profileResult);
         if (!catalogResult.success || !catalogResult.wiki) {
@@ -188,6 +195,32 @@ export class GenerationPipeline {
       const qp = this.config.qualityProfile;
       const MAX_REVISION_ATTEMPTS = qp.maxRevisionAttempts;
 
+      // Agents are stateless between pages (they only hold a model ref + config),
+      // so we construct them once before the loop.
+      const drafter = new PageDrafter({
+        model: this.model,
+        repoRoot: this.repoRoot,
+        maxSteps: qp.drafterMaxSteps,
+      });
+      const reviewer = new FreshReviewer({
+        model: this.reviewerModel,
+        repoRoot: this.repoRoot,
+        maxSteps: qp.reviewerMaxSteps,
+        verifyMinCitations: qp.reviewerVerifyMinCitations,
+        strictness: qp.reviewerStrictness,
+      });
+      const coordinator =
+        qp.forkWorkers > 0
+          ? new EvidenceCoordinator({
+              plannerModel: this.model,
+              workerModel: this.workerModel,
+              repoRoot: this.repoRoot,
+              concurrency: qp.forkWorkerConcurrency,
+              workerMaxSteps: qp.workerMaxSteps,
+            })
+          : null;
+      const outlinePlanner = new OutlinePlanner({ model: this.model });
+
       for (let i = 0; i < wiki.reading_order.length; i++) {
         const page = wiki.reading_order[i];
 
@@ -198,32 +231,6 @@ export class GenerationPipeline {
         }
 
         job = await this.jobManager.updatePage(slug, jobId, page.slug, i + 1);
-
-        // === DRAFT + REVIEW LOOP ===
-        const drafter = new PageDrafter({
-          model: this.model,
-          repoRoot: this.repoRoot,
-          maxSteps: qp.drafterMaxSteps,
-        });
-        const reviewer = new FreshReviewer({
-          model: this.reviewerModel,
-          repoRoot: this.repoRoot,
-          maxSteps: qp.reviewerMaxSteps,
-          verifyMinCitations: qp.reviewerVerifyMinCitations,
-          strictness: qp.reviewerStrictness,
-        });
-        const coordinator =
-          qp.forkWorkers > 0
-            ? new EvidenceCoordinator({
-                plannerModel: this.model,
-                workerModel: this.workerModel,
-                repoRoot: this.repoRoot,
-                concurrency: qp.forkWorkerConcurrency,
-                workerMaxSteps: qp.workerMaxSteps,
-              })
-            : null;
-
-        const outlinePlanner = new OutlinePlanner({ model: this.model });
 
         let draftResult: Awaited<ReturnType<typeof drafter.draft>> | null = null;
         let reviewResult: Awaited<ReturnType<typeof reviewer.review>> | null =
