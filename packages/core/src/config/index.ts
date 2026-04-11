@@ -4,3 +4,4 @@ export { loadProjectConfig, saveProjectConfig, getGlobalConfigDir, CONFIG_FILENA
 export { resolveConfig, detectModelFamily } from "./resolver.js";
 export { QUALITY_PROFILES, getQualityProfile } from "./quality-profile.js";
 export type { QualityProfile } from "./quality-profile.js";
+export { resolveApiKeys } from "./resolve-api-keys.js";

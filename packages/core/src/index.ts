@@ -3,7 +3,7 @@ export type { ErrorCode } from "./errors.js";
 export * from "./types/index.js";
 export { UserEditableConfigSchema, parseUserEditableConfig } from "./config/index.js";
 export type { UserEditableConfigInput } from "./config/index.js";
-export { loadProjectConfig, saveProjectConfig, resolveConfig } from "./config/index.js";
+export { loadProjectConfig, saveProjectConfig, resolveConfig, resolveApiKeys } from "./config/index.js";
 export { SecretStore } from "./secrets/index.js";
 export type { SecretBackend, SecretStoreOptions } from "./secrets/index.js";
 export { ProviderCenter, getStaticCapabilities, buildFallbackChain, createModelForRole } from "./providers/index.js";
