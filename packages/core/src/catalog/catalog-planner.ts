@@ -11,6 +11,7 @@ export type CatalogPlannerOptions = {
   model: LanguageModel;
   language: string;
   maxSteps?: number;
+  maxRetries?: number;
 };
 
 export type CatalogPlanResult = {
@@ -26,10 +27,13 @@ export class CatalogPlanner {
 
   private readonly maxSteps: number;
 
+  private readonly maxRetries: number;
+
   constructor(options: CatalogPlannerOptions) {
     this.model = options.model;
     this.language = options.language;
     this.maxSteps = options.maxSteps ?? 20;
+    this.maxRetries = options.maxRetries ?? 3;
   }
 
   async plan(profile: RepoProfile): Promise<CatalogPlanResult> {
@@ -37,29 +41,37 @@ export class CatalogPlanner {
     const userPrompt = buildCatalogUserPrompt(profile, this.language);
     const tools = createCatalogTools(profile.repoRoot);
 
-    try {
-      const result = await generateText({
-        model: this.model,
-        system: systemPrompt,
-        prompt: userPrompt,
-        tools: tools as unknown as ToolSet,
-        stopWhen: stepCountIs(this.maxSteps),
-      });
+    let lastError = "";
+    for (let attempt = 0; attempt < this.maxRetries; attempt++) {
+      try {
+        const result = await generateText({
+          model: this.model,
+          system: systemPrompt,
+          prompt: userPrompt,
+          tools: tools as unknown as ToolSet,
+          stopWhen: stepCountIs(this.maxSteps),
+        });
 
-      const wiki = this.parseWikiJson(result.text);
+        const wiki = this.parseWikiJson(result.text);
 
-      return {
-        success: true,
-        wiki,
-        usage: result.usage ? {
-          promptTokens: (result.usage as { inputTokens?: number }).inputTokens ?? 0,
-          completionTokens: (result.usage as { outputTokens?: number }).outputTokens ?? 0,
-          totalTokens: ((result.usage as { inputTokens?: number }).inputTokens ?? 0) + ((result.usage as { outputTokens?: number }).outputTokens ?? 0),
-        } : undefined,
-      };
-    } catch (err) {
-      return { success: false, error: `Catalog planning failed: ${(err as Error).message}` };
+        return {
+          success: true,
+          wiki,
+          usage: result.usage ? {
+            promptTokens: (result.usage as { inputTokens?: number }).inputTokens ?? 0,
+            completionTokens: (result.usage as { outputTokens?: number }).outputTokens ?? 0,
+            totalTokens: ((result.usage as { inputTokens?: number }).inputTokens ?? 0) + ((result.usage as { outputTokens?: number }).outputTokens ?? 0),
+          } : undefined,
+        };
+      } catch (err) {
+        lastError = (err as Error).message;
+        // Retry on empty/invalid response, stop on other errors
+        if (!lastError.includes("Invalid wiki.json") && !lastError.includes("missing summary")) {
+          break;
+        }
+      }
     }
+    return { success: false, error: `Catalog planning failed after ${this.maxRetries} attempts: ${lastError}` };
   }
 
   private parseWikiJson(text: string): WikiJson {
