@@ -175,19 +175,19 @@ export function MarkdownRenderer({
         /* ── Headings with anchor IDs for TOC navigation ── */
         h1({ children, node: _n }) {
           const id = makeHeadingId(textOf(children));
-          return <h1 id={id}>{children}</h1>;
+          return <h1 id={id} suppressHydrationWarning>{children}</h1>;
         },
         h2({ children, node: _n }) {
           const id = makeHeadingId(textOf(children));
-          return <h2 id={id}>{children}</h2>;
+          return <h2 id={id} suppressHydrationWarning>{children}</h2>;
         },
         h3({ children, node: _n }) {
           const id = makeHeadingId(textOf(children));
-          return <h3 id={id}>{children}</h3>;
+          return <h3 id={id} suppressHydrationWarning>{children}</h3>;
         },
         h4({ children, node: _n }) {
           const id = makeHeadingId(textOf(children));
-          return <h4 id={id}>{children}</h4>;
+          return <h4 id={id} suppressHydrationWarning>{children}</h4>;
         },
 
         /* ── Fenced code blocks (pre > code) ── */
