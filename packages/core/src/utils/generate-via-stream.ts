@@ -1,15 +1,10 @@
 /**
  * Streaming-compatible wrapper around AI SDK's text generation.
  *
- * Debug mode: call `setDebugDir(path)` to enable. Each LLM round-trip
- * (step) is written to its own file **as soon as it completes**, so even
- * if the pipeline crashes mid-run the earlier steps are already on disk.
- *
- * File layout per generateViaStream call:
- *   <callSeq>-request.json           — initial request params (written before first step)
- *   <callSeq>-step-<stepN>.json      — one per step (tool calls + results)
- *   <callSeq>-response.json          — final aggregated result
- *   <callSeq>-ERROR.json             — on failure
+ * Debug mode: call `setDebugDir(path)` to enable. Writes:
+ *   <seq>-request.json    — before LLM call
+ *   <seq>-response.json   — after completion (includes all steps)
+ *   <seq>-ERROR.json      — on failure
  */
 
 import * as fs from "node:fs/promises";
@@ -30,14 +25,9 @@ export type GenerateViaStreamResult = {
 let callSeq = 0;
 let debugDir: string | null = null;
 
-/** Set the directory where debug logs will be written. Call once per job. */
 export function setDebugDir(dir: string | null): void {
   debugDir = dir;
   callSeq = 0;
-}
-
-function isDebug(): boolean {
-  return debugDir !== null;
 }
 
 function getModelId(params: StreamTextParams): string {
@@ -52,15 +42,12 @@ function serializeTools(tools: unknown): unknown {
   for (const [name, def] of Object.entries(tools as Record<string, unknown>)) {
     if (!def || typeof def !== "object") { result[name] = def; continue; }
     const d = def as Record<string, unknown>;
-    result[name] = {
-      description: d.description,
-      inputSchema: d.inputSchema ?? d.parameters,
-    };
+    result[name] = { description: d.description, inputSchema: d.inputSchema ?? d.parameters };
   }
   return result;
 }
 
-async function writeFile(filename: string, data: unknown): Promise<void> {
+async function writeDebug(filename: string, data: unknown): Promise<void> {
   if (!debugDir) return;
   try {
     await fs.mkdir(debugDir, { recursive: true });
@@ -71,13 +58,13 @@ async function writeFile(filename: string, data: unknown): Promise<void> {
 export async function generateViaStream(
   params: StreamTextParams,
 ): Promise<GenerateViaStreamResult> {
-  const debug = isDebug();
+  const debug = debugDir !== null;
   const start = debug ? Date.now() : 0;
-  const prefix = debug ? String(++callSeq).padStart(4, "0") : "";
+  const seq = debug ? String(++callSeq).padStart(4, "0") : "";
 
-  // Write request params immediately (before any LLM call)
+  // Write request BEFORE the LLM call
   if (debug) {
-    await writeFile(`${prefix}-request.json`, {
+    await writeDebug(`${seq}-request.json`, {
       modelId: getModelId(params),
       system: params.system,
       prompt: params.prompt,
@@ -91,27 +78,6 @@ export async function generateViaStream(
   try {
     const stream = streamText(params);
 
-    // Consume fullStream to capture steps in real-time
-    if (debug) {
-      let stepN = 0;
-      const stepBuffer: unknown[] = [];
-
-      for await (const event of stream.fullStream) {
-        stepBuffer.push(event);
-        if (event.type === "step-finish") {
-          stepN++;
-          // Write this step immediately
-          await writeFile(`${prefix}-step-${String(stepN).padStart(3, "0")}.json`, {
-            step: stepN,
-            finishReason: (event as any).finishReason,
-            usage: (event as any).usage,
-            events: stepBuffer.splice(0),
-            timestamp: new Date().toISOString(),
-          });
-        }
-      }
-    }
-
     const text = await stream.text;
     const finishReason = (await stream.finishReason) ?? "stop";
     const usage = (await stream.usage) ?? {};
@@ -123,13 +89,8 @@ export async function generateViaStream(
   } catch (error) {
     if (debug) {
       const err = error instanceof Error ? error : new Error(String(error));
-      await writeFile(`${prefix}-ERROR.json`, {
-        error: {
-          message: err.message,
-          name: err.name,
-          statusCode: (err as any).statusCode,
-          responseBody: (err as any).responseBody,
-        },
+      await writeDebug(`${seq}-ERROR.json`, {
+        error: { message: err.message, name: err.name, statusCode: (err as any).statusCode, responseBody: (err as any).responseBody },
         durationMs: Date.now() - start,
         timestamp: new Date().toISOString(),
       });
@@ -137,13 +98,15 @@ export async function generateViaStream(
     throw error;
   }
 
-  // Write final aggregated response
+  // Write full response with all steps
   if (debug) {
-    await writeFile(`${prefix}-response.json`, {
+    await writeDebug(`${seq}-response.json`, {
       text: result.text,
       finishReason: result.finishReason,
       usage: result.usage,
-      stepCount: result.steps.length,
+      toolCalls: result.toolCalls,
+      toolResults: result.toolResults,
+      steps: result.steps,
       durationMs: Date.now() - start,
       timestamp: new Date().toISOString(),
     });
