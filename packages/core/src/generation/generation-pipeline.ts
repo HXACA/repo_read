@@ -107,7 +107,11 @@ export class GenerationPipeline {
         // === RESUME PATH ===
         // Skip catalog. Reuse existing wiki.json and meta files.
         wiki = options.resumeWith.wiki;
-        job = await this.jobManager.transition(slug, jobId, "page_drafting");
+        // The job may already be in "page_drafting" (killed mid-run) or
+        // "failed" (clean failure). Only transition if not already there.
+        if (job.status !== "page_drafting") {
+          job = await this.jobManager.transition(slug, jobId, "page_drafting");
+        }
         await emitter.jobResumed("page_drafting");
       } else {
         // === CATALOGING ===
@@ -390,13 +394,15 @@ export class GenerationPipeline {
             reviewResult.conclusion.verdict,
           );
 
-          // Decide whether to retry: only retry on "revise" verdict with at
-          // least one blocker, and only if we haven't hit the attempt limit.
+          // Decide whether to retry: if the reviewer says "revise" and we
+          // still have budget, always retry — the rationale may be in
+          // blockers, factual_risks, missing_evidence, or suggested_revisions.
+          // Previously we required non-empty blockers, but that let pages
+          // through when the reviewer flagged issues in other fields only.
           const verdict = reviewResult.conclusion.verdict;
-          const hasBlockers = reviewResult.conclusion.blockers.length > 0;
           const canRetry = attempt < MAX_REVISION_ATTEMPTS;
 
-          if (verdict === "pass" || !hasBlockers || !canRetry) {
+          if (verdict === "pass" || !canRetry) {
             break;
           }
 
