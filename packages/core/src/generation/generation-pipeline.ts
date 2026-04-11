@@ -219,6 +219,7 @@ export class GenerationPipeline {
                 workerModel: this.workerModel,
                 repoRoot: this.repoRoot,
                 concurrency: qp.forkWorkerConcurrency,
+                workerMaxSteps: qp.workerMaxSteps,
               })
             : null;
 

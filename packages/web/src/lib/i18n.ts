@@ -27,8 +27,7 @@ const dict = {
     darkMode: "深色模式",
     fontSize: "字体大小",
     language: "语言",
-    apiKeyLabel: "API 密钥",
-    apiKeyHint: "用于页面问答的 API 密钥（存储在浏览器本地）",
+
     save: "保存",
     close: "关闭",
     settingsTitle: "阅读设置",
@@ -73,8 +72,7 @@ const dict = {
     darkMode: "Dark Mode",
     fontSize: "Font Size",
     language: "Language",
-    apiKeyLabel: "API Key",
-    apiKeyHint: "API key for page Q&A (stored locally in browser)",
+
     save: "Save",
     close: "Close",
     settingsTitle: "Reading Settings",

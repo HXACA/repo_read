@@ -17,14 +17,12 @@ export type Settings = {
   theme: Theme;
   fontSize: FontSize;
   locale: Locale;
-  apiKey: string;
 };
 
 type SettingsContextValue = Settings & {
   setTheme: (t: Theme) => void;
   setFontSize: (f: FontSize) => void;
   setLocale: (l: Locale) => void;
-  setApiKey: (k: string) => void;
   panelOpen: boolean;
   togglePanel: () => void;
 };
@@ -33,7 +31,6 @@ const defaults: Settings = {
   theme: "light",
   fontSize: "base",
   locale: "zh",
-  apiKey: "",
 };
 
 const LS_KEY = "reporead-settings";
@@ -62,7 +59,6 @@ const SettingsContext = createContext<SettingsContextValue>({
   setTheme: () => {},
   setFontSize: () => {},
   setLocale: () => {},
-  setApiKey: () => {},
   panelOpen: false,
   togglePanel: () => {},
 });
@@ -114,7 +110,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setTheme: (t) => update({ theme: t }),
     setFontSize: (f) => update({ fontSize: f }),
     setLocale: (l) => update({ locale: l }),
-    setApiKey: (k) => update({ apiKey: k }),
     panelOpen,
     togglePanel: () => setPanelOpen((p) => !p),
   };

@@ -15,6 +15,7 @@ export type EvidenceCoordinatorOptions = {
   workerModel: LanguageModel;
   repoRoot: string;
   concurrency: number;
+  workerMaxSteps?: number;
 };
 
 export type CollectInput = {
@@ -64,6 +65,7 @@ export class EvidenceCoordinator {
       new ForkWorker({
         model: options.workerModel,
         repoRoot: options.repoRoot,
+        maxSteps: options.workerMaxSteps,
       });
     this.concurrency = Math.max(1, options.concurrency);
   }

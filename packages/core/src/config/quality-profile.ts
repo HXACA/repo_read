@@ -17,6 +17,8 @@ import type { Preset } from "../types/config.js";
  * - `reviewerStrictness` — tone setting for the reviewer system prompt.
  * - `askMaxSteps` — `stepCountIs(...)` budget for AskStreamService (chat
  *   assistant). Covers page-first and page-plus-retrieval routes.
+ * - `workerMaxSteps` — `stepCountIs(...)` budget for each fork.worker
+ *   evidence-collection subtask.
  * - `researchMaxSteps` — `stepCountIs(...)` budget for each research
  *   planner/executor LLM call (per sub-question in the executor).
  */
@@ -28,6 +30,7 @@ export type QualityProfile = {
   reviewerMaxSteps: number;
   reviewerVerifyMinCitations: number;
   reviewerStrictness: "lenient" | "normal" | "strict";
+  workerMaxSteps: number;
   catalogMaxSteps: number;
   askMaxSteps: number;
   researchMaxSteps: number;
@@ -47,6 +50,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     forkWorkers: 3,
     forkWorkerConcurrency: 3,
     maxRevisionAttempts: 3,
+    workerMaxSteps: 8,
     catalogMaxSteps: 40,
     drafterMaxSteps: 30,
     reviewerMaxSteps: 15,
@@ -59,6 +63,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     forkWorkers: 2,
     forkWorkerConcurrency: 2,
     maxRevisionAttempts: 2,
+    workerMaxSteps: 6,
     catalogMaxSteps: 30,
     drafterMaxSteps: 20,
     reviewerMaxSteps: 10,
@@ -71,6 +76,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     forkWorkers: 1,
     forkWorkerConcurrency: 1,
     maxRevisionAttempts: 1,
+    workerMaxSteps: 4,
     catalogMaxSteps: 20,
     drafterMaxSteps: 12,
     reviewerMaxSteps: 6,
@@ -83,6 +89,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     forkWorkers: 1,
     forkWorkerConcurrency: 1,
     maxRevisionAttempts: 1,
+    workerMaxSteps: 4,
     catalogMaxSteps: 20,
     drafterMaxSteps: 12,
     reviewerMaxSteps: 6,

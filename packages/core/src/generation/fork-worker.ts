@@ -1,9 +1,11 @@
+import { stepCountIs } from "ai";
 import type { LanguageModel, ToolSet } from "ai";
 import { generateViaStream as generateText } from "../utils/generate-via-stream.js";
 import type { ForkWorkerResult } from "../types/agent.js";
 import { buildForkWorkerSystemPrompt, buildForkWorkerUserPrompt } from "./fork-worker-prompt.js";
 import type { ForkWorkerInput } from "./fork-worker-prompt.js";
 import { createCatalogTools } from "../catalog/catalog-tools.js";
+import { extractJson } from "../utils/extract-json.js";
 
 export type ForkWorkerResponse = {
   success: boolean;
@@ -14,15 +16,18 @@ export type ForkWorkerResponse = {
 export type ForkWorkerOptions = {
   model: LanguageModel;
   repoRoot: string;
+  maxSteps?: number;
 };
 
 export class ForkWorker {
   private readonly model: LanguageModel;
   private readonly repoRoot: string;
+  private readonly maxSteps: number;
 
   constructor(options: ForkWorkerOptions) {
     this.model = options.model;
     this.repoRoot = options.repoRoot;
+    this.maxSteps = options.maxSteps ?? 8;
   }
 
   async execute(input: ForkWorkerInput): Promise<ForkWorkerResponse> {
@@ -36,6 +41,7 @@ export class ForkWorker {
         system: systemPrompt,
         prompt: userPrompt,
         tools: tools as unknown as ToolSet,
+        stopWhen: stepCountIs(this.maxSteps),
       });
 
       return this.parseOutput(result.text);
@@ -45,31 +51,23 @@ export class ForkWorker {
   }
 
   private parseOutput(text: string): ForkWorkerResponse {
-    let jsonStr = text.trim();
-    const fenceMatch = jsonStr.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-    if (fenceMatch) jsonStr = fenceMatch[1].trim();
-
-    try {
-      const data = JSON.parse(jsonStr);
-      if (!data.directive || !Array.isArray(data.findings)) {
-        return { success: false, error: "Invalid fork worker output: missing directive or findings" };
-      }
-      return {
-        success: true,
-        data: {
-          directive: data.directive,
-          findings: data.findings,
-          citations: (data.citations ?? []).map((c: Record<string, string>) => ({
-            kind: c.kind ?? "file",
-            target: c.target,
-            locator: c.locator,
-            note: c.note,
-          })),
-          open_questions: data.open_questions ?? [],
-        },
-      };
-    } catch {
-      return { success: false, error: "Failed to parse fork worker output as JSON" };
+    const data = extractJson(text);
+    if (!data || !data.directive || !Array.isArray(data.findings)) {
+      return { success: false, error: "Invalid fork worker output: missing directive or findings" };
     }
+    return {
+      success: true,
+      data: {
+        directive: data.directive as string,
+        findings: data.findings as string[],
+        citations: (Array.isArray(data.citations) ? data.citations : []).map((c: Record<string, string>) => ({
+          kind: c.kind ?? "file",
+          target: c.target,
+          locator: c.locator,
+          note: c.note,
+        })),
+        open_questions: (data.open_questions as string[]) ?? [],
+      },
+    };
   }
 }

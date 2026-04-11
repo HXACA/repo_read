@@ -8,11 +8,9 @@ export function SettingsPanel() {
     theme,
     fontSize,
     locale,
-    apiKey,
     setTheme,
     setFontSize,
     setLocale,
-    setApiKey,
     panelOpen,
     togglePanel,
   } = useSettings();
@@ -110,29 +108,6 @@ export function SettingsPanel() {
                 </ToggleButton>
               ))}
             </div>
-          </SettingGroup>
-
-          {/* API Key */}
-          <SettingGroup label={t(locale, "apiKeyLabel")}>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-..."
-              className="w-full rounded-md px-3 py-2 text-sm outline-none"
-              style={{
-                background: "var(--rr-bg-surface)",
-                color: "var(--rr-text)",
-                border: "1px solid var(--rr-border)",
-                fontFamily: "var(--font-mono), monospace",
-              }}
-            />
-            <p
-              className="mt-1.5 text-xs leading-relaxed"
-              style={{ color: "var(--rr-text-muted)" }}
-            >
-              {t(locale, "apiKeyHint")}
-            </p>
           </SettingGroup>
         </div>
       </div>
