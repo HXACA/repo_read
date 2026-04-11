@@ -9,7 +9,11 @@ vi.mock("@ai-sdk/anthropic", () => ({
 }));
 
 vi.mock("@ai-sdk/openai", () => ({
-  createOpenAI: vi.fn(() => vi.fn((modelId: string) => ({ modelId, provider: "openai" }))),
+  createOpenAI: vi.fn(() => {
+    const fn = vi.fn((modelId: string) => ({ modelId, provider: "openai" }));
+    fn.responses = vi.fn((modelId: string) => ({ modelId, provider: "openai-responses" }));
+    return fn;
+  }),
 }));
 
 vi.mock("@ai-sdk/openai-compatible", () => ({

@@ -50,7 +50,7 @@ function createModel(
         apiKey,
         ...(baseUrl ? { baseURL: baseUrl } : {}),
       });
-      return openai(modelId);
+      return openai.responses(modelId);
     }
     default: {
       const compatible = createOpenAICompatible({
