@@ -9,8 +9,11 @@ vi.mock("@ai-sdk/anthropic", () => ({
 
 vi.mock("@ai-sdk/openai", () => ({
   createOpenAI: vi.fn(() => {
-    const fn = vi.fn((modelId: string) => ({ modelId, npm: "openai-chat" })) as any;
+    // Real SDK: default openai(modelId) returns responses model, NOT chat.
+    // Must use openai.chat(modelId) for Chat Completions.
+    const fn = vi.fn((modelId: string) => ({ modelId, npm: "openai-responses-default" })) as any;
     fn.responses = vi.fn((modelId: string) => ({ modelId, npm: "openai-responses" }));
+    fn.chat = vi.fn((modelId: string) => ({ modelId, npm: "openai-chat" }));
     return fn;
   }),
 }));

@@ -86,7 +86,7 @@ function createModel(
       const resolved = variant ?? detectOpenAIVariant(modelId);
       return resolved === "responses"
         ? openai.responses(modelId)
-        : openai(modelId);
+        : openai.chat(modelId);
     }
     case "@ai-sdk/openai-compatible":
     default: {
