@@ -25,7 +25,22 @@ export type GenerateViaStreamResult = {
 export async function generateViaStream(
   params: StreamTextParams,
 ): Promise<GenerateViaStreamResult> {
-  const stream = streamText(params);
+  // OpenAI Responses API uses item_reference for multi-turn, which requires
+  // store=true on the server side. Without it, subsequent turns get 404
+  // because referenced item IDs don't exist.
+  // Detect via model.provider === "openai.responses" (reliable SDK property).
+  const isOpenAIResponses = (params.model as any)?.provider === "openai.responses";
+
+  const stream = streamText(isOpenAIResponses ? {
+    ...params,
+    providerOptions: {
+      ...((params as any).providerOptions ?? {}),
+      openai: {
+        ...((params as any).providerOptions?.openai ?? {}),
+        store: true,
+      },
+    },
+  } : params);
 
   const text = await stream.text;
   const finishReason = (await stream.finishReason) ?? "stop";
