@@ -6,6 +6,9 @@ export type RoleModelConfig = {
    *  The part before the first `/` must match a `provider` name in `providers[]`. */
   model: string;
   fallback_models: string[];
+  /** Override the provider's `npm` (SDK protocol) for this role only.
+   *  E.g. a provider defaults to `@ai-sdk/openai-compatible` but this role needs `@ai-sdk/openai`. */
+  npm?: ProviderSdk;
 };
 
 export type ProjectRoleConfig = Record<RoleName, RoleModelConfig>;
@@ -48,6 +51,8 @@ export type ResolvedRoleRoute = {
   fallbackModels: string[];
   resolvedProvider: string;
   systemPromptTuningId: string;
+  /** Role-level SDK override — takes precedence over provider's npm field. */
+  npm?: ProviderSdk;
 };
 
 export type ResolvedConfig = {

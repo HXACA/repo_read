@@ -1,9 +1,16 @@
 import { z } from "zod/v4";
 
+const ProviderSdkSchemaForRole = z.enum([
+  "@ai-sdk/anthropic",
+  "@ai-sdk/openai",
+  "@ai-sdk/openai-compatible",
+]);
+
 const RoleModelConfigSchema = z.object({
   model: z.string().min(1),
   fallback_models: z.array(z.string()),
   provider: z.string().optional(),
+  npm: ProviderSdkSchemaForRole.optional(),
 });
 
 const PresetSchema = z.enum(["quality", "balanced", "budget", "local-only"]);

@@ -38,6 +38,7 @@ function resolveRole(
     fallbackModels: roleConfig.fallback_models,
     resolvedProvider,
     systemPromptTuningId: family,
+    ...(roleConfig.npm ? { npm: roleConfig.npm } : {}),
   };
 }
 

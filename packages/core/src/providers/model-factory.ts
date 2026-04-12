@@ -32,7 +32,9 @@ export function createModelForRole(
     );
   }
 
-  const npm = providerConfig?.npm ?? inferNpm(resolvedProviderName);
+  // Role-level npm override takes precedence over provider-level npm
+  const roleNpm = route.npm;
+  const npm = roleNpm ?? providerConfig?.npm ?? inferNpm(resolvedProviderName);
   // Inject debug fetch when debug mode is active
   const fetchFn = getDebugDir() ? createDebugFetch() : undefined;
   return createModel(npm, resolvedProviderName, modelName, apiKey, providerConfig?.baseUrl, fetchFn);
