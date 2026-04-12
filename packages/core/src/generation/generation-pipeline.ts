@@ -301,6 +301,14 @@ export class GenerationPipeline {
                     ]
                   : []),
               ].join("\n"),
+              // On retry, merge new findings into the existing ledger
+              // instead of replacing it from scratch
+              ...(attempt > 0 && evidenceResult?.ledger
+                ? {
+                    existingLedger: evidenceResult.ledger,
+                    focusAreas: reviewResult?.conclusion?.missing_evidence ?? [],
+                  }
+                : {}),
             });
             await emitter.pageEvidencePlanned(
               page.slug,

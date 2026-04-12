@@ -28,6 +28,10 @@ export type CollectInput = {
   language: string;
   /** Free-form context passed down to each fork.worker (e.g. page plan). */
   workerContext: string;
+  /** Existing evidence from previous collection — new results merge into this */
+  existingLedger?: Array<{ id: string; kind: string; target: string; note: string }>;
+  /** Areas the reviewer flagged as needing more evidence */
+  focusAreas?: string[];
 };
 
 export type EvidenceCollectionResult = {
@@ -93,14 +97,28 @@ export class EvidenceCoordinator {
     }
 
     // Step 2: Execute workers in parallel, bounded by concurrency
-    const results = await this.runWorkersBounded(plan.tasks, input.workerContext);
+    // Append focus areas to worker context when provided (retry with reviewer feedback)
+    let workerContext = input.workerContext;
+    if (input.focusAreas?.length) {
+      workerContext += `\nFocus areas for additional evidence: ${input.focusAreas.join(", ")}`;
+    }
+    const results = await this.runWorkersBounded(plan.tasks, workerContext);
 
     // Step 3: Merge
     const ledgerMap = new Map<string, MainAuthorContext["evidence_ledger"][number]>();
     const findings: string[] = [];
     const openQuestions: string[] = [];
     const failedTaskIds: string[] = [];
-    let ledgerAutoId = 1;
+
+    // Seed with existing ledger when doing incremental re-collection
+    if (input.existingLedger?.length) {
+      for (const entry of input.existingLedger) {
+        const key = `${entry.kind}:${entry.target}`;
+        ledgerMap.set(key, entry as MainAuthorContext["evidence_ledger"][number]);
+      }
+    }
+
+    let ledgerAutoId = ledgerMap.size + 1;
 
     for (const r of results) {
       if (r.status === "failed") {
@@ -115,7 +133,8 @@ export class EvidenceCoordinator {
       }
       for (const c of r.data.citations) {
         const entry = toLedgerEntry(c, String(ledgerAutoId));
-        const key = `${entry.kind}:${entry.target}:${entry.note ?? ""}`;
+        // Deduplicate by target (which already includes locator via toLedgerEntry)
+        const key = `${entry.kind}:${entry.target}`;
         if (!ledgerMap.has(key)) {
           ledgerMap.set(key, entry);
           ledgerAutoId++;
