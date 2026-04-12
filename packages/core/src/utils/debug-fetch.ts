@@ -146,13 +146,19 @@ export function createDebugFetch(): typeof globalThis.fetch {
       return response;
     }
 
-    // Streaming: return the original response completely untouched.
-    // response.clone() breaks some SSE parsers in Node.js (Responses API).
-    // We only log request + status for streaming calls — no response body.
-    record.response = "(streaming)";
-    record.durationMs = Date.now() - start;
-    record.responseAt = new Date().toISOString();
+    // Streaming: clone and read in background for debug logging.
+    // SDK gets the original untouched response.
+    const clone = response.clone();
+    record.response = "(streaming — reading in background)";
     await writeJson(filePath, record);
+
+    clone.text().then((raw) => {
+      try { record.response = assembleStreamResponse(raw); } catch { record.response = raw; }
+      record.durationMs = Date.now() - start;
+      record.responseAt = new Date().toISOString();
+      writeJson(filePath, record);
+    }).catch(() => { /* ignore clone read errors */ });
+
     return response;
   };
 }
