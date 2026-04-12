@@ -5,7 +5,7 @@ import type { MainAuthorContext } from "../../types/agent.js";
 describe("buildPageDraftSystemPrompt", () => {
   it("includes role and citation format instructions", () => {
     const prompt = buildPageDraftSystemPrompt();
-    expect(prompt).toContain("main.author");
+    expect(prompt).toContain("drafter");
     expect(prompt).toContain("citation");
     expect(prompt).toContain("Markdown");
   });

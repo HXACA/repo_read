@@ -26,7 +26,7 @@ export type CollectInput = {
   publishedSummaries: Array<{ slug: string; title: string; summary: string }>;
   taskCount: number;
   language: string;
-  /** Free-form context passed down to each fork.worker (e.g. page plan). */
+  /** Free-form context passed down to each worker (e.g. page plan). */
   workerContext: string;
   /** Existing evidence from previous collection — new results merge into this */
   existingLedger?: Array<{ id: string; kind: string; target: string; note: string }>;
@@ -44,10 +44,10 @@ export type EvidenceCollectionResult = {
 };
 
 /**
- * Orchestrates parallel `fork.worker` subtasks for a single page's evidence
+ * Orchestrates parallel `worker` subtasks for a single page's evidence
  * collection. The flow is:
  *
- *   1. Ask the planner (main.author LLM) to split work into N tasks.
+ *   1. Ask the planner (drafter LLM) to split work into N tasks.
  *      On planner failure → deterministic fallback to even file-count split.
  *   2. Run all tasks in parallel, bounded by `concurrency`.
  *      On individual worker failure → retry once, then skip that task.

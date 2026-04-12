@@ -27,14 +27,11 @@ export type GenerationPipelineOptions = {
   storage: StorageAdapter;
   jobManager: JobStateManager;
   config: ResolvedConfig;
-  model: LanguageModel;
+  catalogModel: LanguageModel;
+  outlineModel: LanguageModel;
+  drafterModel: LanguageModel;
+  workerModel: LanguageModel;
   reviewerModel: LanguageModel;
-  /**
-   * Model used by fork.worker subtasks during evidence collection. Falls
-   * back to `model` (main.author's model) when omitted to preserve
-   * backwards compatibility with older callers.
-   */
-  workerModel?: LanguageModel;
   repoRoot: string;
   commitHash: string;
 };
@@ -75,9 +72,11 @@ export class GenerationPipeline {
   private readonly storage: StorageAdapter;
   private readonly jobManager: JobStateManager;
   private readonly config: ResolvedConfig;
-  private readonly model: LanguageModel;
-  private readonly reviewerModel: LanguageModel;
+  private readonly catalogModel: LanguageModel;
+  private readonly outlineModel: LanguageModel;
+  private readonly drafterModel: LanguageModel;
   private readonly workerModel: LanguageModel;
+  private readonly reviewerModel: LanguageModel;
   private readonly repoRoot: string;
   private readonly commitHash: string;
 
@@ -85,9 +84,11 @@ export class GenerationPipeline {
     this.storage = options.storage;
     this.jobManager = options.jobManager;
     this.config = options.config;
-    this.model = options.model;
+    this.catalogModel = options.catalogModel;
+    this.outlineModel = options.outlineModel;
+    this.drafterModel = options.drafterModel;
+    this.workerModel = options.workerModel;
     this.reviewerModel = options.reviewerModel;
-    this.workerModel = options.workerModel ?? options.model;
     this.repoRoot = options.repoRoot;
     this.commitHash = options.commitHash;
   }
@@ -127,7 +128,7 @@ export class GenerationPipeline {
         await emitter.jobStarted();
 
         const catalogPlanner = new CatalogPlanner({
-          model: this.model,
+          model: this.catalogModel,
           language: this.config.language,
           maxSteps: this.config.qualityProfile.catalogMaxSteps,
         });
@@ -199,7 +200,7 @@ export class GenerationPipeline {
       // Agents are stateless between pages (they only hold a model ref + config),
       // so we construct them once before the loop.
       const drafter = new PageDrafter({
-        model: this.model,
+        model: this.drafterModel,
         repoRoot: this.repoRoot,
         maxSteps: qp.drafterMaxSteps,
       });
@@ -213,14 +214,14 @@ export class GenerationPipeline {
       const coordinator =
         qp.forkWorkers > 0
           ? new EvidenceCoordinator({
-              plannerModel: this.model,
+              plannerModel: this.drafterModel,
               workerModel: this.workerModel,
               repoRoot: this.repoRoot,
               concurrency: qp.forkWorkerConcurrency,
               workerMaxSteps: qp.workerMaxSteps,
             })
           : null;
-      const outlinePlanner = new OutlinePlanner({ model: this.model });
+      const outlinePlanner = new OutlinePlanner({ model: this.outlineModel });
 
       for (let i = 0; i < wiki.reading_order.length; i++) {
         const page = wiki.reading_order[i];
@@ -428,7 +429,7 @@ export class GenerationPipeline {
             pageParams.maxOutputTokensBoost > 0;
           const activeDrafter = needsCustomDrafter
             ? new PageDrafter({
-                model: this.model,
+                model: this.drafterModel,
                 repoRoot: this.repoRoot,
                 maxSteps: pageParams.drafterMaxSteps,
                 ...(pageParams.maxOutputTokensBoost > 0

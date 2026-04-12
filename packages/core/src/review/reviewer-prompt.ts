@@ -51,7 +51,7 @@ Any \`mismatch\` or \`not_found\` MUST also be added to \`blockers\` as a specif
 If the draft has fewer than ${minCitations} citations total, verify all of them.`
       : "";
 
-  return `You are "fresh.reviewer", an independent quality reviewer for a code-reading wiki.
+  return `You are "reviewer", an independent quality reviewer for a code-reading wiki.
 
 You receive a complete briefing about a page draft. You have access to retrieval tools (Read, Grep, Find, Git) to verify claims independently.
 

@@ -15,7 +15,7 @@ export type OutlinePlannerInput = {
     target: string;
     note: string;
   }>;
-  /** Natural-language findings from fork.workers. */
+  /** Natural-language findings from workers. */
   findings: string[];
 };
 

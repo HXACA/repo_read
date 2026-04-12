@@ -63,12 +63,14 @@ export async function runGenerate(options: GenerateOptions): Promise<void> {
   const isDebug = process.env.REPOREAD_DEBUG === "1" || process.env.REPOREAD_DEBUG === "true";
   if (isDebug) setDebugDir(path.join(storage.paths.projectDir(slug), "debug"));
 
-  // 4. Create models for all three roles
-  let model, reviewerModel, workerModel;
+  // 4. Create models for all five roles
+  let catalogModel, outlineModel, drafterModel, workerModel, reviewerModel;
   try {
-    model = createModelForRole(resolvedConfig, "main.author", { apiKeys });
-    reviewerModel = createModelForRole(resolvedConfig, "fresh.reviewer", { apiKeys });
-    workerModel = createModelForRole(resolvedConfig, "fork.worker", { apiKeys });
+    catalogModel = createModelForRole(resolvedConfig, "catalog", { apiKeys });
+    outlineModel = createModelForRole(resolvedConfig, "outline", { apiKeys });
+    drafterModel = createModelForRole(resolvedConfig, "drafter", { apiKeys });
+    workerModel = createModelForRole(resolvedConfig, "worker", { apiKeys });
+    reviewerModel = createModelForRole(resolvedConfig, "reviewer", { apiKeys });
   } catch (err) {
     console.error(`Failed to create models: ${(err as Error).message}`);
     console.error("Ensure API keys are set via environment variables or keychain.");
@@ -204,9 +206,11 @@ export async function runGenerate(options: GenerateOptions): Promise<void> {
     storage,
     jobManager,
     config: resolvedConfig,
-    model,
-    reviewerModel,
+    catalogModel,
+    outlineModel,
+    drafterModel,
     workerModel,
+    reviewerModel,
     repoRoot,
     commitHash,
   });

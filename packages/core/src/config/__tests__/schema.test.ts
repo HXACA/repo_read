@@ -10,9 +10,11 @@ describe("UserEditableConfigSchema", () => {
       { provider: "anthropic", secretRef: "key-1", enabled: true },
     ],
     roles: {
-      "main.author": { model: "claude-opus-4-6", fallback_models: ["claude-sonnet-4-6"] },
-      "fork.worker": { model: "claude-sonnet-4-6", fallback_models: [] },
-      "fresh.reviewer": { model: "claude-opus-4-6", fallback_models: [] },
+      "catalog": { model: "claude-opus-4-6", fallback_models: ["claude-sonnet-4-6"] },
+      "outline": { model: "claude-opus-4-6", fallback_models: [] },
+      "drafter": { model: "claude-opus-4-6", fallback_models: ["claude-sonnet-4-6"] },
+      "worker": { model: "claude-sonnet-4-6", fallback_models: [] },
+      "reviewer": { model: "claude-opus-4-6", fallback_models: [] },
     },
   };
 
@@ -32,9 +34,11 @@ describe("UserEditableConfigSchema", () => {
     const bad = {
       ...validConfig,
       roles: {
-        "main.author": { model: "x", fallback_models: [] },
-        "fork.worker": { model: "x", fallback_models: [] },
-        // missing fresh.reviewer
+        "catalog": { model: "x", fallback_models: [] },
+        "outline": { model: "x", fallback_models: [] },
+        "drafter": { model: "x", fallback_models: [] },
+        "worker": { model: "x", fallback_models: [] },
+        // missing reviewer
       },
     };
     expect(() => parseUserEditableConfig(bad)).toThrow();
@@ -45,7 +49,7 @@ describe("UserEditableConfigSchema", () => {
       ...validConfig,
       roles: {
         ...validConfig.roles,
-        "main.author": {
+        "catalog": {
           model: "x",
           fallback_models: [],
           customPrompt: "hack",
@@ -53,7 +57,7 @@ describe("UserEditableConfigSchema", () => {
       },
     };
     const parsed = parseUserEditableConfig(input);
-    expect((parsed.roles["main.author"] as Record<string, unknown>).customPrompt).toBeUndefined();
+    expect((parsed.roles["catalog"] as Record<string, unknown>).customPrompt).toBeUndefined();
   });
 
   it("accepts optional baseUrl on provider", () => {

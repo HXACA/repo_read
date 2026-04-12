@@ -36,7 +36,7 @@ export async function runResearch(options: ResearchOptions): Promise<void> {
 
   let model;
   try {
-    model = createModelForRole(resolvedConfig, "main.author", { apiKeys });
+    model = createModelForRole(resolvedConfig, "drafter", { apiKeys });
   } catch (err) {
     console.error(`Failed to create model: ${(err as Error).message}`);
     process.exitCode = 1;

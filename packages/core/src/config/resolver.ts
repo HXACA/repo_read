@@ -46,9 +46,11 @@ export function resolveConfig(
   capabilities: ModelCapability[],
 ): ResolvedConfig {
   const roles = {
-    "main.author": resolveRole("main.author", config, capabilities),
-    "fork.worker": resolveRole("fork.worker", config, capabilities),
-    "fresh.reviewer": resolveRole("fresh.reviewer", config, capabilities),
+    "catalog": resolveRole("catalog", config, capabilities),
+    "outline": resolveRole("outline", config, capabilities),
+    "drafter": resolveRole("drafter", config, capabilities),
+    "worker": resolveRole("worker", config, capabilities),
+    "reviewer": resolveRole("reviewer", config, capabilities),
   } as Record<RoleName, ResolvedRoleRoute>;
 
   return {

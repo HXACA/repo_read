@@ -17,9 +17,11 @@ describe("config round-trip", () => {
         enabled: true,
       }],
       roles: {
-        "main.author": { model: "openrouter/qwen", provider: "openrouter", fallback_models: [] },
-        "fork.worker": { model: "openrouter/qwen", fallback_models: [] },
-        "fresh.reviewer": { model: "glm/glm-5.1", provider: "glm", fallback_models: [] },
+        "catalog": { model: "openrouter/qwen", provider: "openrouter", fallback_models: [] },
+        "outline": { model: "openrouter/qwen", fallback_models: [] },
+        "drafter": { model: "openrouter/qwen", provider: "openrouter", fallback_models: [] },
+        "worker": { model: "openrouter/qwen", fallback_models: [] },
+        "reviewer": { model: "glm/glm-5.1", provider: "glm", fallback_models: [] },
       },
       qualityOverrides: { catalogMaxSteps: 80, workerMaxSteps: 10 },
     };
@@ -28,7 +30,7 @@ describe("config round-trip", () => {
     expect(parsed.providers[0].npm).toBe("@ai-sdk/openai-compatible");
     expect(parsed.providers[0].apiKey).toBe("sk-test");
     expect(parsed.providers[0].baseUrl).toBe("https://example.com");
-    expect(parsed.roles["main.author"].provider).toBe("openrouter");
+    expect(parsed.roles["catalog"].provider).toBe("openrouter");
     expect(parsed.qualityOverrides?.catalogMaxSteps).toBe(80);
     expect(parsed.qualityOverrides?.workerMaxSteps).toBe(10);
   });

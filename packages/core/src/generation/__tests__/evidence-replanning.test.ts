@@ -37,22 +37,36 @@ const mockConfig: ResolvedConfig = {
   preset: "budget",
   language: "zh",
   roles: {
-    "main.author": {
-      role: "main.author",
+    "catalog": {
+      role: "catalog",
       primaryModel: "claude-sonnet-4-6",
       fallbackModels: [],
       resolvedProvider: "anthropic",
       systemPromptTuningId: "claude",
     },
-    "fork.worker": {
-      role: "fork.worker",
+    "outline": {
+      role: "outline",
+      primaryModel: "claude-sonnet-4-6",
+      fallbackModels: [],
+      resolvedProvider: "anthropic",
+      systemPromptTuningId: "claude",
+    },
+    "drafter": {
+      role: "drafter",
+      primaryModel: "claude-sonnet-4-6",
+      fallbackModels: [],
+      resolvedProvider: "anthropic",
+      systemPromptTuningId: "claude",
+    },
+    "worker": {
+      role: "worker",
       primaryModel: "claude-haiku-4-5-20251001",
       fallbackModels: [],
       resolvedProvider: "anthropic",
       systemPromptTuningId: "claude",
     },
-    "fresh.reviewer": {
-      role: "fresh.reviewer",
+    "reviewer": {
+      role: "reviewer",
       primaryModel: "claude-sonnet-4-6",
       fallbackModels: [],
       resolvedProvider: "anthropic",
@@ -178,16 +192,16 @@ describe("Evidence re-collection on factual risks", () => {
     // Call sequence (budget preset, forkWorkers=1, maxRevisionAttempts=1):
     //   1. Catalog planner
     //   Page "overview":
-    //     2. fork.worker (attempt 0)
+    //     2. worker (attempt 0)
     //     3. outline planner (attempt 0)
     //     4. draft (attempt 0)
     //     5. review → revise with factual_risks
-    //     6. fork.worker (attempt 1 — re-collected due to factual_risks)
+    //     6. worker (attempt 1 — re-collected due to factual_risks)
     //     7. outline planner (attempt 1 — re-planned due to new evidence)
     //     8. draft (attempt 1)
     //     9. review → pass
     //   Page "core":
-    //     10. fork.worker
+    //     10. worker
     //     11. outline planner
     //     12. draft
     //     13. review → pass
@@ -220,7 +234,10 @@ describe("Evidence re-collection on factual risks", () => {
       storage,
       jobManager,
       config: mockConfig,
-      model: {} as never,
+      catalogModel: {} as never,
+      outlineModel: {} as never,
+      drafterModel: {} as never,
+      workerModel: {} as never,
       reviewerModel: {} as never,
       repoRoot: tmpDir,
       commitHash: "abc123",

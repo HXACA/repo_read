@@ -42,22 +42,36 @@ const mockConfig: ResolvedConfig = {
   preset: "budget",
   language: "zh",
   roles: {
-    "main.author": {
-      role: "main.author",
+    "catalog": {
+      role: "catalog",
       primaryModel: "claude-sonnet-4-6",
       fallbackModels: [],
       resolvedProvider: "anthropic",
       systemPromptTuningId: "claude",
     },
-    "fork.worker": {
-      role: "fork.worker",
+    "outline": {
+      role: "outline",
+      primaryModel: "claude-sonnet-4-6",
+      fallbackModels: [],
+      resolvedProvider: "anthropic",
+      systemPromptTuningId: "claude",
+    },
+    "drafter": {
+      role: "drafter",
+      primaryModel: "claude-sonnet-4-6",
+      fallbackModels: [],
+      resolvedProvider: "anthropic",
+      systemPromptTuningId: "claude",
+    },
+    "worker": {
+      role: "worker",
       primaryModel: "claude-haiku-4-5-20251001",
       fallbackModels: [],
       resolvedProvider: "anthropic",
       systemPromptTuningId: "claude",
     },
-    "fresh.reviewer": {
-      role: "fresh.reviewer",
+    "reviewer": {
+      role: "reviewer",
       primaryModel: "claude-sonnet-4-6",
       fallbackModels: [],
       resolvedProvider: "anthropic",
@@ -173,7 +187,7 @@ describe("GenerationPipeline", () => {
     // Call sequence (budget preset, forkWorkers=1, fast-path planner):
     //   1. Catalog planner
     //   For each page:
-    //     - 1 fork.worker call (coordinator with forkWorkers=1)
+    //     - 1 worker call (coordinator with forkWorkers=1)
     //     - 1 outline planner call
     //     - 1 draft call
     //     - 1 review call
@@ -197,7 +211,10 @@ describe("GenerationPipeline", () => {
       storage,
       jobManager,
       config: mockConfig,
-      model: {} as never,
+      catalogModel: {} as never,
+      outlineModel: {} as never,
+      drafterModel: {} as never,
+      workerModel: {} as never,
       reviewerModel: {} as never,
       repoRoot: tmpDir,
       commitHash: "abc123",
@@ -298,7 +315,10 @@ describe("GenerationPipeline", () => {
       storage,
       jobManager,
       config: mockConfig,
-      model: {} as never,
+      catalogModel: {} as never,
+      outlineModel: {} as never,
+      drafterModel: {} as never,
+      workerModel: {} as never,
       reviewerModel: {} as never,
       repoRoot: tmpDir,
       commitHash: "abc123",
@@ -358,14 +378,14 @@ describe("GenerationPipeline", () => {
     // Call sequence (budget preset, 2 pages; forkWorkers=1, maxRevisionAttempts=1):
     //   1. Catalog planner
     //   Page "overview":
-    //     2. fork.worker
+    //     2. worker
     //     3. outline planner
     //     4. draft attempt 0 → TRUNCATED (finishReason=length)
     //        pipeline synthesizes revise, skips reviewer, no re-collect
     //     5. draft attempt 1 → normal
     //     6. review pass
     //   Page "core":
-    //     7. fork.worker
+    //     7. worker
     //     8. outline planner
     //     9. draft
     //     10. review pass
@@ -392,7 +412,10 @@ describe("GenerationPipeline", () => {
       storage,
       jobManager,
       config: mockConfig,
-      model: {} as never,
+      catalogModel: {} as never,
+      outlineModel: {} as never,
+      drafterModel: {} as never,
+      workerModel: {} as never,
       reviewerModel: {} as never,
       repoRoot: tmpDir,
       commitHash: "abc123",

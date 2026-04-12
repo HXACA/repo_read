@@ -24,9 +24,11 @@ describe("loadProjectConfig", () => {
       preset: "quality",
       providers: [{ provider: "anthropic", secretRef: "k", enabled: true }],
       roles: {
-        "main.author": { model: "claude-opus-4-6", fallback_models: [] },
-        "fork.worker": { model: "claude-sonnet-4-6", fallback_models: [] },
-        "fresh.reviewer": { model: "claude-opus-4-6", fallback_models: [] },
+        "catalog": { model: "claude-opus-4-6", fallback_models: [] },
+        "outline": { model: "claude-opus-4-6", fallback_models: [] },
+        "drafter": { model: "claude-opus-4-6", fallback_models: [] },
+        "worker": { model: "claude-sonnet-4-6", fallback_models: [] },
+        "reviewer": { model: "claude-opus-4-6", fallback_models: [] },
       },
     };
     await fs.writeFile(

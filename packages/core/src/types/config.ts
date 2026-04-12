@@ -1,5 +1,5 @@
 export type Preset = "quality" | "balanced" | "budget" | "local-only";
-export type RoleName = "main.author" | "fork.worker" | "fresh.reviewer";
+export type RoleName = "catalog" | "outline" | "drafter" | "worker" | "reviewer";
 
 export type RoleModelConfig = {
   /** Model identifier in `provider/model` format, e.g. `"openrouter/qwen/qwen3.6-plus"` or `"glm/glm-5.1"`.

@@ -9,9 +9,11 @@ const baseConfig: UserEditableConfig = {
   preset: "quality",
   providers: [{ provider: "anthropic", secretRef: "k", enabled: true }],
   roles: {
-    "main.author": { model: "claude-opus-4-6", fallback_models: ["claude-sonnet-4-6"] },
-    "fork.worker": { model: "claude-sonnet-4-6", fallback_models: [] },
-    "fresh.reviewer": { model: "claude-opus-4-6", fallback_models: [] },
+    "catalog": { model: "claude-opus-4-6", fallback_models: ["claude-sonnet-4-6"] },
+    "outline": { model: "claude-opus-4-6", fallback_models: [] },
+    "drafter": { model: "claude-opus-4-6", fallback_models: ["claude-sonnet-4-6"] },
+    "worker": { model: "claude-sonnet-4-6", fallback_models: [] },
+    "reviewer": { model: "claude-opus-4-6", fallback_models: [] },
   },
 };
 
@@ -35,8 +37,8 @@ const capabilities: ModelCapability[] = [
 describe("resolveConfig", () => {
   it("resolves roles with matching capabilities", () => {
     const resolved = resolveConfig(baseConfig, capabilities);
-    expect(resolved.roles["main.author"].primaryModel).toBe("claude-opus-4-6");
-    expect(resolved.roles["main.author"].resolvedProvider).toBe("anthropic");
+    expect(resolved.roles["catalog"].primaryModel).toBe("claude-opus-4-6");
+    expect(resolved.roles["catalog"].resolvedProvider).toBe("anthropic");
   });
 
   it("includes retrieval defaults for quality preset", () => {
@@ -53,6 +55,6 @@ describe("resolveConfig", () => {
 
   it("assigns systemPromptTuningId based on model family", () => {
     const resolved = resolveConfig(baseConfig, capabilities);
-    expect(resolved.roles["main.author"].systemPromptTuningId).toBe("anthropic-claude");
+    expect(resolved.roles["catalog"].systemPromptTuningId).toBe("anthropic-claude");
   });
 });

@@ -193,12 +193,14 @@ describe("CLI E2E: init -> generate -> doctor", () => {
             },
           ],
           roles: {
-            "main.author": { model: "claude-sonnet-4-6", fallback_models: [] },
-            "fork.worker": {
+            "catalog": { model: "claude-sonnet-4-6", fallback_models: [] },
+            "outline": { model: "claude-sonnet-4-6", fallback_models: [] },
+            "drafter": { model: "claude-sonnet-4-6", fallback_models: [] },
+            "worker": {
               model: "claude-haiku-4-5-20251001",
               fallback_models: [],
             },
-            "fresh.reviewer": {
+            "reviewer": {
               model: "claude-sonnet-4-6",
               fallback_models: [],
             },
@@ -216,7 +218,7 @@ describe("CLI E2E: init -> generate -> doctor", () => {
     // Call sequence with budget preset (forkWorkers=1, fast-path planner):
     //   1. Catalog planner
     //   For each page (overview, core):
-    //     - 1 fork.worker evidence call
+    //     - 1 worker evidence call
     //     - 1 outline planner call
     //     - 1 drafter call
     //     - 1 reviewer call

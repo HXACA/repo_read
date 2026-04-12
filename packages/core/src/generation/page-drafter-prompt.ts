@@ -23,7 +23,7 @@ function languageName(code: string): string {
 }
 
 export function buildPageDraftSystemPrompt(): string {
-  return `You are "main.author", the primary technical writer for a code-reading wiki.
+  return `You are "drafter", the primary technical writer for a code-reading wiki.
 
 Your task is to write a single wiki page as high-quality Markdown. You have access to retrieval tools (Read, Grep, Find, Git) to inspect the repository.
 
@@ -96,7 +96,7 @@ export function buildPageDraftUserPrompt(
     );
   } else if (context.evidence_ledger.length > 0 || context.evidence_bundle) {
     // Fallback: in-context evidence (no file path available)
-    sections.push(`## Pre-collected Evidence (from fork.workers)`);
+    sections.push(`## Pre-collected Evidence (from workers)`);
     sections.push(
       `The following evidence was gathered in parallel before this drafting step. **Prefer these citations over running fresh retrieval** — only call tools if you need to verify a claim or fill an open question below.`,
     );
@@ -200,7 +200,7 @@ export function buildPageDraftUserPrompt(
     context.revision
       ? `**Re-write** the complete wiki page for "${input.title}" addressing every blocker and reviewer note above. Use the retrieval tools to verify facts and read additional files mentioned in "missing evidence". Output the FULL page (not a diff).\n\n**CRITICAL**: Start your output with \`# ${input.title}\` — no preamble text, no \`\`\`markdown wrapper. Your very first character must be \`#\`.`
       : hasPreEvidence
-        ? `Write the complete wiki page for "${input.title}". Evidence was already collected by fork.workers — ${context.evidence_file ? "read the evidence file listed above" : "use the Pre-collected Evidence section above"} as your primary source of truth. Only call retrieval tools to verify specific claims, resolve open questions, or read a file not yet covered.`
+        ? `Write the complete wiki page for "${input.title}". Evidence was already collected by workers — ${context.evidence_file ? "read the evidence file listed above" : "use the Pre-collected Evidence section above"} as your primary source of truth. Only call retrieval tools to verify specific claims, resolve open questions, or read a file not yet covered.`
         : `Write the complete wiki page for "${input.title}". Use the retrieval tools to read the covered files and gather evidence. Then produce the page as Markdown with inline citations.`,
   );
 

@@ -39,22 +39,36 @@ const CONFIG: ResolvedConfig = {
   preset: "budget",
   language: "en",
   roles: {
-    "main.author": {
-      role: "main.author",
+    "catalog": {
+      role: "catalog",
       primaryModel: "mock",
       fallbackModels: [],
       resolvedProvider: "mock",
       systemPromptTuningId: "claude",
     },
-    "fork.worker": {
-      role: "fork.worker",
+    "outline": {
+      role: "outline",
       primaryModel: "mock",
       fallbackModels: [],
       resolvedProvider: "mock",
       systemPromptTuningId: "claude",
     },
-    "fresh.reviewer": {
-      role: "fresh.reviewer",
+    "drafter": {
+      role: "drafter",
+      primaryModel: "mock",
+      fallbackModels: [],
+      resolvedProvider: "mock",
+      systemPromptTuningId: "claude",
+    },
+    "worker": {
+      role: "worker",
+      primaryModel: "mock",
+      fallbackModels: [],
+      resolvedProvider: "mock",
+      systemPromptTuningId: "claude",
+    },
+    "reviewer": {
+      role: "reviewer",
       primaryModel: "mock",
       fallbackModels: [],
       resolvedProvider: "mock",
@@ -218,7 +232,10 @@ describe("pipeline golden fixture", () => {
       storage,
       jobManager,
       config: CONFIG,
-      model: {} as never,
+      catalogModel: {} as never,
+      outlineModel: {} as never,
+      drafterModel: {} as never,
+      workerModel: {} as never,
       reviewerModel: {} as never,
       repoRoot: tmpDir,
       commitHash: "golden123",

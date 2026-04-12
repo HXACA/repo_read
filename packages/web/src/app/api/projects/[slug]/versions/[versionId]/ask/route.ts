@@ -55,7 +55,7 @@ export async function POST(
 
   let model;
   try {
-    model = createModelForRole(resolvedConfig, "main.author", { apiKeys });
+    model = createModelForRole(resolvedConfig, "drafter", { apiKeys });
   } catch (err) {
     return new Response(
       JSON.stringify({ error: (err as Error).message }),

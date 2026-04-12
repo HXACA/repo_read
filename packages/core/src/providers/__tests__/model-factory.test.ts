@@ -25,22 +25,36 @@ const mockConfig: ResolvedConfig = {
   preset: "quality",
   language: "zh",
   roles: {
-    "main.author": {
-      role: "main.author",
+    "catalog": {
+      role: "catalog",
       primaryModel: "anthropic/claude-sonnet-4-6",
       fallbackModels: [],
       resolvedProvider: "anthropic",
       systemPromptTuningId: "anthropic-claude",
     },
-    "fork.worker": {
-      role: "fork.worker",
+    "outline": {
+      role: "outline",
+      primaryModel: "anthropic/claude-sonnet-4-6",
+      fallbackModels: [],
+      resolvedProvider: "anthropic",
+      systemPromptTuningId: "anthropic-claude",
+    },
+    "drafter": {
+      role: "drafter",
+      primaryModel: "anthropic/claude-sonnet-4-6",
+      fallbackModels: [],
+      resolvedProvider: "anthropic",
+      systemPromptTuningId: "anthropic-claude",
+    },
+    "worker": {
+      role: "worker",
       primaryModel: "openrouter/qwen/qwen3.6-plus",
       fallbackModels: [],
       resolvedProvider: "openrouter",
       systemPromptTuningId: "generic-openai-compatible",
     },
-    "fresh.reviewer": {
-      role: "fresh.reviewer",
+    "reviewer": {
+      role: "reviewer",
       primaryModel: "openai/gpt-5.4",
       fallbackModels: [],
       resolvedProvider: "openai",
@@ -58,7 +72,7 @@ const mockConfig: ResolvedConfig = {
 
 describe("createModelForRole", () => {
   it("@ai-sdk/anthropic for anthropic/claude-*", () => {
-    const model = createModelForRole(mockConfig, "main.author", {
+    const model = createModelForRole(mockConfig, "catalog", {
       apiKeys: { anthropic: "sk-ant", openai: "sk-oa", openrouter: "sk-or" },
     });
     expect((model as any).npm).toBe("anthropic");
@@ -66,7 +80,7 @@ describe("createModelForRole", () => {
   });
 
   it("@ai-sdk/openai (.responses) for openai/gpt-*", () => {
-    const model = createModelForRole(mockConfig, "fresh.reviewer", {
+    const model = createModelForRole(mockConfig, "reviewer", {
       apiKeys: { anthropic: "sk-ant", openai: "sk-oa", openrouter: "sk-or" },
     });
     expect((model as any).npm).toBe("openai-responses");
@@ -74,7 +88,7 @@ describe("createModelForRole", () => {
   });
 
   it("@ai-sdk/openai-compatible for openrouter/qwen/*", () => {
-    const model = createModelForRole(mockConfig, "fork.worker", {
+    const model = createModelForRole(mockConfig, "worker", {
       apiKeys: { anthropic: "sk-ant", openai: "sk-oa", openrouter: "sk-or" },
     });
     expect((model as any).npm).toBe("openai-compatible");
@@ -86,21 +100,21 @@ describe("createModelForRole", () => {
       ...mockConfig,
       providers: [{ provider: "anthropic", secretRef: "K", enabled: true, capabilities: [] as never[] }],
     };
-    const model = createModelForRole(noNpmConfig, "main.author", { apiKeys: { anthropic: "sk" } });
+    const model = createModelForRole(noNpmConfig, "catalog", { apiKeys: { anthropic: "sk" } });
     expect((model as any).npm).toBe("anthropic");
   });
 
   it("throws when API key is missing", () => {
-    expect(() => createModelForRole(mockConfig, "main.author", { apiKeys: {} })).toThrow("No API key");
+    expect(() => createModelForRole(mockConfig, "catalog", { apiKeys: {} })).toThrow("No API key");
   });
 
   it("defaults to openai-compatible for unknown providers", () => {
     const customConfig = {
       ...mockConfig,
-      roles: { ...mockConfig.roles, "main.author": { ...mockConfig.roles["main.author"], primaryModel: "deepseek/deepseek-v3", resolvedProvider: "deepseek" } },
+      roles: { ...mockConfig.roles, "catalog": { ...mockConfig.roles["catalog"], primaryModel: "deepseek/deepseek-v3", resolvedProvider: "deepseek" } },
       providers: [{ provider: "deepseek", secretRef: "K", enabled: true, capabilities: [] as never[] }],
     };
-    const model = createModelForRole(customConfig, "main.author", { apiKeys: { deepseek: "sk" } });
+    const model = createModelForRole(customConfig, "catalog", { apiKeys: { deepseek: "sk" } });
     expect((model as any).npm).toBe("openai-compatible");
   });
 });

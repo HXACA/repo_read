@@ -3,7 +3,7 @@ import { generateViaStream as generateText } from "../utils/generate-via-stream.
 import { extractJson } from "../utils/extract-json.js";
 
 /**
- * A single evidence-gathering subtask that a `fork.worker` will execute.
+ * A single evidence-gathering subtask that a `worker` will execute.
  * The planner divides the page's covered files into N semantically
  * meaningful tasks rather than blindly splitting by count.
  */
@@ -48,12 +48,12 @@ const LANGUAGE_NAMES: Record<string, string> = {
 
 /**
  * Plans how to split a page's evidence-gathering work across N parallel
- * `fork.worker` subtasks. The planner is a pure LLM call — it does NOT
+ * `worker` subtasks. The planner is a pure LLM call — it does NOT
  * execute tools itself. Each task returns with a directive (what to look
  * for) and a targetFiles list (where to look).
  *
  * This replaces the earlier naive "even file-count split" approach: the
- * main.author model knows the page plan and can assign semantic
+ * drafter model knows the page plan and can assign semantic
  * responsibilities (e.g. "find all FastAPI routes in api/api.py" vs
  * "collect Pydantic models from api/models.py").
  */
@@ -176,9 +176,9 @@ function buildFallbackDirective(pageTitle: string, language: string): string {
 }
 
 function buildPlannerSystemPrompt(): string {
-  return `You are the evidence-planning step of the "main.author" role in a code-reading wiki generator.
+  return `You are the evidence-planning step of the "drafter" role in a code-reading wiki generator.
 
-Your job: split a page's evidence-gathering work into N parallel subtasks that will be dispatched to independent fork.worker agents. Each subtask must be semantically meaningful (what to look for), not just a slice of the file list.
+Your job: split a page's evidence-gathering work into N parallel subtasks that will be dispatched to independent worker agents. Each subtask must be semantically meaningful (what to look for), not just a slice of the file list.
 
 You do NOT execute any tools. You do NOT read any files. You only plan.
 

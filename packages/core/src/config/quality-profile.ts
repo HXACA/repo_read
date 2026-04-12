@@ -4,20 +4,20 @@ import type { Preset } from "../types/config.js";
  * Runtime quality profile derived from a {@link Preset}. It drives the
  * agent orchestration strategy across the whole page pipeline:
  *
- * - `forkWorkers` — how many parallel `fork.worker` evidence-collection tasks
+ * - `forkWorkers` — how many parallel `worker` evidence-collection tasks
  *   the {@link EvidenceCoordinator} spawns per page. `0` disables the
  *   coordinator entirely and the drafter falls back to its own tool calls.
  * - `forkWorkerConcurrency` — upper bound on in-flight worker executions.
  * - `maxRevisionAttempts` — how many times a page may be re-drafted after a
  *   reviewer returns `verdict: revise`. `0` means no retries.
- * - `drafterMaxSteps` — `stepCountIs(...)` budget for main.author drafter.
- * - `reviewerMaxSteps` — `stepCountIs(...)` budget for fresh.reviewer.
+ * - `drafterMaxSteps` — `stepCountIs(...)` budget for drafter drafter.
+ * - `reviewerMaxSteps` — `stepCountIs(...)` budget for reviewer.
  * - `reviewerVerifyMinCitations` — number of citations the reviewer MUST
  *   verify with the `read` tool. `0` disables the verification requirement.
  * - `reviewerStrictness` — tone setting for the reviewer system prompt.
  * - `askMaxSteps` — `stepCountIs(...)` budget for AskStreamService (chat
  *   assistant). Covers page-first and page-plus-retrieval routes.
- * - `workerMaxSteps` — `stepCountIs(...)` budget for each fork.worker
+ * - `workerMaxSteps` — `stepCountIs(...)` budget for each worker
  *   evidence-collection subtask.
  * - `researchMaxSteps` — `stepCountIs(...)` budget for each research
  *   planner/executor LLM call (per sub-question in the executor).

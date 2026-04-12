@@ -38,7 +38,7 @@ export async function runAsk(options: AskOptions): Promise<void> {
 
   let model;
   try {
-    model = createModelForRole(resolvedConfig, "main.author", { apiKeys });
+    model = createModelForRole(resolvedConfig, "drafter", { apiKeys });
   } catch (err) {
     console.error(`Failed to create model: ${(err as Error).message}`);
     process.exitCode = 1;

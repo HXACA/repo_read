@@ -16,7 +16,7 @@ export class ProviderCenter {
     const resolved = this.resolve(config);
     const lines: string[] = ["=== Role Routing Summary ===", ""];
 
-    for (const roleName of ["main.author", "fork.worker", "fresh.reviewer"] as RoleName[]) {
+    for (const roleName of ["catalog", "outline", "drafter", "worker", "reviewer"] as RoleName[]) {
       const route = resolved.roles[roleName];
       lines.push(`${roleName}:`);
       lines.push(`  Primary: ${route.primaryModel} (${route.resolvedProvider})`);

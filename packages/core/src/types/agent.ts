@@ -18,7 +18,7 @@ export type MainAuthorContext = {
   }>;
   /**
    * Optional bundle of natural-language findings and open questions produced
-   * by the EvidenceCoordinator's fork.worker subtasks. The drafter treats
+   * by the EvidenceCoordinator's worker subtasks. The drafter treats
    * findings as "already-verified facts to draw from" and open_questions as
    * "things the coordinator couldn't resolve — worth verifying with tools".
    */

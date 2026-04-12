@@ -23,15 +23,23 @@ const FALLBACK_CONFIG: UserEditableConfig = {
     },
   ],
   roles: {
-    "main.author": {
+    "catalog": {
       model: "anthropic/claude-sonnet-4-6",
       fallback_models: [],
     },
-    "fork.worker": {
+    "outline": {
       model: "anthropic/claude-sonnet-4-6",
       fallback_models: [],
     },
-    "fresh.reviewer": {
+    "drafter": {
+      model: "anthropic/claude-sonnet-4-6",
+      fallback_models: [],
+    },
+    "worker": {
+      model: "anthropic/claude-sonnet-4-6",
+      fallback_models: [],
+    },
+    "reviewer": {
       model: "anthropic/claude-sonnet-4-6",
       fallback_models: [],
     },

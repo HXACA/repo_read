@@ -24,9 +24,11 @@ const ProviderCredentialConfigSchema = z.object({
 });
 
 const ProjectRoleConfigSchema = z.object({
-  "main.author": RoleModelConfigSchema,
-  "fork.worker": RoleModelConfigSchema,
-  "fresh.reviewer": RoleModelConfigSchema,
+  "catalog": RoleModelConfigSchema,
+  "outline": RoleModelConfigSchema,
+  "drafter": RoleModelConfigSchema,
+  "worker": RoleModelConfigSchema,
+  "reviewer": RoleModelConfigSchema,
 });
 
 const QualityOverridesSchema = z.object({

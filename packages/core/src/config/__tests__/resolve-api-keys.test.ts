@@ -8,9 +8,11 @@ const baseConfig: UserEditableConfig = {
   preset: "balanced",
   providers: [],
   roles: {
-    "main.author": { model: "openrouter/gpt-4", fallback_models: [] },
-    "fork.worker": { model: "openrouter/gpt-4", fallback_models: [] },
-    "fresh.reviewer": { model: "openrouter/gpt-4", fallback_models: [] },
+    "catalog": { model: "openrouter/gpt-4", fallback_models: [] },
+    "outline": { model: "openrouter/gpt-4", fallback_models: [] },
+    "drafter": { model: "openrouter/gpt-4", fallback_models: [] },
+    "worker": { model: "openrouter/gpt-4", fallback_models: [] },
+    "reviewer": { model: "openrouter/gpt-4", fallback_models: [] },
   },
 };
 
