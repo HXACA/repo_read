@@ -407,9 +407,9 @@ export class GenerationPipeline {
                 }
               : {}),
             ...(!hasFilePointers && outline ? { page_outline: outline } : {}),
-            evidence_file: this.storage.paths.evidenceJson(slug, jobId, page.slug),
-            outline_file: outline ? this.storage.paths.outlineJson(slug, jobId, page.slug) : undefined,
-            published_index_file: this.storage.paths.publishedIndexJson(slug, jobId),
+            evidence_file: path.relative(this.repoRoot, this.storage.paths.evidenceJson(slug, jobId, page.slug)),
+            outline_file: outline ? path.relative(this.repoRoot, this.storage.paths.outlineJson(slug, jobId, page.slug)) : undefined,
+            published_index_file: path.relative(this.repoRoot, this.storage.paths.publishedIndexJson(slug, jobId)),
             ...(attempt > 0 && draftResult?.markdown && reviewResult?.conclusion
               ? {
                   revision: {
@@ -417,7 +417,7 @@ export class GenerationPipeline {
                     previous_draft: draftResult.markdown,
                     feedback: reviewResult.conclusion,
                   },
-                  draft_file: this.storage.paths.draftPageMd(slug, jobId, versionId, page.slug),
+                  draft_file: path.relative(this.repoRoot, this.storage.paths.draftPageMd(slug, jobId, versionId, page.slug)),
                 }
               : {}),
           };
@@ -505,14 +505,18 @@ export class GenerationPipeline {
           // --- REVIEW ---
           job = await this.jobManager.transition(slug, jobId, "reviewing");
 
+          // Paths must be relative to repoRoot — the reviewer's `read` tool prepends repoRoot
+          const relDraftFile = path.relative(this.repoRoot, preDraftMdPath);
+          const relPublishedIndex = path.relative(this.repoRoot, this.storage.paths.publishedIndexJson(slug, jobId));
+
           const briefing: ReviewBriefing = {
             page_title: page.title,
             section_position: `Page ${i + 1} of ${wiki.reading_order.length}`,
             current_page_plan: page.rationale,
             full_book_summary: wiki.summary,
-            draft_file: preDraftMdPath,
+            draft_file: relDraftFile,
             covered_files: page.covered_files,
-            published_summaries_file: this.storage.paths.publishedIndexJson(slug, jobId),
+            published_summaries_file: relPublishedIndex,
             review_questions: [
               "Does the page stay within its assigned scope?",
               "Are all key claims backed by citations from the repository?",
