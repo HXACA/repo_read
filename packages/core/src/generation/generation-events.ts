@@ -89,6 +89,14 @@ export class JobEventEmitter {
     await this.emit("job.failed", { error });
   }
 
+  async pageComplexityScored(pageSlug: string, payload: { score: number; fileCount: number; dirSpread: number; crossLanguage: boolean }): Promise<void> {
+    await this.emit("page.complexity_scored", payload, pageSlug);
+  }
+
+  async pageParamsAdjusted(pageSlug: string, payload: { forkWorkers: number; drafterMaxSteps: number; maxRevisionAttempts: number; maxOutputTokensBoost: number }): Promise<void> {
+    await this.emit("page.params_adjusted", payload, pageSlug);
+  }
+
   private async emit(type: string, payload: unknown, pageSlug?: string): Promise<void> {
     const event = createAppEvent("job", type, this.projectSlug, payload, {
       jobId: this.jobId,

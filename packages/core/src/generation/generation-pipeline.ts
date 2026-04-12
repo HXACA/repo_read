@@ -20,6 +20,8 @@ import { Publisher } from "./publisher.js";
 import { EvidenceCoordinator, type EvidenceCollectionResult } from "./evidence-coordinator.js";
 import { OutlinePlanner } from "./outline-planner.js";
 import type { PageOutline } from "../types/agent.js";
+import { computeComplexity } from "./complexity-scorer.js";
+import { adjustParams, type AdjustedParams } from "./param-adjuster.js";
 
 export type GenerationPipelineOptions = {
   storage: StorageAdapter;
@@ -193,7 +195,6 @@ export class GenerationPipeline {
       }
 
       const qp = this.config.qualityProfile;
-      const MAX_REVISION_ATTEMPTS = qp.maxRevisionAttempts;
 
       // Agents are stateless between pages (they only hold a model ref + config),
       // so we construct them once before the loop.
@@ -228,6 +229,41 @@ export class GenerationPipeline {
         // re-running their draft/review/validate loops.
         if (skipSlugs.has(page.slug)) {
           continue;
+        }
+
+        // === COMPLEXITY SCORING + DYNAMIC PARAM ADJUSTMENT ===
+        const complexity = computeComplexity({ coveredFiles: page.covered_files });
+        let pageParams: AdjustedParams = adjustParams(qp, complexity);
+
+        if (process.env.REPOREAD_DEBUG) {
+          console.error(
+            `[pipeline] page=${page.slug} complexity=${complexity.score} ` +
+            `forkWorkers=${pageParams.forkWorkers} drafterMaxSteps=${pageParams.drafterMaxSteps} ` +
+            `maxRevisionAttempts=${pageParams.maxRevisionAttempts} maxOutputTokensBoost=${pageParams.maxOutputTokensBoost}`,
+          );
+        }
+
+        // Emit complexity scored event
+        await emitter.pageComplexityScored(page.slug, {
+          score: complexity.score,
+          fileCount: complexity.fileCount,
+          dirSpread: complexity.dirSpread,
+          crossLanguage: complexity.crossLanguage,
+        });
+
+        // Emit params adjusted event if different from baseline
+        if (
+          pageParams.forkWorkers !== qp.forkWorkers ||
+          pageParams.drafterMaxSteps !== qp.drafterMaxSteps ||
+          pageParams.maxRevisionAttempts !== qp.maxRevisionAttempts ||
+          pageParams.maxOutputTokensBoost !== 0
+        ) {
+          await emitter.pageParamsAdjusted(page.slug, {
+            forkWorkers: pageParams.forkWorkers,
+            drafterMaxSteps: pageParams.drafterMaxSteps,
+            maxRevisionAttempts: pageParams.maxRevisionAttempts,
+            maxOutputTokensBoost: pageParams.maxOutputTokensBoost,
+          });
         }
 
         job = await this.jobManager.updatePage(slug, jobId, page.slug, i + 1);
@@ -281,7 +317,7 @@ export class GenerationPipeline {
               pageOrder: i + 1,
               coveredFiles: page.covered_files,
               publishedSummaries,
-              taskCount: qp.forkWorkers,
+              taskCount: pageParams.forkWorkers,
               language: this.config.language,
               workerContext: [
                 `Project: ${wiki.summary}`,
@@ -380,7 +416,23 @@ export class GenerationPipeline {
               : {}),
           };
 
-          draftResult = await drafter.draft(authorContext, {
+          // Use a per-page drafter when complexity scoring has adjusted
+          // maxSteps or maxOutputTokens beyond the baseline.
+          const needsCustomDrafter =
+            pageParams.drafterMaxSteps !== qp.drafterMaxSteps ||
+            pageParams.maxOutputTokensBoost > 0;
+          const activeDrafter = needsCustomDrafter
+            ? new PageDrafter({
+                model: this.model,
+                repoRoot: this.repoRoot,
+                maxSteps: pageParams.drafterMaxSteps,
+                ...(pageParams.maxOutputTokensBoost > 0
+                  ? { maxOutputTokens: 16384 + pageParams.maxOutputTokensBoost }
+                  : {}),
+              })
+            : drafter;
+
+          draftResult = await activeDrafter.draft(authorContext, {
             slug: page.slug,
             title: page.title,
             order: i + 1,
@@ -409,7 +461,10 @@ export class GenerationPipeline {
           // and synthesize a "revise" verdict that tells the drafter to
           // produce a shorter page. This avoids publishing half-written
           // content and re-uses the existing revision loop machinery.
-          if (draftResult.truncated && attempt < MAX_REVISION_ATTEMPTS) {
+          if (draftResult.truncated && attempt < pageParams.maxRevisionAttempts) {
+            // Re-adjust params with truncation signal so next attempt gets
+            // a higher output-token ceiling.
+            pageParams = adjustParams(qp, complexity, { draftTruncated: true });
             reviewResult = {
               success: true,
               conclusion: {
@@ -496,13 +551,22 @@ export class GenerationPipeline {
             reviewResult.conclusion!.verdict,
           );
 
+          // Re-adjust params based on reviewer feedback signals so the next
+          // retry benefits from increased workers / output ceiling.
+          if (reviewResult.conclusion) {
+            pageParams = adjustParams(qp, complexity, {
+              factualRisksCount: reviewResult.conclusion.factual_risks.length,
+              missingEvidenceCount: reviewResult.conclusion.missing_evidence.length,
+            });
+          }
+
           // Decide whether to retry: if the reviewer says "revise" and we
           // still have budget, always retry — the rationale may be in
           // blockers, factual_risks, missing_evidence, or suggested_revisions.
           // Previously we required non-empty blockers, but that let pages
           // through when the reviewer flagged issues in other fields only.
           const verdict = reviewResult.conclusion!.verdict;
-          const canRetry = attempt < MAX_REVISION_ATTEMPTS;
+          const canRetry = attempt < pageParams.maxRevisionAttempts;
 
           if (verdict === "pass" || !canRetry) {
             break;
