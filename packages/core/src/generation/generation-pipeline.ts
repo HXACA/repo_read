@@ -423,6 +423,16 @@ export class GenerationPipeline {
             continue;
           }
 
+          // --- WRITE DRAFT TO DISK BEFORE REVIEW ---
+          const preDraftMdPath = this.storage.paths.draftPageMd(
+            slug,
+            jobId,
+            versionId,
+            page.slug,
+          );
+          await fs.mkdir(path.dirname(preDraftMdPath), { recursive: true });
+          await fs.writeFile(preDraftMdPath, draftResult.markdown!, "utf-8");
+
           // --- REVIEW ---
           job = await this.jobManager.transition(slug, jobId, "reviewing");
 
@@ -431,14 +441,18 @@ export class GenerationPipeline {
             section_position: `Page ${i + 1} of ${wiki.reading_order.length}`,
             current_page_plan: page.rationale,
             full_book_summary: wiki.summary,
-            current_draft: draftResult.markdown,
-            citations: draftResult.metadata.citations,
+            draft_file: preDraftMdPath,
             covered_files: page.covered_files,
+            published_summaries_file: this.storage.paths.publishedIndexJson(slug, jobId),
             review_questions: [
               "Does the page stay within its assigned scope?",
               "Are all key claims backed by citations from the repository?",
               "Are there covered files that should be referenced but aren't?",
             ],
+            ...(attempt > 0 && reviewResult?.conclusion ? {
+              previous_review: reviewResult.conclusion,
+              revision_diff_summary: `Revision attempt ${attempt} addressing: ${reviewResult.conclusion.blockers.join("; ")}`,
+            } : {}),
           };
 
           try {

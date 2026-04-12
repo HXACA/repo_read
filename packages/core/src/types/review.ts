@@ -1,14 +1,16 @@
-import type { CitationRecord } from "./generation.js";
-
 export type ReviewBriefing = {
   page_title: string;
   section_position: string;
   current_page_plan: string;
   full_book_summary: string;
-  current_draft: string;
-  citations: CitationRecord[];
+  draft_file: string;
   covered_files: string[];
+  published_summaries_file?: string;
   review_questions: string[];
+  /** Present when this is a differential review on a revision. */
+  previous_review?: ReviewConclusion;
+  /** Human-readable summary of what changed since the previous review. */
+  revision_diff_summary?: string;
 };
 
 export type ReviewVerdict = "pass" | "revise";

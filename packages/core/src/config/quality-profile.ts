@@ -53,7 +53,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     workerMaxSteps: 8,
     catalogMaxSteps: 40,
     drafterMaxSteps: 30,
-    reviewerMaxSteps: 15,
+    reviewerMaxSteps: 25,
     reviewerVerifyMinCitations: 3,
     reviewerStrictness: "strict",
     askMaxSteps: 15,

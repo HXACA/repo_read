@@ -30,8 +30,7 @@ const briefing: ReviewBriefing = {
   section_position: "Page 2 of 5",
   current_page_plan: "Explain the core engine architecture and pipeline flow",
   full_book_summary: "A wiki covering setup, core engine, CLI, and web UI",
-  current_draft: "# Core Engine\n\nThe engine orchestrates page generation.\n\n[cite:file:src/engine.ts:1-50]",
-  citations: [{ kind: "file", target: "src/engine.ts", locator: "1-50", note: "Engine class" }],
+  draft_file: "/tmp/repo/.reporead/drafts/core-engine.md",
   covered_files: ["src/engine.ts", "src/pipeline.ts"],
   review_questions: [
     "Does the page stay within scope?",

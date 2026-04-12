@@ -91,12 +91,28 @@ export function buildReviewerUserPrompt(briefing: ReviewBriefing): string {
   sections.push(`## Page Plan\n${briefing.current_page_plan}`);
   sections.push(`## Full Book Summary\n${briefing.full_book_summary}`);
   sections.push(`## Covered Files\n${briefing.covered_files.join("\n")}`);
-  sections.push(`## Current Draft\n\n${briefing.current_draft}`);
 
-  if (briefing.citations.length > 0) {
-    sections.push(`## Citations Used`);
-    for (const c of briefing.citations) {
-      sections.push(`- [${c.kind}] ${c.target}${c.locator ? `:${c.locator}` : ""}`);
+  if (briefing.previous_review) {
+    // Differential review: focus on previously flagged issues
+    const prev = briefing.previous_review;
+    const attempt = briefing.revision_diff_summary ?? "Revision addressing previous feedback";
+    sections.push(`## Differential Review\n\nThe previous review found these issues:`);
+    if (prev.blockers.length > 0) {
+      sections.push(`**Blockers:**\n${prev.blockers.map((b) => `- ${b}`).join("\n")}`);
+    }
+    if (prev.factual_risks.length > 0) {
+      sections.push(`**Factual risks:**\n${prev.factual_risks.map((r) => `- ${r}`).join("\n")}`);
+    }
+    if (prev.missing_evidence.length > 0) {
+      sections.push(`**Missing evidence:**\n${prev.missing_evidence.map((m) => `- ${m}`).join("\n")}`);
+    }
+    sections.push(`The author has revised the draft. Changes: ${attempt}`);
+    sections.push(`The revised draft is at: \`${briefing.draft_file}\`\nUse the \`read\` tool to read the draft, then focus on:\n1. Check if each previously flagged issue is now resolved\n2. Spot-check 1-2 unchanged sections for regression\n3. Only report NEW issues not in the previous review`);
+  } else {
+    // First review: read draft from file
+    sections.push(`You are reviewing a wiki page draft.\n\nThe draft is saved at: \`${briefing.draft_file}\`\nUse the \`read\` tool to read the draft before reviewing.\n\nFor each \`[cite:file:path:lines]\` citation in the draft, use the \`read\` tool to verify the cited source file actually contains what the draft claims.`);
+    if (briefing.published_summaries_file) {
+      sections.push(`The index of previously published pages is at: \`${briefing.published_summaries_file}\`. Check for cross-page duplication.`);
     }
   }
 
@@ -106,7 +122,7 @@ export function buildReviewerUserPrompt(briefing: ReviewBriefing): string {
   }
 
   sections.push(
-    `\nReview the draft above. Use retrieval tools to verify claims. Return your conclusion as JSON.`,
+    `\nReview the draft. Use retrieval tools to verify claims. Return your conclusion as JSON.`,
   );
 
   return sections.join("\n\n");
