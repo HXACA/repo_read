@@ -117,4 +117,60 @@ describe("createModelForRole", () => {
     const model = createModelForRole(customConfig, "catalog", { apiKeys: { deepseek: "sk" } });
     expect((model as any).npm).toBe("openai-compatible");
   });
+
+  it("gpt-5.4 auto-detects as responses protocol", () => {
+    const cfg: ResolvedConfig = {
+      ...mockConfig,
+      roles: {
+        ...mockConfig.roles,
+        reviewer: { ...mockConfig.roles["reviewer"], primaryModel: "openai/gpt-5.4", resolvedProvider: "openai" },
+      },
+    };
+    const model = createModelForRole(cfg, "reviewer", {
+      apiKeys: { anthropic: "sk-ant", openai: "sk-oa", openrouter: "sk-or" },
+    });
+    expect((model as any).npm).toBe("openai-responses");
+    expect((model as any).modelId).toBe("gpt-5.4");
+  });
+
+  it("gpt-4o auto-detects as chat protocol", () => {
+    const cfg: ResolvedConfig = {
+      ...mockConfig,
+      roles: {
+        ...mockConfig.roles,
+        reviewer: { ...mockConfig.roles["reviewer"], primaryModel: "openai/gpt-4o", resolvedProvider: "openai" },
+      },
+    };
+    const model = createModelForRole(cfg, "reviewer", {
+      apiKeys: { anthropic: "sk-ant", openai: "sk-oa", openrouter: "sk-or" },
+    });
+    expect((model as any).npm).toBe("openai-chat");
+    expect((model as any).modelId).toBe("gpt-4o");
+  });
+
+  it("explicit variant override forces chat for gpt-5.4", () => {
+    const cfg: ResolvedConfig = {
+      ...mockConfig,
+      roles: {
+        ...mockConfig.roles,
+        reviewer: { ...mockConfig.roles["reviewer"], primaryModel: "openai/gpt-5.4", resolvedProvider: "openai" },
+      },
+      providers: [
+        ...mockConfig.providers.filter((p) => p.provider !== "openai"),
+        {
+          provider: "openai",
+          npm: "@ai-sdk/openai",
+          secretRef: "OPENAI_API_KEY",
+          enabled: true,
+          capabilities: [],
+          models: { "gpt-5.4": { variant: "chat" as const } },
+        },
+      ],
+    };
+    const model = createModelForRole(cfg, "reviewer", {
+      apiKeys: { anthropic: "sk-ant", openai: "sk-oa", openrouter: "sk-or" },
+    });
+    expect((model as any).npm).toBe("openai-chat");
+    expect((model as any).modelId).toBe("gpt-5.4");
+  });
 });
