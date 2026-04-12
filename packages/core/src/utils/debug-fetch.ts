@@ -146,35 +146,13 @@ export function createDebugFetch(): typeof globalThis.fetch {
       return response;
     }
 
-    // Streaming: pipe through, collect chunks, assemble on end
-    const chunks: string[] = [];
-    const decoder = new TextDecoder();
-    const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        chunks.push(decoder.decode(chunk, { stream: true }));
-        controller.enqueue(chunk);
-      },
-      flush() {
-        const raw = chunks.join("");
-        try { record.response = assembleStreamResponse(raw); } catch { record.response = raw; }
-        record.durationMs = Date.now() - start;
-        record.responseAt = new Date().toISOString();
-        writeJson(filePath, record);
-      },
-    });
-
-    response.body.pipeTo(writable).catch(() => {
-      const raw = chunks.join("");
-      try { record.response = assembleStreamResponse(raw); } catch { record.response = raw || "(stream error)"; }
-      record.durationMs = Date.now() - start;
-      record.responseAt = new Date().toISOString();
-      writeJson(filePath, record);
-    });
-
-    return new Response(readable, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: response.headers,
-    });
+    // Streaming: don't intercept the body — return original response to SDK.
+    // Log what we know (status, headers) immediately. The stream body is not
+    // captured to avoid breaking SDK-specific SSE parsers (Responses API, etc).
+    record.response = "(streaming — body not captured)";
+    record.durationMs = Date.now() - start;
+    record.responseAt = new Date().toISOString();
+    await writeJson(filePath, record);
+    return response;
   };
 }
