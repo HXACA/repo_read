@@ -39,8 +39,15 @@ export async function generateViaStream(
   if (isOpenAIResponses) {
     // store=false: send full history, no item_reference (proxy-compatible)
     openaiOptions.store = false;
-    // promptCacheKey: server caches prompt prefix across multi-step requests
+    // promptCacheKey: server caches the instructions prefix across multi-step requests
     if (cacheKey) openaiOptions.promptCacheKey = cacheKey;
+    // Move system prompt to instructions field — Responses API caches instructions
+    // content server-side (tied to promptCacheKey). Without this, system prompt goes
+    // into the input array as a developer message and isn't cached.
+    const system = (params as any).system;
+    if (typeof system === "string" && system) {
+      openaiOptions.instructions = system;
+    }
   }
 
   const needsProviderOptions = isOpenAIResponses;
