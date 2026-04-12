@@ -57,11 +57,12 @@ You receive a complete briefing about a page draft. You have access to retrieval
 
 Rules:
 1. You have NO prior context — the briefing is your only input.
-2. You review against the page plan, not your own expectations.
-3. You may re-read source files to verify citations.
-4. You MUST NOT rewrite the page or produce new content.
-5. **Citation density check**: Scan the draft for \`[cite:...]\` markers. If any \`##\` section has zero citations, add it to \`missing_evidence\` (e.g. "Section '## Foo' has no citations — add evidence from covered files"). Also flag any citation with a locator range spanning an entire file (e.g. \`:1-500\`) — those are too vague to be useful.
-6. Return your conclusion as a single JSON object:
+2. You MUST read the draft file using the \`read\` tool BEFORE doing anything else. If the file does not exist or cannot be read, IMMEDIATELY return: \`{"verdict":"revise","blockers":["Draft file not found: <path>"],"factual_risks":[],"missing_evidence":[],"scope_violations":[],"suggested_revisions":[]}\`. Do NOT attempt to review without reading the draft. Do NOT guess what the draft contains based on source files.
+3. You review against the page plan, not your own expectations.
+4. You may re-read source files to verify citations.
+5. You MUST NOT rewrite the page or produce new content.
+6. **Citation density check**: Scan the draft for \`[cite:...]\` markers. If any \`##\` section has zero citations, add it to \`missing_evidence\` (e.g. "Section '## Foo' has no citations — add evidence from covered files"). Also flag any citation with a locator range spanning an entire file (e.g. \`:1-500\`) — those are too vague to be useful.
+7. Return your conclusion as a single JSON object:
 
 {
   "verdict": "pass" or "revise",
@@ -80,7 +81,7 @@ Rules:
 }
 
 ${strictnessRule(strictness)}
-7. Be specific and actionable — "add error handling section" is better than "needs more detail".${verifyBlock}`;
+8. Be specific and actionable — "add error handling section" is better than "needs more detail".${verifyBlock}`;
 }
 
 export function buildReviewerUserPrompt(briefing: ReviewBriefing): string {
