@@ -146,13 +146,23 @@ export function createDebugFetch(): typeof globalThis.fetch {
       return response;
     }
 
-    // Streaming: don't intercept the body — return original response to SDK.
-    // Log what we know (status, headers) immediately. The stream body is not
-    // captured to avoid breaking SDK-specific SSE parsers (Responses API, etc).
-    record.response = "(streaming — body not captured)";
+    // Streaming: clone the response so SDK gets the original untouched stream,
+    // and we read the clone in the background for debug logging.
+    const clone = response.clone();
+    // Write partial log immediately (request + status), then update with body when stream ends
+    record.response = "(streaming — reading in background)";
     record.durationMs = Date.now() - start;
     record.responseAt = new Date().toISOString();
     await writeJson(filePath, record);
+
+    // Read the clone in the background — doesn't block the SDK
+    clone.text().then((raw) => {
+      try { record.response = assembleStreamResponse(raw); } catch { record.response = raw; }
+      record.durationMs = Date.now() - start;
+      record.responseAt = new Date().toISOString();
+      writeJson(filePath, record);
+    }).catch(() => { /* ignore clone read errors */ });
+
     return response;
   };
 }
