@@ -32,7 +32,11 @@ export function createModelForRole(
     );
   }
 
-  const npm = providerConfig?.npm ?? inferNpm(resolvedProviderName);
+  // Look up model-specific config from provider's declared models
+  const modelConfig = providerConfig?.models?.[modelName];
+
+  // npm priority: model-level > provider-level > inferred from provider name
+  const npm = modelConfig?.npm ?? providerConfig?.npm ?? inferNpm(resolvedProviderName);
   // Inject debug fetch when debug mode is active
   const fetchFn = getDebugDir() ? createDebugFetch() : undefined;
   return createModel(npm, resolvedProviderName, modelName, apiKey, providerConfig?.baseUrl, fetchFn);

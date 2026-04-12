@@ -22,14 +22,24 @@ export type ProviderSdk =
   | "@ai-sdk/openai"
   | "@ai-sdk/openai-compatible";
 
+/** Per-model config declared within a provider. */
+export type ProviderModelConfig = {
+  name?: string;
+  /** Override the provider's default npm for this specific model. */
+  npm?: ProviderSdk;
+};
+
 export type ProviderCredentialConfig = {
   provider: string;
-  /** AI SDK npm package. Defaults to `"@ai-sdk/openai-compatible"`. */
+  /** Default AI SDK npm package for all models. Defaults to `"@ai-sdk/openai-compatible"`. */
   npm?: ProviderSdk;
   secretRef: string;
   apiKey?: string;
   baseUrl?: string;
   enabled: boolean;
+  /** Declared models. Roles can only reference models listed here (when present).
+   *  Key = model ID (e.g. `"glm-5.1"` or `"qwen/qwen3.6-plus"`). */
+  models?: Record<string, ProviderModelConfig>;
 };
 
 export type UserEditableConfig = {
@@ -60,6 +70,7 @@ export type ResolvedConfig = {
   providers: Array<{
     provider: string;
     npm?: ProviderSdk;
+    models?: Record<string, ProviderModelConfig>;
     secretRef: string;
     apiKey?: string;
     baseUrl?: string;

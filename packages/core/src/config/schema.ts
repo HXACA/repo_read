@@ -13,9 +13,15 @@ const ProviderSdkSchema = z.enum([
   "@ai-sdk/openai-compatible",
 ]);
 
+const ProviderModelConfigSchema = z.object({
+  name: z.string().optional(),
+  npm: ProviderSdkSchema.optional(),
+});
+
 const ProviderCredentialConfigSchema = z.object({
   provider: z.string().min(1),
   npm: ProviderSdkSchema.optional(),
+  models: z.record(z.string(), ProviderModelConfigSchema).optional(),
   secretRef: z.string(),
   apiKey: z.string().optional(),
   baseUrl: z.string().optional(),
