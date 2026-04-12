@@ -277,6 +277,8 @@ export class GenerationPipeline {
         let evidenceResult: EvidenceCollectionResult | null = null;
         // Outline is planned once after evidence collection and reused across retries
         let outline: PageOutline | null = null;
+        // Cumulative runtime signals — persist across retries so boosts aren't lost
+        const runtimeSignals: import("./param-adjuster.js").RuntimeSignals = {};
 
         while (true) {
           reviewUnverified = false;
@@ -386,13 +388,16 @@ export class GenerationPipeline {
 
           await emitter.pageDrafting(page.slug);
 
+          // When file paths are available, pass empty in-context content — the
+          // drafter will read from files via tools. This keeps the prompt small.
+          const hasFilePointers = true; // evidence/outline are always persisted now
           const authorContext: MainAuthorContext = {
             project_summary: wiki.summary,
             full_book_summary: wiki.summary,
             current_page_plan: page.rationale,
-            published_page_summaries: publishedSummaries,
-            evidence_ledger: evidenceResult?.ledger ?? [],
-            ...(evidenceResult
+            published_page_summaries: hasFilePointers ? [] : publishedSummaries,
+            evidence_ledger: hasFilePointers ? [] : (evidenceResult?.ledger ?? []),
+            ...(!hasFilePointers && evidenceResult
               ? {
                   evidence_bundle: {
                     findings: evidenceResult.findings,
@@ -400,7 +405,7 @@ export class GenerationPipeline {
                   },
                 }
               : {}),
-            ...(outline ? { page_outline: outline } : {}),
+            ...(!hasFilePointers && outline ? { page_outline: outline } : {}),
             evidence_file: this.storage.paths.evidenceJson(slug, jobId, page.slug),
             outline_file: outline ? this.storage.paths.outlineJson(slug, jobId, page.slug) : undefined,
             published_index_file: this.storage.paths.publishedIndexJson(slug, jobId),
@@ -462,9 +467,9 @@ export class GenerationPipeline {
           // produce a shorter page. This avoids publishing half-written
           // content and re-uses the existing revision loop machinery.
           if (draftResult.truncated && attempt < pageParams.maxRevisionAttempts) {
-            // Re-adjust params with truncation signal so next attempt gets
-            // a higher output-token ceiling.
-            pageParams = adjustParams(qp, complexity, { draftTruncated: true });
+            // Accumulate truncation signal and re-adjust params
+            runtimeSignals.draftTruncated = true;
+            pageParams = adjustParams(qp, complexity, runtimeSignals);
             reviewResult = {
               success: true,
               conclusion: {
@@ -551,13 +556,11 @@ export class GenerationPipeline {
             reviewResult.conclusion!.verdict,
           );
 
-          // Re-adjust params based on reviewer feedback signals so the next
-          // retry benefits from increased workers / output ceiling.
+          // Accumulate reviewer feedback signals and re-adjust (preserves prior boosts like truncation)
           if (reviewResult.conclusion) {
-            pageParams = adjustParams(qp, complexity, {
-              factualRisksCount: reviewResult.conclusion.factual_risks.length,
-              missingEvidenceCount: reviewResult.conclusion.missing_evidence.length,
-            });
+            runtimeSignals.factualRisksCount = reviewResult.conclusion.factual_risks.length;
+            runtimeSignals.missingEvidenceCount = reviewResult.conclusion.missing_evidence.length;
+            pageParams = adjustParams(qp, complexity, runtimeSignals);
           }
 
           // Decide whether to retry: if the reviewer says "revise" and we

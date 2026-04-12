@@ -79,23 +79,27 @@ export function buildPageDraftUserPrompt(
     }
   }
 
-  // === Pre-collected evidence from fork.worker subtasks ===
-  // The EvidenceCoordinator dispatched parallel fork.workers before this
-  // drafter call. Their findings are the drafter's primary source of truth;
-  // the drafter should only call retrieval tools to verify or fill gaps.
-  if (context.evidence_ledger.length > 0 || context.evidence_bundle) {
+  // === Evidence + Outline ===
+  // When file paths are available, point the drafter to files (pointer mode).
+  // Only fall back to in-context content when file paths are absent (backward compat).
+  if (context.evidence_file) {
+    sections.push(
+      `## Evidence`,
+      `The collected evidence (ledger + findings + open questions) is at: \`${context.evidence_file}\``,
+      `Use the \`read\` tool to load it. Prefer these citations over running fresh retrieval — only call tools if you need to verify a claim or fill a gap.`,
+    );
+  } else if (context.evidence_ledger.length > 0 || context.evidence_bundle) {
+    // Fallback: in-context evidence (no file path available)
     sections.push(`## Pre-collected Evidence (from fork.workers)`);
     sections.push(
       `The following evidence was gathered in parallel before this drafting step. **Prefer these citations over running fresh retrieval** — only call tools if you need to verify a claim or fill an open question below.`,
     );
-
     if (context.evidence_bundle && context.evidence_bundle.findings.length > 0) {
       sections.push(`### Findings`);
       for (const f of context.evidence_bundle.findings.slice(0, 40)) {
         sections.push(`- ${f}`);
       }
     }
-
     if (context.evidence_ledger.length > 0) {
       sections.push(`### Evidence Ledger (cite these first)`);
       for (const entry of context.evidence_ledger) {
@@ -103,11 +107,7 @@ export function buildPageDraftUserPrompt(
         sections.push(`- [${entry.kind}] ${entry.target}${suffix}`);
       }
     }
-
-    if (
-      context.evidence_bundle &&
-      context.evidence_bundle.open_questions.length > 0
-    ) {
+    if (context.evidence_bundle && context.evidence_bundle.open_questions.length > 0) {
       sections.push(`### Open Questions (verify with tools if needed)`);
       for (const q of context.evidence_bundle.open_questions.slice(0, 20)) {
         sections.push(`- ${q}`);
@@ -115,32 +115,14 @@ export function buildPageDraftUserPrompt(
     }
   }
 
-  // === File path references for tool-based reading ===
-  if (context.evidence_file || context.outline_file) {
-    const fileRefs: string[] = [];
-    if (context.evidence_file) {
-      fileRefs.push(
-        `## Evidence`,
-        `The collected evidence is at: ${context.evidence_file}`,
-        `Use the \`read\` tool to examine evidence entries relevant to each section.`,
-      );
-    }
-    if (context.outline_file) {
-      fileRefs.push(
-        `## Page Outline`,
-        `The page outline is at: ${context.outline_file}`,
-        `Use the \`read\` tool to load the outline structure before writing.`,
-      );
-    }
-    sections.push(...fileRefs);
-  }
-
-  // === Page outline — maps sections to evidence entries ===
-  // When present, the outline tells the drafter exactly which sections to
-  // write and which evidence to cite in each. This replaces the flat
-  // evidence dump with a structured brief so the drafter doesn't have to
-  // decide what to cite on its own.
-  if (context.page_outline && context.page_outline.sections.length > 0) {
+  if (context.outline_file) {
+    sections.push(
+      `## Page Outline`,
+      `The page outline is at: \`${context.outline_file}\``,
+      `Use the \`read\` tool to load the outline structure, then write the page following that structure.`,
+    );
+  } else if (context.page_outline && context.page_outline.sections.length > 0) {
+    // Fallback: in-context outline (no file path available)
     sections.push(
       `## Page Outline (follow this structure)`,
       `Write the page following the sections below. Each section lists its key points and the evidence entries you MUST cite. Use \`[cite:file:target:locator]\` for each cite_from entry.`,

@@ -107,10 +107,10 @@ export function buildReviewerUserPrompt(briefing: ReviewBriefing): string {
       sections.push(`**Missing evidence:**\n${prev.missing_evidence.map((m) => `- ${m}`).join("\n")}`);
     }
     sections.push(`The author has revised the draft. Changes: ${attempt}`);
-    sections.push(`The revised draft is at: \`${briefing.draft_file}\`\nUse the \`read\` tool to read the draft, then focus on:\n1. Check if each previously flagged issue is now resolved\n2. Spot-check 1-2 unchanged sections for regression\n3. Only report NEW issues not in the previous review`);
+    sections.push(`The revised draft is at: \`${briefing.draft_file}\`\nUse the \`read\` tool to read the draft, then:\n1. For EACH previously flagged issue above, check if it is now resolved. Include ALL previous issues in your output — mark resolved ones in suggested_revisions as "[RESOLVED] ...", keep unresolved ones in their original category (blockers/factual_risks/missing_evidence).\n2. Spot-check 1-2 unchanged sections for regression.\n3. Report any NEW issues found during spot-check.\n\nIMPORTANT: Do NOT omit unresolved previous issues from your output. Every previous blocker must appear in your conclusion — either still as a blocker (if unresolved) or noted as resolved.`);
   } else {
     // First review: read draft from file
-    sections.push(`You are reviewing a wiki page draft.\n\nThe draft is saved at: \`${briefing.draft_file}\`\nUse the \`read\` tool to read the draft before reviewing.\n\nFor each \`[cite:file:path:lines]\` citation in the draft, use the \`read\` tool to verify the cited source file actually contains what the draft claims.`);
+    sections.push(`You are reviewing a wiki page draft.\n\nThe draft is saved at: \`${briefing.draft_file}\`\nUse the \`read\` tool to read the draft before reviewing.`);
     if (briefing.published_summaries_file) {
       sections.push(`The index of previously published pages is at: \`${briefing.published_summaries_file}\`. Check for cross-page duplication.`);
     }
