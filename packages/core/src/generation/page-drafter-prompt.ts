@@ -72,7 +72,13 @@ export function buildPageDraftUserPrompt(
     `- **Covered Files:** ${input.coveredFiles.join(", ")}`,
   );
 
-  if (context.published_page_summaries.length > 0) {
+  if (context.published_index_file) {
+    sections.push(
+      `## Previously Published Pages`,
+      `The index of previously published pages is at: \`${context.published_index_file}\``,
+      `Use the \`read\` tool to check what other pages have already covered — avoid duplicating their content. Reference related pages with \`[cite:page:slug]\`.`,
+    );
+  } else if (context.published_page_summaries.length > 0) {
     sections.push(`## Previously Published Pages`);
     for (const page of context.published_page_summaries) {
       sections.push(`- **${page.title}** (${page.slug}): ${page.summary}`);
@@ -169,33 +175,32 @@ export function buildPageDraftUserPrompt(
       fb.suggested_revisions.forEach((b, i) => sections.push(`${i + 1}. ${b}`));
     }
 
-    sections.push(
-      "### Previous draft (for reference)",
-      "```markdown",
-      r.previous_draft.slice(0, 4000) +
-        (r.previous_draft.length > 4000 ? "\n...[truncated]" : ""),
-      "```",
-    );
-
     if (context.draft_file) {
       sections.push(
-        `## Revision`,
-        `Your previous draft is at: ${context.draft_file}`,
-        `Reviewer feedback: ${r.feedback.blockers.map((b, i) => `${i + 1}. ${b}`).join("; ")}`,
-        `Read the draft, then fix the specific issues listed above.`,
+        `### Previous draft`,
+        `Your previous draft is at: \`${context.draft_file}\``,
+        `Use the \`read\` tool to review it, then fix the specific issues listed above.`,
+      );
+    } else {
+      sections.push(
+        "### Previous draft (for reference)",
+        "```markdown",
+        r.previous_draft.slice(0, 4000) +
+          (r.previous_draft.length > 4000 ? "\n...[truncated]" : ""),
+        "```",
       );
     }
   }
 
   const hasPreEvidence =
-    context.evidence_ledger.length > 0 || !!context.evidence_bundle;
+    !!context.evidence_file || context.evidence_ledger.length > 0 || !!context.evidence_bundle;
 
   sections.push(
     `## Instructions`,
     context.revision
       ? `**Re-write** the complete wiki page for "${input.title}" addressing every blocker and reviewer note above. Use the retrieval tools to verify facts and read additional files mentioned in "missing evidence". Output the FULL page (not a diff).\n\n**CRITICAL**: Start your output with \`# ${input.title}\` — no preamble text, no \`\`\`markdown wrapper. Your very first character must be \`#\`.`
       : hasPreEvidence
-        ? `Write the complete wiki page for "${input.title}". **Base your page on the Pre-collected Evidence section above** — it was gathered in parallel by fork.workers and represents your primary source of truth. Only call retrieval tools to verify specific claims, resolve open questions, or read a file that the ledger does not yet cover.`
+        ? `Write the complete wiki page for "${input.title}". Evidence was already collected by fork.workers — ${context.evidence_file ? "read the evidence file listed above" : "use the Pre-collected Evidence section above"} as your primary source of truth. Only call retrieval tools to verify specific claims, resolve open questions, or read a file not yet covered.`
         : `Write the complete wiki page for "${input.title}". Use the retrieval tools to read the covered files and gather evidence. Then produce the page as Markdown with inline citations.`,
   );
 
