@@ -3,12 +3,10 @@ export type RoleName = "catalog" | "outline" | "drafter" | "worker" | "reviewer"
 
 export type RoleModelConfig = {
   /** Model identifier in `provider/model` format, e.g. `"openrouter/qwen/qwen3.6-plus"` or `"glm/glm-5.1"`.
-   *  The part before the first `/` must match a `provider` name in `providers[]`. */
+   *  The part before the first `/` must match a `provider` name in `providers[]`.
+   *  SDK protocol comes from the provider's `npm` field — roles don't configure it. */
   model: string;
   fallback_models: string[];
-  /** Override the provider's `npm` (SDK protocol) for this role only.
-   *  E.g. a provider defaults to `@ai-sdk/openai-compatible` but this role needs `@ai-sdk/openai`. */
-  npm?: ProviderSdk;
 };
 
 export type ProjectRoleConfig = Record<RoleName, RoleModelConfig>;
@@ -51,8 +49,6 @@ export type ResolvedRoleRoute = {
   fallbackModels: string[];
   resolvedProvider: string;
   systemPromptTuningId: string;
-  /** Role-level SDK override — takes precedence over provider's npm field. */
-  npm?: ProviderSdk;
 };
 
 export type ResolvedConfig = {
