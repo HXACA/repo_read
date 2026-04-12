@@ -7,7 +7,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from "react";
-import { render, Box, Text, Static } from "ink";
+import { render, Box, Text } from "ink";
 import Spinner from "ink-spinner";
 import type { AppEvent } from "@reporead/core";
 
@@ -126,54 +126,39 @@ function ProgressApp({ state }: { state: ProgressState }) {
   const sectionCount = new Set(pages.map((x) => x.section).filter(Boolean)).size;
   const done = skipN + pages.filter((x) => x.status === "done").length;
 
-  // Static: only completed page lines (printed once, scroll up naturally)
-  // Ink's Static only renders NEW items — items with keys already seen are skipped.
-  const completedItems: Array<{ key: string; node: React.ReactNode }> = [];
-  let staticSec = "";
-  for (let i = 0; i < pages.length; i++) {
-    const pg = pages[i];
-    if (pg.status !== "done") continue;
-    if (pg.section && pg.section !== staticSec) {
-      staticSec = pg.section;
-      completedItems.push({ key: `sec-done-${pg.section}`, node: <SectionHeader name={pg.section} /> });
-    }
-    completedItems.push({ key: `done-${pg.slug}`, node: <CompletedPage page={pg} index={i} /> });
-  }
+  // Everything is dynamic — Ink handles efficient re-rendering.
+  // No Static component: it causes completed items to float above the header.
+  const lines: React.ReactNode[] = [];
 
-  // Dynamic: everything that changes — header, skip, active page, pending pages, progress bar
-  const dynamicLines: React.ReactNode[] = [];
-
-  // Header (always visible, re-rendered with updated count)
-  dynamicLines.push(<CatalogHeader key="hdr" total={total} sections={sectionCount} />);
+  lines.push(<CatalogHeader key="hdr" total={total} sections={sectionCount} />);
 
   if (skipN > 0) {
-    dynamicLines.push(<Text key="skip" dimColor>  ⊘ 1-{skipN} 已完成（上次运行），跳过</Text>);
+    lines.push(<Text key="skip" dimColor>  ⊘ 1-{skipN} 已完成（上次运行），跳过</Text>);
   }
 
-  // Active + pending pages with section headers
-  let dynSec = staticSec;
+  // All pages in order: done ✓, active →, pending ○
+  let lastSec = "";
   for (let i = 0; i < pages.length; i++) {
     const pg = pages[i];
-    if (pg.status === "skipped" || pg.status === "done") continue;
+    if (pg.status === "skipped") continue;
 
-    if (pg.section && pg.section !== dynSec) {
-      dynSec = pg.section;
-      dynamicLines.push(<SectionHeader key={`dsec-${i}`} name={pg.section} />);
+    if (pg.section && pg.section !== lastSec) {
+      lastSec = pg.section;
+      lines.push(<SectionHeader key={`sec-${i}`} name={pg.section} />);
     }
 
-    if (pg.status === "active") {
-      dynamicLines.push(<ActivePage key={pg.slug} page={pg} index={i} tick={tick} />);
+    if (pg.status === "done") {
+      lines.push(<CompletedPage key={pg.slug} page={pg} index={i} />);
+    } else if (pg.status === "active") {
+      lines.push(<ActivePage key={pg.slug} page={pg} index={i} tick={tick} />);
     } else {
-      dynamicLines.push(<PendingPage key={pg.slug} page={pg} index={i} />);
+      lines.push(<PendingPage key={pg.slug} page={pg} index={i} />);
     }
   }
 
   return (
     <Box flexDirection="column">
-      <Static items={completedItems}>
-        {(item) => <Box key={item.key}>{item.node}</Box>}
-      </Static>
-      {dynamicLines}
+      {lines}
       <ProgressBar done={done} total={total} elapsed={Date.now() - started} pages={pages} />
     </Box>
   );
