@@ -108,4 +108,16 @@ export class StoragePaths {
   askSessionJson(slug: string, sessionId: string): string {
     return path.join(this.askDir(slug), `${sessionId}.json`);
   }
+
+  evidenceJson(slug: string, jobId: string, pageSlug: string): string {
+    return path.join(this.jobDir(slug, jobId), "evidence", `${pageSlug}.json`);
+  }
+
+  outlineJson(slug: string, jobId: string, pageSlug: string): string {
+    return path.join(this.jobDir(slug, jobId), "outline", `${pageSlug}.json`);
+  }
+
+  publishedIndexJson(slug: string, jobId: string): string {
+    return path.join(this.jobDir(slug, jobId), "published-index.json");
+  }
 }

@@ -108,6 +108,26 @@ export function buildPageDraftUserPrompt(
     }
   }
 
+  // === File path references for tool-based reading ===
+  if (context.evidence_file || context.outline_file) {
+    const fileRefs: string[] = [];
+    if (context.evidence_file) {
+      fileRefs.push(
+        `## Evidence`,
+        `The collected evidence is at: ${context.evidence_file}`,
+        `Use the \`read\` tool to examine evidence entries relevant to each section.`,
+      );
+    }
+    if (context.outline_file) {
+      fileRefs.push(
+        `## Page Outline`,
+        `The page outline is at: ${context.outline_file}`,
+        `Use the \`read\` tool to load the outline structure before writing.`,
+      );
+    }
+    sections.push(...fileRefs);
+  }
+
   // === Page outline — maps sections to evidence entries ===
   // When present, the outline tells the drafter exactly which sections to
   // write and which evidence to cite in each. This replaces the flat
@@ -167,6 +187,15 @@ export function buildPageDraftUserPrompt(
         (r.previous_draft.length > 4000 ? "\n...[truncated]" : ""),
       "```",
     );
+
+    if (context.draft_file) {
+      sections.push(
+        `## Revision`,
+        `Your previous draft is at: ${context.draft_file}`,
+        `Reviewer feedback: ${r.feedback.blockers.map((b, i) => `${i + 1}. ${b}`).join("; ")}`,
+        `Read the draft, then fix the specific issues listed above.`,
+      );
+    }
   }
 
   const hasPreEvidence =

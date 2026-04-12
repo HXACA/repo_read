@@ -32,6 +32,14 @@ export type MainAuthorContext = {
    * to cite in each `##` heading.
    */
   page_outline?: PageOutline;
+  /** File path to evidence JSON — drafter can read via tool */
+  evidence_file?: string;
+  /** File path to outline JSON — drafter can read via tool */
+  outline_file?: string;
+  /** File path to published summaries index */
+  published_index_file?: string;
+  /** File path to previous draft (for revision) */
+  draft_file?: string;
   /** Optional revision context — set when re-drafting after a "revise" verdict */
   revision?: {
     attempt: number;

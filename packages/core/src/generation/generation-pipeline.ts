@@ -245,16 +245,31 @@ export class GenerationPipeline {
         while (true) {
           reviewUnverified = false;
 
+          // === RESUME: load existing evidence + outline from disk ===
+          if (attempt === 0 && !evidenceResult) {
+            const existing = await this.storage.readJson<any>(this.storage.paths.evidenceJson(slug, jobId, page.slug));
+            if (existing && existing.ledger) {
+              evidenceResult = existing as EvidenceCollectionResult;
+              // Also try loading outline
+              const existingOutline = await this.storage.readJson<PageOutline>(this.storage.paths.outlineJson(slug, jobId, page.slug));
+              if (existingOutline) outline = existingOutline;
+              // Skip to drafting
+              await emitter.pageEvidencePlanned(page.slug, evidenceResult.plan?.tasks?.length ?? 0, false);
+              await emitter.pageEvidenceCollected(page.slug, evidenceResult.ledger.length, 0, 0);
+            }
+          }
+
           // === EVIDENCE COLLECTION ===
-          // Run on first attempt, or on retries where reviewer flagged
-          // missing_evidence, factual_risks, or scope_violations
-          // (suggesting we need to look at more/different files).
+          // Run on first attempt (if not already loaded from disk), or on
+          // retries where reviewer flagged missing_evidence, factual_risks,
+          // or scope_violations (suggesting we need more/different files).
           const shouldCollectEvidence =
             coordinator !== null &&
-            (attempt === 0 ||
-              (reviewResult?.conclusion?.missing_evidence?.length ?? 0) > 0 ||
-              (reviewResult?.conclusion?.factual_risks?.length ?? 0) > 0 ||
-              (reviewResult?.conclusion?.scope_violations?.length ?? 0) > 0);
+            ((attempt === 0 && !evidenceResult) ||
+              (attempt > 0 &&
+                ((reviewResult?.conclusion?.missing_evidence?.length ?? 0) > 0 ||
+                  (reviewResult?.conclusion?.factual_risks?.length ?? 0) > 0 ||
+                  (reviewResult?.conclusion?.scope_violations?.length ?? 0) > 0)));
 
           let evidenceJustCollected = false;
 
@@ -298,6 +313,10 @@ export class GenerationPipeline {
               evidenceResult.plan.tasks.length - evidenceResult.failedTaskIds.length,
               evidenceResult.failedTaskIds.length,
             );
+            await this.storage.writeJson(
+              this.storage.paths.evidenceJson(slug, jobId, page.slug),
+              { ledger: evidenceResult.ledger, findings: evidenceResult.findings, openQuestions: evidenceResult.openQuestions, failedTaskIds: evidenceResult.failedTaskIds },
+            );
           }
 
           // === OUTLINE PLANNING ===
@@ -313,6 +332,12 @@ export class GenerationPipeline {
               ledger: evidenceResult.ledger,
               findings: evidenceResult.findings,
             });
+            if (outline) {
+              await this.storage.writeJson(
+                this.storage.paths.outlineJson(slug, jobId, page.slug),
+                outline,
+              );
+            }
           }
 
           await emitter.pageDrafting(page.slug);
@@ -332,6 +357,9 @@ export class GenerationPipeline {
                 }
               : {}),
             ...(outline ? { page_outline: outline } : {}),
+            evidence_file: this.storage.paths.evidenceJson(slug, jobId, page.slug),
+            outline_file: outline ? this.storage.paths.outlineJson(slug, jobId, page.slug) : undefined,
+            published_index_file: this.storage.paths.publishedIndexJson(slug, jobId),
             ...(attempt > 0 && draftResult?.markdown && reviewResult?.conclusion
               ? {
                   revision: {
@@ -339,6 +367,7 @@ export class GenerationPipeline {
                     previous_draft: draftResult.markdown,
                     feedback: reviewResult.conclusion,
                   },
+                  draft_file: this.storage.paths.draftPageMd(slug, jobId, versionId, page.slug),
                 }
               : {}),
           };
@@ -558,6 +587,10 @@ export class GenerationPipeline {
           title: page.title,
           summary: finalDraft.metadata!.summary,
         });
+        await this.storage.writeJson(
+          this.storage.paths.publishedIndexJson(slug, jobId),
+          publishedSummaries,
+        );
         job.summary.succeededPages = (job.summary.succeededPages ?? 0) + 1;
         await this.persistJobSummary(job);
 
