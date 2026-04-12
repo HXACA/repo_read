@@ -123,63 +123,57 @@ function ProgressApp({ state }: { state: ProgressState }) {
   }
 
   const total = pages.length;
-  const sections = new Set(pages.map((x) => x.section).filter(Boolean)).size;
+  const sectionCount = new Set(pages.map((x) => x.section).filter(Boolean)).size;
   const done = skipN + pages.filter((x) => x.status === "done").length;
 
-  // Separate completed items (for Static) from active/pending (dynamic)
-  // Static gets: catalog header + skip line + completed pages with section headers
-  const staticItems: Array<{ key: string; node: React.ReactNode }> = [];
-
-  // Only add newly completed pages to Static
-  // We render the catalog header as static so it scrolls up with completed pages
-  staticItems.push({ key: "header", node: <CatalogHeader total={total} sections={sections} /> });
-
-  if (skipN > 0) {
-    staticItems.push({ key: "skip", node: <Text dimColor>  ⊘ 1-{skipN} 已完成（上次运行），跳过</Text> });
-  }
-
-  let lastSec = "";
+  // Static: only completed page lines (printed once, scroll up naturally)
+  // Ink's Static only renders NEW items — items with keys already seen are skipped.
+  const completedItems: Array<{ key: string; node: React.ReactNode }> = [];
+  let staticSec = "";
   for (let i = 0; i < pages.length; i++) {
     const pg = pages[i];
-    if (pg.status === "skipped") continue;
-
-    if (pg.status === "done") {
-      if (pg.section && pg.section !== lastSec) {
-        lastSec = pg.section;
-        staticItems.push({ key: `sec-${i}`, node: <SectionHeader name={pg.section} /> });
-      }
-      staticItems.push({ key: `done-${pg.slug}`, node: <CompletedPage page={pg} index={i} /> });
+    if (pg.status !== "done") continue;
+    if (pg.section && pg.section !== staticSec) {
+      staticSec = pg.section;
+      completedItems.push({ key: `sec-done-${pg.section}`, node: <SectionHeader name={pg.section} /> });
     }
+    completedItems.push({ key: `done-${pg.slug}`, node: <CompletedPage page={pg} index={i} /> });
   }
 
-  // Dynamic part: section headers leading up to active, active page, pending pages
-  const dynamicItems: React.ReactNode[] = [];
-  let hitActive = false;
-  let dynSec = lastSec; // continue from where static left off
+  // Dynamic: everything that changes — header, skip, active page, pending pages, progress bar
+  const dynamicLines: React.ReactNode[] = [];
 
+  // Header (always visible, re-rendered with updated count)
+  dynamicLines.push(<CatalogHeader key="hdr" total={total} sections={sectionCount} />);
+
+  if (skipN > 0) {
+    dynamicLines.push(<Text key="skip" dimColor>  ⊘ 1-{skipN} 已完成（上次运行），跳过</Text>);
+  }
+
+  // Active + pending pages with section headers
+  let dynSec = staticSec;
   for (let i = 0; i < pages.length; i++) {
     const pg = pages[i];
     if (pg.status === "skipped" || pg.status === "done") continue;
 
     if (pg.section && pg.section !== dynSec) {
       dynSec = pg.section;
-      dynamicItems.push(<SectionHeader key={`dsec-${i}`} name={pg.section} />);
+      dynamicLines.push(<SectionHeader key={`dsec-${i}`} name={pg.section} />);
     }
 
     if (pg.status === "active") {
-      hitActive = true;
-      dynamicItems.push(<ActivePage key={pg.slug} page={pg} index={i} tick={tick} />);
+      dynamicLines.push(<ActivePage key={pg.slug} page={pg} index={i} tick={tick} />);
     } else {
-      dynamicItems.push(<PendingPage key={pg.slug} page={pg} index={i} />);
+      dynamicLines.push(<PendingPage key={pg.slug} page={pg} index={i} />);
     }
   }
 
   return (
     <Box flexDirection="column">
-      <Static items={staticItems}>
+      <Static items={completedItems}>
         {(item) => <Box key={item.key}>{item.node}</Box>}
       </Static>
-      {dynamicItems}
+      {dynamicLines}
       <ProgressBar done={done} total={total} elapsed={Date.now() - started} pages={pages} />
     </Box>
   );
