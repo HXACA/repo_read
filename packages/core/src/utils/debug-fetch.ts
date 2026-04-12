@@ -27,8 +27,73 @@ async function writeJson(filePath: string, data: unknown): Promise<void> {
 }
 
 /** Parse SSE lines and merge deltas into a single non-streaming response. */
+/** Parse SSE and assemble into a single response. Supports both Chat Completions and Responses API formats. */
 function assembleStreamResponse(raw: string): unknown {
   const lines = raw.split("\n");
+
+  // Detect format: Responses API uses "event:" lines, Chat Completions doesn't
+  const isResponsesApi = lines.some((l) => l.startsWith("event: response."));
+
+  if (isResponsesApi) {
+    return assembleResponsesApi(lines);
+  }
+  return assembleChatCompletions(lines);
+}
+
+/** Assemble OpenAI Responses API SSE events. */
+function assembleResponsesApi(lines: string[]): unknown {
+  let content = "";
+  let model = "";
+  let usage: unknown = null;
+  const toolCalls: Array<{ id: string; name: string; arguments: string }> = [];
+  let currentToolArgs = "";
+  let currentToolName = "";
+  let currentToolId = "";
+
+  for (const line of lines) {
+    if (!line.startsWith("data: ")) continue;
+    let data: any;
+    try { data = JSON.parse(line.slice(6)); } catch { continue; }
+
+    const type = data.type;
+
+    if (type === "response.completed" && data.response) {
+      model = data.response.model ?? model;
+      usage = data.response.usage ?? usage;
+    }
+
+    // Text content
+    if (type === "response.output_text.delta") {
+      content += data.delta ?? "";
+    }
+
+    // Tool calls
+    if (type === "response.function_call_arguments.delta") {
+      currentToolArgs += data.delta ?? "";
+    }
+    if (type === "response.output_item.added" && data.item?.type === "function_call") {
+      currentToolName = data.item.name ?? "";
+      currentToolId = data.item.call_id ?? data.item.id ?? "";
+      currentToolArgs = "";
+    }
+    if (type === "response.output_item.done" && data.item?.type === "function_call") {
+      toolCalls.push({ id: currentToolId, name: currentToolName, arguments: currentToolArgs });
+      currentToolArgs = "";
+    }
+  }
+
+  const message: Record<string, unknown> = { role: "assistant", content };
+  if (toolCalls.length > 0) {
+    message.tool_calls = toolCalls.map((tc) => ({
+      id: tc.id, type: "function", function: { name: tc.name, arguments: tc.arguments },
+    }));
+  }
+
+  return { model, message, ...(usage ? { usage } : {}) };
+}
+
+/** Assemble Chat Completions SSE events (data: {"choices":[{"delta":...}]}). */
+function assembleChatCompletions(lines: string[]): unknown {
   let content = "";
   let role = "assistant";
   const toolCalls: Map<number, { id: string; type: string; function: { name: string; arguments: string } }> = new Map();
@@ -53,15 +118,13 @@ function assembleStreamResponse(raw: string): unknown {
     if (delta.role) role = delta.role;
     if (delta.content) content += delta.content;
 
-    // Accumulate tool calls by index
     if (delta.tool_calls) {
       for (const tc of delta.tool_calls) {
         const idx = tc.index ?? 0;
         const existing = toolCalls.get(idx);
         if (!existing) {
           toolCalls.set(idx, {
-            id: tc.id ?? "",
-            type: tc.type ?? "function",
+            id: tc.id ?? "", type: tc.type ?? "function",
             function: { name: tc.function?.name ?? "", arguments: tc.function?.arguments ?? "" },
           });
         } else {
@@ -80,11 +143,7 @@ function assembleStreamResponse(raw: string): unknown {
       .map(([, v]) => v);
   }
 
-  return {
-    model,
-    choices: [{ message, finish_reason: finishReason }],
-    ...(usage ? { usage } : {}),
-  };
+  return { model, choices: [{ message, finish_reason: finishReason }], ...(usage ? { usage } : {}) };
 }
 
 export function createDebugFetch(): typeof globalThis.fetch {
