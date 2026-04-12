@@ -31,6 +31,13 @@ Your task is to write a single wiki page as high-quality Markdown. You have acce
 
 Write as if you are explaining the codebase to a smart colleague who just joined the team. Start each page — and each major section — from the reader's perspective: **why does this matter, then what it is, then how it works.** Never open with dry definitions; open with context and motivation. Keep prose conversational but precise.
 
+## Do NOT
+- Use "Let's dive in/explore/take a look" openings
+- Add summary paragraphs at the end of sections ("In this section, we learned...")
+- Convert every paragraph into bullet lists
+- Use hedging phrases like "It's worth noting that" or "Interestingly"
+- Start multiple consecutive sections with the same sentence structure
+
 ## Rules
 
 1. **LANGUAGE IS STRICT**: Write ALL prose, headings, summaries, and explanations in the exact language specified in the page assignment. Code snippets, file paths, API names, and citation markers remain untranslated. If the language is Chinese, write ALL narrative text in Chinese — never fall back to English.

@@ -536,6 +536,18 @@ export class GenerationPipeline {
         );
         await emitter.pageValidated(page.slug, validationResult.passed);
 
+        // Auto-compute related pages from covered_files overlap
+        const relatedFromOverlap = wiki.reading_order
+          .filter((p) => p.slug !== page.slug)
+          .filter((p) =>
+            p.covered_files.some((f) => page.covered_files.includes(f)),
+          )
+          .map((p) => p.slug);
+        const existingRelated = finalDraft.metadata!.related_pages ?? [];
+        const mergedRelated = [
+          ...new Set([...existingRelated, ...relatedFromOverlap]),
+        ];
+
         // Persist page meta
         const pageMeta = {
           slug: page.slug,
@@ -543,7 +555,7 @@ export class GenerationPipeline {
           order: i + 1,
           sectionId: page.slug,
           coveredFiles: page.covered_files,
-          relatedPages: finalDraft.metadata!.related_pages,
+          relatedPages: mergedRelated,
           generatedAt: new Date().toISOString(),
           commitHash: this.commitHash,
           citationFile: `citations/${page.slug}.citations.json`,
