@@ -5,8 +5,9 @@
  * `stream: true` (e.g. OpenAI Responses API proxies). Returns the same
  * shape as `generateText` for drop-in compatibility.
  *
- * Debug logging is handled at the HTTP fetch layer (see debug-fetch.ts),
- * not here.
+ * For OpenAI Responses API models:
+ * - Sets `store: false` to send full history (no item_reference)
+ * - Sets `promptCacheKey` for server-side prompt prefix caching
  */
 
 import { streamText } from "ai";
@@ -22,23 +23,34 @@ export type GenerateViaStreamResult = {
   steps: unknown[];
 };
 
+let cacheKey: string | null = null;
+
+/** Set a cache key for prompt caching. Call once per job with jobId or jobId-pageSlug. */
+export function setCacheKey(key: string | null): void {
+  cacheKey = key;
+}
+
 export async function generateViaStream(
   params: StreamTextParams,
 ): Promise<GenerateViaStreamResult> {
-  // OpenAI Responses API: set store=false to force the SDK to send full
-  // message history instead of item_reference. item_reference requires
-  // server-side persistence which many proxies don't support reliably.
-  // With store=false, the SDK sends complete tool call/result content
-  // inline — works with any Responses API endpoint.
   const isOpenAIResponses = (params.model as any)?.provider === "openai.responses";
 
-  const stream = streamText(isOpenAIResponses ? {
+  const openaiOptions: Record<string, unknown> = {};
+  if (isOpenAIResponses) {
+    // store=false: send full history, no item_reference (proxy-compatible)
+    openaiOptions.store = false;
+    // promptCacheKey: server caches prompt prefix across multi-step requests
+    if (cacheKey) openaiOptions.promptCacheKey = cacheKey;
+  }
+
+  const needsProviderOptions = isOpenAIResponses;
+  const stream = streamText(needsProviderOptions ? {
     ...params,
     providerOptions: {
       ...((params as any).providerOptions ?? {}),
       openai: {
         ...((params as any).providerOptions?.openai ?? {}),
-        store: false,
+        ...openaiOptions,
       },
     },
   } : params);

@@ -22,6 +22,7 @@ import { OutlinePlanner } from "./outline-planner.js";
 import type { PageOutline } from "../types/agent.js";
 import { computeComplexity } from "./complexity-scorer.js";
 import { adjustParams, type AdjustedParams } from "./param-adjuster.js";
+import { setCacheKey } from "../utils/generate-via-stream.js";
 
 export type GenerationPipelineOptions = {
   storage: StorageAdapter;
@@ -126,6 +127,7 @@ export class GenerationPipeline {
         // === CATALOGING ===
         job = await this.jobManager.transition(slug, jobId, "cataloging");
         await emitter.jobStarted();
+        setCacheKey(`${jobId}-catalog`);
 
         const catalogPlanner = new CatalogPlanner({
           model: this.catalogModel,
@@ -231,6 +233,9 @@ export class GenerationPipeline {
         if (skipSlugs.has(page.slug)) {
           continue;
         }
+
+        // Set prompt cache key per page — enables server-side prefix caching
+        setCacheKey(`${jobId}-${page.slug}`);
 
         // === COMPLEXITY SCORING + DYNAMIC PARAM ADJUSTMENT ===
         const complexity = computeComplexity({ coveredFiles: page.covered_files });
@@ -719,8 +724,10 @@ export class GenerationPipeline {
         job.summary.failedPages ?? 0,
       );
 
+      setCacheKey(null);
       return { success: true, job };
     } catch (err) {
+      setCacheKey(null);
       return this.failJob(job, emitter, (err as Error).message);
     }
   }
