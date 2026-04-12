@@ -27,6 +27,9 @@ export type ProviderModelConfig = {
   name?: string;
   /** Override the provider's default npm for this specific model. */
   npm?: ProviderSdk;
+  /** Protocol variant for @ai-sdk/openai: "responses" or "chat".
+   *  When omitted, auto-detected from model name (gpt-5+ → responses, else chat). */
+  variant?: "responses" | "chat";
 };
 
 export type ProviderCredentialConfig = {

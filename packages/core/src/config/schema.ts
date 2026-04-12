@@ -16,6 +16,7 @@ const ProviderSdkSchema = z.enum([
 const ProviderModelConfigSchema = z.object({
   name: z.string().optional(),
   npm: ProviderSdkSchema.optional(),
+  variant: z.enum(["responses", "chat"]).optional(),
 });
 
 const ProviderCredentialConfigSchema = z.object({

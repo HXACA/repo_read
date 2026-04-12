@@ -39,13 +39,25 @@ export function createModelForRole(
   const npm = modelConfig?.npm ?? providerConfig?.npm ?? inferNpm(resolvedProviderName);
   // Inject debug fetch when debug mode is active
   const fetchFn = getDebugDir() ? createDebugFetch() : undefined;
-  return createModel(npm, resolvedProviderName, modelName, apiKey, providerConfig?.baseUrl, fetchFn);
+  return createModel(npm, resolvedProviderName, modelName, apiKey, providerConfig?.baseUrl, fetchFn, modelConfig?.variant);
 }
 
 function inferNpm(provider: string): ProviderSdk {
   if (provider === "anthropic") return "@ai-sdk/anthropic";
   if (provider === "openai") return "@ai-sdk/openai";
   return "@ai-sdk/openai-compatible";
+}
+
+/**
+ * Auto-detect OpenAI protocol variant from model name.
+ * gpt-5+ (except gpt-5-mini) → responses, everything else → chat.
+ */
+function detectOpenAIVariant(modelId: string): "responses" | "chat" {
+  const match = /^gpt-(\d+)/.exec(modelId);
+  if (!match) return "chat";
+  const major = Number(match[1]);
+  if (major >= 5 && !modelId.startsWith("gpt-5-mini")) return "responses";
+  return "chat";
 }
 
 function createModel(
@@ -55,6 +67,7 @@ function createModel(
   apiKey: string,
   baseUrl?: string,
   fetchFn?: typeof globalThis.fetch,
+  variant?: "responses" | "chat",
 ): LanguageModel {
   switch (npm) {
     case "@ai-sdk/anthropic": {
@@ -70,7 +83,10 @@ function createModel(
         ...(baseUrl ? { baseURL: baseUrl } : {}),
         ...(fetchFn ? { fetch: fetchFn } : {}),
       });
-      return openai.responses(modelId);
+      const resolved = variant ?? detectOpenAIVariant(modelId);
+      return resolved === "responses"
+        ? openai.responses(modelId)
+        : openai(modelId);
     }
     case "@ai-sdk/openai-compatible":
     default: {
