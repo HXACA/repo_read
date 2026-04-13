@@ -55,6 +55,7 @@ export class SecretStore {
   private async getFromKeychain(key: string): Promise<string | null> {
     try {
       // Dynamic import hidden from bundlers (Next.js can't resolve native 'keytar' module)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic import for native module hidden from bundlers
       const importDynamic = new Function("specifier", "return import(specifier)") as (s: string) => Promise<any>;
       const keytar = await importDynamic("keytar");
       const value = await keytar.getPassword(this.service, key);
@@ -67,6 +68,7 @@ export class SecretStore {
   private async setToKeychain(key: string, value: string): Promise<void> {
     try {
       // Dynamic import hidden from bundlers (Next.js can't resolve native 'keytar' module)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic import for native module hidden from bundlers
       const importDynamic = new Function("specifier", "return import(specifier)") as (s: string) => Promise<any>;
       const keytar = await importDynamic("keytar");
       await keytar.setPassword(this.service, key, value);
@@ -82,6 +84,7 @@ export class SecretStore {
   private async deleteFromKeychain(key: string): Promise<void> {
     try {
       // Dynamic import hidden from bundlers (Next.js can't resolve native 'keytar' module)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic import for native module hidden from bundlers
       const importDynamic = new Function("specifier", "return import(specifier)") as (s: string) => Promise<any>;
       const keytar = await importDynamic("keytar");
       await keytar.deletePassword(this.service, key);
@@ -104,6 +107,7 @@ export class SecretStore {
   static async createDefault(): Promise<SecretStore> {
     try {
       // Dynamic import hidden from bundlers (Next.js can't resolve native 'keytar' module)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic import for native module hidden from bundlers
       const importDynamic = new Function("specifier", "return import(specifier)") as (s: string) => Promise<any>;
       await importDynamic("keytar");
       return new SecretStore({ backend: "keychain" });

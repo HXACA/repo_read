@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi } from "vitest";
 import { createModelForRole } from "../model-factory.js";
 import type { ResolvedConfig } from "../../types/config.js";

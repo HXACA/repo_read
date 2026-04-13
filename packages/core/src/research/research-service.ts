@@ -146,6 +146,7 @@ Schema:
         {
           model: this.model,
           system: systemPrompt,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- empty ToolSet cast for AI SDK type
           tools: {} as any,
           maxSteps: 1,
         },

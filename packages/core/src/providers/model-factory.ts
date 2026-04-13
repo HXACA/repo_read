@@ -2,7 +2,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModel } from "ai";
-import type { ResolvedConfig, RoleName, ProviderSdk, ProviderModelConfig } from "../types/config.js";
+import type { ResolvedConfig, RoleName, ProviderSdk } from "../types/config.js";
 import { parseModelId } from "../types/config.js";
 import { AppError } from "../errors.js";
 import { getDebugDir, createDebugFetch } from "../utils/debug-fetch.js";

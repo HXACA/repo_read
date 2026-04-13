@@ -141,7 +141,7 @@ export class GenerationPipeline {
           language: this.config.language,
           maxSteps: this.config.qualityProfile.catalogMaxSteps,
           allowBash: this.config.retrieval.allowControlledBash,
-          onStep: (step) => this.usageTracker.add("catalog", (this.catalogModel as any).modelId ?? "unknown", step),
+          onStep: (step) => this.usageTracker.add("catalog", (this.catalogModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
         });
         const profileResult =
           options.repoProfile ?? (await profileRepo(this.repoRoot, slug));
@@ -216,7 +216,7 @@ export class GenerationPipeline {
         repoRoot: this.repoRoot,
         maxSteps: qp.drafterMaxSteps,
         allowBash,
-        onStep: (step) => this.usageTracker.add("drafter", (this.drafterModel as any).modelId ?? "unknown", step),
+        onStep: (step) => this.usageTracker.add("drafter", (this.drafterModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
       });
       const reviewer = new FreshReviewer({
         model: this.reviewerModel,
@@ -225,7 +225,7 @@ export class GenerationPipeline {
         verifyMinCitations: qp.reviewerVerifyMinCitations,
         strictness: qp.reviewerStrictness,
         allowBash,
-        onStep: (step) => this.usageTracker.add("reviewer", (this.reviewerModel as any).modelId ?? "unknown", step),
+        onStep: (step) => this.usageTracker.add("reviewer", (this.reviewerModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
       });
       const coordinator =
         qp.forkWorkers > 0
@@ -236,12 +236,12 @@ export class GenerationPipeline {
               concurrency: qp.forkWorkerConcurrency,
               workerMaxSteps: qp.workerMaxSteps,
               allowBash,
-              onWorkerStep: (step) => this.usageTracker.add("worker", (this.workerModel as any).modelId ?? "unknown", step),
+              onWorkerStep: (step) => this.usageTracker.add("worker", (this.workerModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
             })
           : null;
       const outlinePlanner = new OutlinePlanner({
         model: this.outlineModel,
-        onStep: (step) => this.usageTracker.add("outline", (this.outlineModel as any).modelId ?? "unknown", step),
+        onStep: (step) => this.usageTracker.add("outline", (this.outlineModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
       });
 
       for (let i = 0; i < wiki.reading_order.length; i++) {
@@ -310,6 +310,7 @@ export class GenerationPipeline {
 
           // === RESUME: load existing evidence + outline from disk ===
           if (attempt === 0 && !evidenceResult) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- reading JSON blob of unknown structure
             const existing = await this.storage.readJson<any>(this.storage.paths.evidenceJson(slug, jobId, page.slug));
             if (existing && existing.ledger) {
               evidenceResult = existing as EvidenceCollectionResult;
@@ -463,7 +464,7 @@ export class GenerationPipeline {
                 ...(pageParams.maxOutputTokensBoost > 0
                   ? { maxOutputTokens: 16384 + pageParams.maxOutputTokensBoost }
                   : {}),
-                onStep: (step) => this.usageTracker.add("drafter", (this.drafterModel as any).modelId ?? "unknown", step),
+                onStep: (step) => this.usageTracker.add("drafter", (this.drafterModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
               })
             : drafter;
 

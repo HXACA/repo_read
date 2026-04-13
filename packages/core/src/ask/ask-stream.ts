@@ -8,7 +8,6 @@ import { classifyRoute, type AskRoute } from "./route-classifier.js";
 import { AskSessionManager } from "./ask-session.js";
 import { ResearchService } from "../research/research-service.js";
 import { runAgentLoopStream } from "../agent/agent-loop.js";
-import type { AgentLoopEvent } from "../agent/agent-loop.js";
 import { setCacheKey, setModelOptions } from "../utils/generate-via-stream.js";
 import type { LabeledFinding } from "../types/research.js";
 
@@ -187,6 +186,7 @@ export class AskStreamService {
       {
         model: this.model,
         system: systemPrompt,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ToolSet cast for AI SDK type compatibility
         tools: toolSet as any,
         maxSteps: budget,
       },

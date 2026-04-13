@@ -6,7 +6,7 @@
  * Handles terminal height, wrapping, and resize automatically.
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import { render, Box, Text } from "ink";
 import Spinner from "ink-spinner";
 import type { AppEvent } from "@reporead/core";
@@ -60,7 +60,7 @@ function SectionHeader({ name }: { name: string }) {
   return <Text dimColor>  ┈ {name} ┈</Text>;
 }
 
-function ActivePage({ page, index, tick }: { page: Page; index: number; tick: number }) {
+function ActivePage({ page, index, tick: _tick }: { page: Page; index: number; tick: number }) {
   const n = String(index + 1).padStart(2);
   const phase = page.phase ?? "准备中";
   const pel = dur(Date.now() - (page.startedAt ?? Date.now()));
@@ -192,6 +192,7 @@ export class ProgressRenderer {
     this.started = Date.now();
 
     // Create a wrapper that holds state and exposes an update trigger
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this;
 
     function App() {

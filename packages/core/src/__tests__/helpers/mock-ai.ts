@@ -7,6 +7,7 @@
  * `generateText.mockResolvedValue(...)` automatically work with the
  * agent loop too.
  */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { vi } from "vitest";
 
 const generateText = vi.fn();

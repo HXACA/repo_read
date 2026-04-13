@@ -20,6 +20,7 @@ vi.mock("ai", () => {
   const generateText = vi.fn();
   const streamText = vi.fn((...args: unknown[]) => {
     const p = generateText(...args);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const safe = (fn: (r: any) => any) => { const q = p.then(fn); q.catch(() => {}); return q; };
     return {
       text: safe((r) => r?.text ?? ""),

@@ -22,15 +22,17 @@ const CONTEXT_OVERFLOW_PATTERNS = [
   "maximum context length",
 ];
 
+type HeadersLike = Record<string, string> & { get?: (name: string) => string | null };
+
 function parseRetryAfterMs(error: unknown): number | undefined {
-  const headers = (error as any)?.responseHeaders;
+  const headers = (error as unknown as { responseHeaders?: HeadersLike })?.responseHeaders;
   if (!headers) return undefined;
 
   // retry-after-ms takes precedence (milliseconds)
   const retryAfterMs =
-    typeof headers?.["retry-after-ms"] === "string"
+    typeof headers["retry-after-ms"] === "string"
       ? Number(headers["retry-after-ms"])
-      : typeof headers?.get === "function"
+      : typeof headers.get === "function"
         ? Number(headers.get("retry-after-ms") ?? "NaN")
         : NaN;
 
@@ -38,9 +40,9 @@ function parseRetryAfterMs(error: unknown): number | undefined {
 
   // retry-after (seconds, may be a date string or integer)
   const retryAfterRaw =
-    typeof headers?.["retry-after"] === "string"
+    typeof headers["retry-after"] === "string"
       ? headers["retry-after"]
-      : typeof headers?.get === "function"
+      : typeof headers.get === "function"
         ? (headers.get("retry-after") ?? "")
         : "";
 
@@ -53,11 +55,13 @@ function parseRetryAfterMs(error: unknown): number | undefined {
 }
 
 function isContextOverflow(error: unknown): boolean {
+  type ApiError = { responseBody?: unknown; message?: unknown };
+  const apiErr = error as ApiError;
   const body: string =
-    typeof (error as any)?.responseBody === "string"
-      ? (error as any).responseBody
-      : typeof (error as any)?.message === "string"
-        ? (error as any).message
+    typeof apiErr?.responseBody === "string"
+      ? apiErr.responseBody
+      : typeof apiErr?.message === "string"
+        ? apiErr.message
         : "";
 
   const lower = body.toLowerCase();
@@ -70,7 +74,7 @@ export function classifyApiError(error: unknown): ApiErrorClassification {
     return { kind: "timeout", retryable: true };
   }
 
-  const statusCode: number | undefined = (error as any)?.statusCode;
+  const statusCode: number | undefined = (error as unknown as { statusCode?: number })?.statusCode;
 
   if (statusCode === 429) {
     return {

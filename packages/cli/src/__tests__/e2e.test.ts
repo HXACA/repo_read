@@ -3,6 +3,8 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 // Mock ai module before any imports. The vitest.config.ts alias ensures
 // "ai" resolves to the same physical module that @reporead/core uses,
 // so this single vi.mock intercepts all generateText calls.

@@ -4,12 +4,11 @@ import type { AppEvent } from "@reporead/core";
 
 describe("ProgressRenderer", () => {
   let renderer: ProgressRenderer;
-  let stderrSpy: ReturnType<typeof vi.spyOn>;
   let logSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     renderer = new ProgressRenderer();
-    stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    vi.spyOn(process.stderr, "write").mockReturnValue(true);
     logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
   });
 

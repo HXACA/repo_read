@@ -191,7 +191,7 @@ async function executeTool(
     // AI SDK tool execute signature is (args, options) — we pass a minimal
     // options object. The cast through unknown avoids fighting the SDK's
     // complex conditional generics.
-    const exec = (tool as unknown as { execute?: Function }).execute;
+    const exec = (tool as unknown as { execute?: (...args: unknown[]) => unknown }).execute;
     if (!exec) {
       return `Error: tool "${name}" has no execute function`;
     }

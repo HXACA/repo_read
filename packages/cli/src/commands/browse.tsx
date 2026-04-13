@@ -87,7 +87,6 @@ export async function runBrowse(options: BrowseOptions): Promise<void> {
   }
 
   // Start the web server
-  const webDir = path.resolve(__dirname, "../../..", "web");
   // Try to find the web package in the monorepo or as a peer install
   const { spawn } = await import("node:child_process");
   const possibleWebDirs = [

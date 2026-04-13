@@ -46,7 +46,7 @@ export function buildResponsesProviderOptions(model: LanguageModel): {
   stripSystem: boolean;
   stripMaxOutputTokens: boolean;
 } | null {
-  const isOpenAIResponses = (model as any)?.provider === "openai.responses";
+  const isOpenAIResponses = (model as unknown as { provider?: string })?.provider === "openai.responses";
   if (!isOpenAIResponses) return null;
 
   const openaiOptions: Record<string, unknown> = {};

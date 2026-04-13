@@ -18,25 +18,10 @@ function makeStream(chunks: Uint8Array[], stallAfterChunks = false): ReadableStr
   });
 }
 
-// Helper: build a mock fetch that returns a Response with the given content-type and body stream.
-function makeMockFetch(
-  contentType: string,
-  body: ReadableStream<Uint8Array> | null,
-  status = 200,
-): typeof globalThis.fetch {
-  return vi.fn().mockResolvedValue(
-    new Response(body, {
-      status,
-      headers: { "content-type": contentType },
-    }),
-  );
-}
-
 describe("createResilientFetch", () => {
   describe("non-streaming passthrough", () => {
     it("returns the original response unchanged for application/json", async () => {
       const body = JSON.stringify({ hello: "world" });
-      const mockFetch = makeMockFetch("application/json", null);
       // Override the null body — use a real JSON response
       const mockFetch2: typeof globalThis.fetch = vi.fn().mockResolvedValue(
         new Response(body, {

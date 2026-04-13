@@ -51,6 +51,7 @@ function assembleResponsesApi(lines: string[]): unknown {
 
   for (const line of lines) {
     if (!line.startsWith("data: ")) continue;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SSE event shapes vary by API format
     let data: any;
     try { data = JSON.parse(line.slice(6)); } catch { continue; }
 
@@ -109,6 +110,7 @@ function assembleAnthropicMessages(lines: string[]): unknown {
       continue;
     }
     if (!line.startsWith("data: ")) continue;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SSE event shapes vary by API format
     let data: any;
     try { data = JSON.parse(line.slice(6)); } catch { continue; }
 
@@ -164,6 +166,7 @@ function assembleChatCompletions(lines: string[]): unknown {
 
   for (const line of lines) {
     if (!line.startsWith("data: ") || line === "data: [DONE]") continue;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Chat Completions SSE chunk shape
     let chunk: any;
     try { chunk = JSON.parse(line.slice(6)); } catch { continue; }
 

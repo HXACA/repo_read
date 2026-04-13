@@ -13,6 +13,7 @@ function makeApiError(
     responseHeaders?: Record<string, string>;
   } = {},
 ): unknown {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const err = new Error(`API error ${statusCode}`) as any;
   err.statusCode = statusCode;
   err.responseBody = responseBody;

@@ -316,7 +316,7 @@ export async function profileRepo(
   }
 
   // Also check package.json "main" field for entry hints
-  let architectureHints: string[] = [];
+  const architectureHints: string[] = [];
   if (rootEntrySet.has("package.json")) {
     try {
       const pkgRaw = await fs.readFile(path.join(repoRoot, "package.json"), "utf-8");
