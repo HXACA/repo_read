@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { LanguageModel } from "ai";
-import { runAgentLoop } from "../agent/agent-loop.js";
+import type { LanguageModel, ToolSet } from "ai";
 import type { StorageAdapter } from "../storage/storage-adapter.js";
 import type { CitationRecord } from "../types/generation.js";
 import type { LabeledFinding, ResearchNote } from "../types/research.js";
@@ -11,6 +10,7 @@ import type { SubQuestionResult } from "./research-executor.js";
 import { ResearchStore } from "./research-store.js";
 import { extractJson } from "../utils/extract-json.js";
 import { PromptAssembler } from "../prompt/assembler.js";
+import { TurnEngineAdapter } from "../runtime/turn-engine.js";
 
 export type ResearchResult = {
   note: ResearchNote;
@@ -51,6 +51,7 @@ export class ResearchService {
   private readonly store: ResearchStore;
   private readonly model: LanguageModel;
   private readonly promptAssembler = new PromptAssembler();
+  private readonly turnEngine = new TurnEngineAdapter();
 
   constructor(options: ResearchServiceOptions) {
     this.planner = new ResearchPlanner({
@@ -145,16 +146,19 @@ Schema:
     const assembled = this.promptAssembler.assemble({ role: "research", language: "en", systemPrompt, userPrompt });
 
     try {
-      const result = await runAgentLoop(
-        {
-          model: this.model,
-          system: assembled.system,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- empty ToolSet cast for AI SDK type
-          tools: {} as any,
+      const result = await this.turnEngine.run({
+        purpose: "research-synthesize",
+        model: this.model,
+        systemPrompt: assembled.system,
+        userPrompt: assembled.user,
+        tools: {} as ToolSet,
+        policy: {
           maxSteps: 1,
+          retry: { maxRetries: 0, baseDelayMs: 0, backoffFactor: 1 },
+          overflow: { strategy: "none" },
+          toolBatch: { strategy: "sequential" },
         },
-        assembled.user,
-      );
+      });
 
       const parsed = extractJson(result.text);
       if (parsed) {

@@ -7,10 +7,10 @@ import { createCatalogTools } from "../catalog/catalog-tools.js";
 import { classifyRoute, type AskRoute } from "./route-classifier.js";
 import { AskSessionManager } from "./ask-session.js";
 import { ResearchService } from "../research/research-service.js";
-import { runAgentLoopStream } from "../agent/agent-loop.js";
 import { setSessionId } from "../utils/generate-via-stream.js";
 import type { LabeledFinding } from "../types/research.js";
 import { PromptAssembler } from "../prompt/assembler.js";
+import { TurnEngineAdapter } from "../runtime/turn-engine.js";
 
 export type AskStreamOptions = {
   model: LanguageModel;
@@ -48,6 +48,7 @@ export class AskStreamService {
   private readonly qualityProfile?: QualityProfile;
   private readonly allowBash: boolean;
   private readonly promptAssembler = new PromptAssembler();
+  private readonly turnEngine = new TurnEngineAdapter();
 
   constructor(options: AskStreamOptions) {
     this.model = options.model;
@@ -184,17 +185,21 @@ export class AskStreamService {
     let fullText = "";
     const citations: CitationRecord[] = [];
 
-    for await (const event of runAgentLoopStream(
-      {
-        model: this.model,
-        system: assembled.system,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ToolSet cast for AI SDK type compatibility
-        tools: toolSet as any,
+    for await (const event of this.turnEngine.stream({
+      purpose: "ask",
+      model: this.model,
+      systemPrompt: assembled.system,
+      userPrompt: assembled.user,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ToolSet cast for AI SDK type compatibility
+      tools: toolSet as any,
+      policy: {
         maxSteps: budget,
-        providerCallOptions: { cacheKey: `ask-${sessionId}` },
+        retry: { maxRetries: 0, baseDelayMs: 0, backoffFactor: 1 },
+        overflow: { strategy: "none" },
+        toolBatch: { strategy: "sequential" },
+        providerOptions: { cacheKey: `ask-${sessionId}` },
       },
-      assembled.user,
-    )) {
+    })) {
       switch (event.type) {
         case "text-delta":
           fullText += event.text;

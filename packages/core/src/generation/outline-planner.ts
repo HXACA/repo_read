@@ -1,9 +1,9 @@
-import type { LanguageModel } from "ai";
-import { runAgentLoop } from "../agent/agent-loop.js";
+import type { LanguageModel, ToolSet } from "ai";
 import type { PageOutline, PageOutlineSection } from "../types/agent.js";
 import { extractJson } from "../utils/extract-json.js";
 import type { ProviderCallOptions } from "../utils/generate-via-stream.js";
 import { PromptAssembler } from "../prompt/assembler.js";
+import { TurnEngineAdapter } from "../runtime/turn-engine.js";
 
 export type OutlinePlannerInput = {
   pageTitle: string;
@@ -41,6 +41,7 @@ export class OutlinePlanner {
   private readonly providerCallOptions?: ProviderCallOptions;
   private readonly onStep?: (step: import("../agent/agent-loop.js").StepInfo) => void;
   private readonly promptAssembler = new PromptAssembler();
+  private readonly turnEngine = new TurnEngineAdapter();
 
   constructor(options: OutlinePlannerOptions) {
     this.model = options.model;
@@ -73,14 +74,21 @@ Schema:
     const assembled = this.promptAssembler.assemble({ role: "outline", language: input.language, systemPrompt, userPrompt });
 
     try {
-      const result = await runAgentLoop({
+      const result = await this.turnEngine.run({
+        purpose: "outline",
         model: this.model,
-        system: assembled.system,
-        tools: {},
-        maxSteps: 1,
-        providerCallOptions: this.providerCallOptions,
+        systemPrompt: assembled.system,
+        userPrompt: assembled.user,
+        tools: {} as ToolSet,
+        policy: {
+          maxSteps: 1,
+          retry: { maxRetries: 0, baseDelayMs: 0, backoffFactor: 1 },
+          overflow: { strategy: "none" },
+          toolBatch: { strategy: "sequential" },
+          providerOptions: this.providerCallOptions,
+        },
         onStep: this.onStep,
-      }, assembled.user);
+      });
 
       const parsed = extractJson(result.text);
       if (parsed && Array.isArray(parsed.sections)) {

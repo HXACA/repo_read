@@ -1,7 +1,7 @@
 import type { LanguageModel, ToolSet } from "ai";
-import { runAgentLoop } from "../agent/agent-loop.js";
 import { createCatalogTools } from "../catalog/catalog-tools.js";
 import { PromptAssembler } from "../prompt/assembler.js";
+import { TurnEngineAdapter } from "../runtime/turn-engine.js";
 
 export type ResearchPlan = {
   topic: string;
@@ -19,6 +19,7 @@ export type ResearchPlannerOptions = {
 export class ResearchPlanner {
   private readonly maxSteps: number;
   private readonly promptAssembler = new PromptAssembler();
+  private readonly turnEngine = new TurnEngineAdapter();
 
   constructor(private readonly options: ResearchPlannerOptions) {
     this.maxSteps = options.maxSteps ?? 6;
@@ -40,12 +41,19 @@ Return a JSON object:
 Use the tools to understand the codebase, then break this into focused sub-questions. Return JSON.`;
     const assembled = this.promptAssembler.assemble({ role: "research", language: "en", systemPrompt, userPrompt });
 
-    const result = await runAgentLoop({
+    const result = await this.turnEngine.run({
+      purpose: "research-plan",
       model: this.options.model,
-      system: assembled.system,
+      systemPrompt: assembled.system,
+      userPrompt: assembled.user,
       tools: tools as unknown as ToolSet,
-      maxSteps: this.maxSteps,
-    }, assembled.user);
+      policy: {
+        maxSteps: this.maxSteps,
+        retry: { maxRetries: 0, baseDelayMs: 0, backoffFactor: 1 },
+        overflow: { strategy: "none" },
+        toolBatch: { strategy: "sequential" },
+      },
+    });
 
     return this.parsePlan(result.text, topic);
   }

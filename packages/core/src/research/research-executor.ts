@@ -1,8 +1,8 @@
 import type { LanguageModel, ToolSet } from "ai";
-import { runAgentLoop } from "../agent/agent-loop.js";
 import type { CitationRecord } from "../types/generation.js";
 import { createCatalogTools } from "../catalog/catalog-tools.js";
 import { PromptAssembler } from "../prompt/assembler.js";
+import { TurnEngineAdapter } from "../runtime/turn-engine.js";
 
 export type SubQuestionResult = {
   question: string;
@@ -21,6 +21,7 @@ export type ResearchExecutorOptions = {
 export class ResearchExecutor {
   private readonly maxSteps: number;
   private readonly promptAssembler = new PromptAssembler();
+  private readonly turnEngine = new TurnEngineAdapter();
 
   constructor(private readonly options: ResearchExecutorOptions) {
     this.maxSteps = options.maxSteps ?? 15;
@@ -41,12 +42,19 @@ Return a JSON object:
     const userPrompt = `Investigate: ${question}\n\nUse the tools to find evidence and return structured findings as JSON.`;
     const assembled = this.promptAssembler.assemble({ role: "research", language: "en", systemPrompt, userPrompt });
 
-    const result = await runAgentLoop({
+    const result = await this.turnEngine.run({
+      purpose: "research-exec",
       model: this.options.model,
-      system: assembled.system,
+      systemPrompt: assembled.system,
+      userPrompt: assembled.user,
       tools: tools as unknown as ToolSet,
-      maxSteps: this.maxSteps,
-    }, assembled.user);
+      policy: {
+        maxSteps: this.maxSteps,
+        retry: { maxRetries: 0, baseDelayMs: 0, backoffFactor: 1 },
+        overflow: { strategy: "none" },
+        toolBatch: { strategy: "sequential" },
+      },
+    });
 
     return this.parseResult(result.text, question);
   }

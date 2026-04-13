@@ -1,17 +1,22 @@
-import { runAgentLoop } from "../agent/agent-loop.js";
+import { runAgentLoop, runAgentLoopStream } from "../agent/agent-loop.js";
+import type { AgentLoopEvent } from "../agent/agent-loop.js";
 import type { TurnRequest, TurnResult } from "./turn-types.js";
 
 type RunAgentLoopLike = typeof runAgentLoop;
+type RunAgentLoopStreamLike = typeof runAgentLoopStream;
 
 export type TurnEngineAdapterOptions = {
   invokeTurn?: RunAgentLoopLike;
+  invokeStream?: RunAgentLoopStreamLike;
 };
 
 export class TurnEngineAdapter {
   private readonly invokeTurn: RunAgentLoopLike;
+  private readonly invokeStream: RunAgentLoopStreamLike;
 
   constructor(options: TurnEngineAdapterOptions = {}) {
     this.invokeTurn = options.invokeTurn ?? runAgentLoop;
+    this.invokeStream = options.invokeStream ?? runAgentLoopStream;
   }
 
   async run(request: TurnRequest): Promise<TurnResult> {
@@ -40,5 +45,20 @@ export class TurnEngineAdapter {
       steps: result.steps,
       finishReason: result.steps[result.steps.length - 1]?.finishReason ?? "unknown",
     };
+  }
+
+  async *stream(request: TurnRequest): AsyncGenerator<AgentLoopEvent> {
+    yield* this.invokeStream(
+      {
+        model: request.model,
+        system: request.systemPrompt,
+        tools: request.tools,
+        maxSteps: request.policy.maxSteps,
+        maxOutputTokens: request.policy.maxOutputTokens,
+        providerCallOptions: request.policy.providerOptions,
+        onStep: request.onStep,
+      },
+      request.userPrompt,
+    );
   }
 }

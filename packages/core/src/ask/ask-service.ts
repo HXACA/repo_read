@@ -1,6 +1,5 @@
 import * as fs from "node:fs/promises";
 import type { LanguageModel, ToolSet } from "ai";
-import { runAgentLoop } from "../agent/agent-loop.js";
 import { setSessionId } from "../utils/generate-via-stream.js";
 import type { StorageAdapter } from "../storage/storage-adapter.js";
 import type { WikiJson, PageMeta, CitationRecord } from "../types/generation.js";
@@ -10,6 +9,7 @@ import { classifyRoute } from "./route-classifier.js";
 import { AskSessionManager } from "./ask-session.js";
 import type { AskSession } from "../types/events.js";
 import { PromptAssembler } from "../prompt/assembler.js";
+import { TurnEngineAdapter } from "../runtime/turn-engine.js";
 
 export type AskOptions = {
   model: LanguageModel;
@@ -34,6 +34,7 @@ export class AskService {
   private readonly qualityProfile?: QualityProfile;
   private readonly allowBash: boolean;
   private readonly promptAssembler = new PromptAssembler();
+  private readonly turnEngine = new TurnEngineAdapter();
 
   constructor(options: AskOptions) {
     this.model = options.model;
@@ -111,16 +112,20 @@ export class AskService {
     setSessionId(`ask-${session.id}`);
 
     try {
-      const result = await runAgentLoop(
-        {
-          model: this.model,
-          system: assembled.system,
-          tools: tools as unknown as ToolSet,
+      const result = await this.turnEngine.run({
+        purpose: "ask",
+        model: this.model,
+        systemPrompt: assembled.system,
+        userPrompt: assembled.user,
+        tools: tools as unknown as ToolSet,
+        policy: {
           maxSteps: askBudget,
-          providerCallOptions: { cacheKey: `ask-${session.id}` },
+          retry: { maxRetries: 0, baseDelayMs: 0, backoffFactor: 1 },
+          overflow: { strategy: "none" },
+          toolBatch: { strategy: "sequential" },
+          providerOptions: { cacheKey: `ask-${session.id}` },
         },
-        assembled.user,
-      );
+      });
 
       const { answer, citations } = this.parseAnswer(result.text);
 
