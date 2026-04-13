@@ -1,5 +1,7 @@
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import type { StorageAdapter } from "../storage/storage-adapter.js";
-import type { AskSessionRef, JobRef, PageRef, ResearchNoteRef } from "./types.js";
+import type { AskSessionRef, JobRef, PageRef, ResearchNoteRef, VersionedPageRef } from "./types.js";
 
 export class ArtifactStore {
   constructor(private readonly storage: StorageAdapter) {}
@@ -36,9 +38,34 @@ export class ArtifactStore {
 
   // --- Page Meta ---
 
-  async savePageMeta(ref: PageRef & { versionId: string }, data: unknown): Promise<void> {
+  async loadPageMeta<T = unknown>(ref: VersionedPageRef): Promise<T | null> {
+    return this.storage.readJson<T>(
+      this.storage.paths.draftPageMeta(ref.projectSlug, ref.jobId, ref.versionId, ref.pageSlug),
+    );
+  }
+
+  async savePageMeta(ref: VersionedPageRef, data: unknown): Promise<void> {
     return this.storage.writeJson(
       this.storage.paths.draftPageMeta(ref.projectSlug, ref.jobId, ref.versionId, ref.pageSlug),
+      data,
+    );
+  }
+
+  // --- Draft Markdown ---
+
+  async saveDraftMarkdown(ref: VersionedPageRef, markdown: string): Promise<void> {
+    const mdPath = this.storage.paths.draftPageMd(
+      ref.projectSlug, ref.jobId, ref.versionId, ref.pageSlug,
+    );
+    await fs.mkdir(path.dirname(mdPath), { recursive: true });
+    await fs.writeFile(mdPath, markdown, "utf-8");
+  }
+
+  // --- Citations ---
+
+  async saveCitations(ref: VersionedPageRef, data: unknown): Promise<void> {
+    return this.storage.writeJson(
+      this.storage.paths.draftCitationsJson(ref.projectSlug, ref.jobId, ref.versionId, ref.pageSlug),
       data,
     );
   }
@@ -50,6 +77,22 @@ export class ArtifactStore {
       this.storage.paths.reviewJson(ref.projectSlug, ref.jobId, ref.pageSlug),
       data,
     );
+  }
+
+  // --- Validation ---
+
+  async saveValidation(ref: PageRef, data: unknown): Promise<void> {
+    return this.storage.writeJson(
+      this.storage.paths.validationJson(ref.projectSlug, ref.jobId, ref.pageSlug),
+      data,
+    );
+  }
+
+  // --- Usage ---
+
+  async saveUsage(ref: JobRef, json: string): Promise<void> {
+    const usagePath = path.join(this.storage.paths.jobDir(ref.projectSlug, ref.jobId), "usage.json");
+    await fs.writeFile(usagePath, json, "utf-8");
   }
 
   // --- Published Index ---
