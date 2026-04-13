@@ -1,19 +1,40 @@
 /**
  * AI SDK tool definitions for catalog exploration.
  *
- * Defines tools as plain objects with jsonSchema() rather than using
- * the `tool()` helper, because AI SDK v6's `tool()` TypeScript overloads
- * have known compatibility issues with Zod v4's schema type inference.
- * The runtime behavior is identical — generateText accepts both forms.
+ * Aligned with Zread's tool set:
+ * - dir_structure → get_dir_structure (tree-style directory view)
+ * - read → view_file_in_detail
+ * - grep → search patterns across repo
+ * - find → find files by glob
+ * - git_log → recent commits
+ * - bash → run_bash (read-only shell commands)
  */
 import { jsonSchema } from "ai";
 import { readFile } from "../tools/read-tool.js";
 import { grepSearch } from "../tools/grep-tool.js";
 import { findFiles } from "../tools/find-tool.js";
 import { gitLog } from "../tools/git-tool.js";
+import { getDirStructure } from "../tools/dir-structure-tool.js";
+import { execBash } from "../tools/bash-tool.js";
 
 export function createCatalogTools(repoRoot: string) {
   return {
+    dir_structure: {
+      description:
+        "Get directory structure as a tree. Use this first to understand project layout. Supports specifying a subdirectory and max depth.",
+      inputSchema: jsonSchema<{ dir_path?: string; max_depth?: number }>({
+        type: "object",
+        properties: {
+          dir_path: { type: "string", description: "Relative directory path (default: '.' for root)" },
+          max_depth: { type: "number", description: "Max recursion depth (default: 3)" },
+        },
+      }),
+      execute: async ({ dir_path, max_depth }: { dir_path?: string; max_depth?: number }) => {
+        const result = await getDirStructure(repoRoot, dir_path ?? ".", max_depth ?? 3);
+        if (!result.success) return `Error: ${result.error}`;
+        return result.tree;
+      },
+    },
     read: {
       description:
         "Read a file with line numbers. Supports offset and limit for large files. Max 500 lines per read.",
@@ -85,6 +106,22 @@ export function createCatalogTools(repoRoot: string) {
         return result.entries
           .map((e) => `${e.hash.slice(0, 8)} ${e.date} ${e.author}: ${e.message}`)
           .join("\n");
+      },
+    },
+    bash: {
+      description:
+        "Run a read-only shell command in the repository. Only informational commands allowed (ls, find, cat, grep, head, tail, wc, git log, git show, etc.). No write/delete/modify commands. Timeout: 30s.",
+      inputSchema: jsonSchema<{ command: string }>({
+        type: "object",
+        properties: {
+          command: { type: "string", description: "Shell command to execute" },
+        },
+        required: ["command"],
+      }),
+      execute: async ({ command }: { command: string }) => {
+        const result = await execBash(repoRoot, command);
+        if (!result.success) return `Error: ${result.error}`;
+        return result.output;
       },
     },
   };

@@ -9,6 +9,7 @@ import { AskSessionManager } from "./ask-session.js";
 import { ResearchService } from "../research/research-service.js";
 import { runAgentLoopStream } from "../agent/agent-loop.js";
 import type { AgentLoopEvent } from "../agent/agent-loop.js";
+import { setCacheKey, setModelOptions } from "../utils/generate-via-stream.js";
 import type { LabeledFinding } from "../types/research.js";
 
 export type AskStreamOptions = {
@@ -114,6 +115,10 @@ export class AskStreamService {
     }
 
     this.sessionManager.addUserTurn(session.id, question);
+
+    // Set cache/routing state so Responses API calls get promptCacheKey + session_id header
+    setCacheKey(`ask-${session.id}`);
+    setModelOptions({ reasoning: null, serviceTier: null });
 
     try {
       if (route === "research") {

@@ -38,6 +38,9 @@ function resolveRole(
     fallbackModels: roleConfig.fallback_models,
     resolvedProvider,
     systemPromptTuningId: family,
+    ...(roleConfig.reasoningEffort ? { reasoningEffort: roleConfig.reasoningEffort } : {}),
+    ...(roleConfig.reasoningSummary ? { reasoningSummary: roleConfig.reasoningSummary } : {}),
+    ...(roleConfig.serviceTier ? { serviceTier: roleConfig.serviceTier } : {}),
   };
 }
 

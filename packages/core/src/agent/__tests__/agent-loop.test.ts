@@ -26,9 +26,10 @@ vi.mock("ai", () => ({
   streamText: () => {
     const response = mockResponses.shift()!;
     // Build fullStream from text-delta events or custom events
+    // AI SDK 6 uses `delta` (not `text`) for text-delta/reasoning-delta
     const events = response.fullStreamEvents ?? [
       ...(response.text
-        ? [{ type: "text-delta", text: response.text }]
+        ? [{ type: "text-delta", delta: response.text }]
         : []),
       ...response.toolCalls.map((tc) => ({
         type: "tool-call",
@@ -345,7 +346,7 @@ describe("runAgentLoop", () => {
     const toolMsg = result.messages.find((m) => m.role === "tool");
     expect(toolMsg).toBeDefined();
     const toolContent = (toolMsg as any).content[0];
-    expect(toolContent.result).toBe("Error: disk is full");
+    expect(toolContent.output).toBe("Error: disk is full");
   });
 });
 
@@ -358,8 +359,8 @@ describe("runAgentLoopStream", () => {
         usage: makeUsage(80, 15),
         toolCalls: [],
         fullStreamEvents: [
-          { type: "text-delta", text: "Hello " },
-          { type: "text-delta", text: "stream!" },
+          { type: "text-delta", delta: "Hello " },
+          { type: "text-delta", delta: "stream!" },
         ],
       },
     ];
@@ -412,7 +413,7 @@ describe("runAgentLoopStream", () => {
         usage: makeUsage(100, 20),
         toolCalls: [],
         fullStreamEvents: [
-          { type: "text-delta", text: "Found it on line 42." },
+          { type: "text-delta", delta: "Found it on line 42." },
         ],
       },
     ];

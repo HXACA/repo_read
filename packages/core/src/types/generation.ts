@@ -43,6 +43,8 @@ export type WikiJson = {
     section?: string;
     /** Optional sub-group within a section (e.g. "Backend Engine"). */
     group?: string;
+    /** Difficulty level for this page. */
+    level?: "beginner" | "intermediate" | "advanced";
   }>;
 };
 

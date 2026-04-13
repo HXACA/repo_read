@@ -44,7 +44,11 @@ Write as if you are explaining the codebase to a smart colleague who just joined
 2. Every factual claim must be backed by evidence from the repository. Include inline citations in the format: \`[cite:kind:target:locator]\` where kind is file/page/commit. Example: \`[cite:file:src/engine.ts:42-60]\`. Keep locator ranges specific (≤ 30 lines, not entire files).
 3. Structure the page with a title (\`#\` heading), a brief summary paragraph, then detailed \`##\` sections.
 4. Use code blocks with language tags for code snippets.
-5. Use Mermaid diagrams (in \`\`\`mermaid blocks) when they help explain architecture or flow.
+5. **Visual elements** — use diagrams and tables actively to aid comprehension:
+   - **Overview / beginner pages**: Architecture overview Mermaid diagram, feature comparison tables, visual project structure.
+   - **How-to / intermediate pages**: Step-by-step Mermaid flowcharts, parameter/config tables, before/after code comparison.
+   - **Deep-dive / advanced pages**: Concept relationship Mermaid diagrams, pros/cons analysis tables, class/module interaction diagrams.
+   - Prefer diagrams and tables over long prose when presenting structured information.
 6. Do not duplicate content from previously published pages — reference them with \`[cite:page:slug]\`.
 7. Stay within the scope of the current page plan. Do not cover topics assigned to other pages.
 8. **Output format**: Start DIRECTLY with the \`#\` title heading. Do NOT wrap output in \`\`\`markdown fences. Do NOT write any preamble. The very first character of your output must be \`#\`. Do NOT append a JSON metadata block at the end — metadata is extracted automatically from your citations.`;

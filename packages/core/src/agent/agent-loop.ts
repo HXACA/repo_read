@@ -31,7 +31,8 @@ export type AgentLoopOptions = {
   system: string;
   tools: ToolSet;
   maxSteps: number;
-  maxInputTokens?: number; // reserved for P2 compression, not used yet
+  maxOutputTokens?: number; // passed through to streamText when set
+  maxInputTokens?: number;  // reserved for P2 compression, not used yet
   onStep?: (step: StepInfo) => void;
 };
 
@@ -54,13 +55,14 @@ export type Message =
 
 type AssistantContentPart =
   | { type: "text"; text: string }
-  | { type: "tool-call"; toolCallId: string; toolName: string; args: unknown };
+  | { type: "tool-call"; toolCallId: string; toolName: string; input: unknown };
 
 type ToolResultPart = {
   type: "tool-result";
   toolCallId: string;
   toolName: string;
-  result: string;
+  input: unknown;
+  output: string;
 };
 
 export type AgentLoopEvent =
@@ -141,12 +143,14 @@ function buildStreamParams(
   system: string,
   messages: Message[],
   tools: ToolSet,
+  maxOutputTokens?: number,
 ): Record<string, unknown> {
   const params: Record<string, unknown> = {
     model,
     system,
     messages,
     tools,
+    ...(maxOutputTokens ? { maxOutputTokens } : {}),
   };
 
   // Apply Responses API options when the model supports them
@@ -238,7 +242,7 @@ export async function runAgentLoop(
   options: AgentLoopOptions,
   initialPrompt: string,
 ): Promise<AgentLoopResult> {
-  const { model, system, tools, maxSteps, onStep } = options;
+  const { model, system, tools, maxSteps, maxOutputTokens, onStep } = options;
 
   const messages: Message[] = [{ role: "user", content: initialPrompt }];
   const steps: StepInfo[] = [];
@@ -251,18 +255,18 @@ export async function runAgentLoop(
   let lastText = "";
 
   for (let stepIndex = 0; stepIndex < maxSteps; stepIndex++) {
-    const params = buildStreamParams(model, system, messages, tools);
+    const params = buildStreamParams(model, system, messages, tools, maxOutputTokens);
 
-    // Call streamText with retry for transient errors
-    const stream = await withRetry(() =>
-      Promise.resolve(streamText(params as Parameters<typeof streamText>[0])),
-    );
-
-    const text = await stream.text;
-    const finishReason = (await stream.finishReason) ?? "stop";
-    const usage = ((await stream.usage) as Record<string, unknown>) ?? {};
-    const rawToolCalls = (await stream.toolCalls) ?? [];
-    const toolCalls = normaliseToolCalls(rawToolCalls as unknown[]);
+    // withRetry wraps the entire stream lifecycle: creation + all awaits.
+    // This ensures SSE timeouts and transient errors during reading are retried.
+    const { text, finishReason, usage, toolCalls } = await withRetry(async () => {
+      const s = streamText(params as Parameters<typeof streamText>[0]);
+      const t = await s.text;
+      const fr = (await s.finishReason) ?? "stop";
+      const u = ((await s.usage) as Record<string, unknown>) ?? {};
+      const raw = (await s.toolCalls) ?? [];
+      return { text: t, finishReason: fr, usage: u, toolCalls: normaliseToolCalls(raw as unknown[]) };
+    });
 
     lastText = text;
 
@@ -288,7 +292,7 @@ export async function runAgentLoop(
         type: "tool-call",
         toolCallId: tc.toolCallId,
         toolName: tc.toolName,
-        args: tc.args,
+        input: tc.args,
       });
     }
     messages.push({ role: "assistant", content: assistantParts });
@@ -301,7 +305,8 @@ export async function runAgentLoop(
         type: "tool-result",
         toolCallId: tc.toolCallId,
         toolName: tc.toolName,
-        result: output,
+        input: tc.args,
+        output,
       });
     }
     messages.push({ role: "tool", content: toolResults });
@@ -320,7 +325,7 @@ export async function* runAgentLoopStream(
   options: AgentLoopOptions,
   initialPrompt: string,
 ): AsyncGenerator<AgentLoopEvent> {
-  const { model, system, tools, maxSteps, onStep } = options;
+  const { model, system, tools, maxSteps, maxOutputTokens, onStep } = options;
 
   const messages: Message[] = [{ role: "user", content: initialPrompt }];
   const steps: StepInfo[] = [];
@@ -333,26 +338,31 @@ export async function* runAgentLoopStream(
   let lastText = "";
 
   for (let stepIndex = 0; stepIndex < maxSteps; stepIndex++) {
-    const params = buildStreamParams(model, system, messages, tools);
+    const params = buildStreamParams(model, system, messages, tools, maxOutputTokens);
 
+    // For streaming, we can't wrap fullStream iteration in withRetry (generator can't be replayed).
+    // Retry only the stream creation; SSE timeouts during read will propagate to the caller.
     const stream = await withRetry(() =>
       Promise.resolve(streamText(params as Parameters<typeof streamText>[0])),
     );
 
     // Stream events from fullStream
+    // AI SDK 6 fullStream uses `delta` (not `text`) for text-delta and reasoning-delta
     let stepText = "";
     for await (const part of stream.fullStream) {
       switch (part.type) {
-        case "text-delta":
-          stepText += (part as { text: string }).text;
-          yield { type: "text-delta", text: (part as { text: string }).text };
+        case "text-delta": {
+          const delta = (part as { delta?: string; textDelta?: string }).delta
+            ?? (part as { textDelta?: string }).textDelta ?? "";
+          stepText += delta;
+          yield { type: "text-delta", text: delta };
           break;
-        case "reasoning-delta":
-          yield {
-            type: "reasoning-delta",
-            text: (part as { text: string }).text,
-          };
+        }
+        case "reasoning-delta": {
+          const delta = (part as { delta?: string }).delta ?? "";
+          yield { type: "reasoning-delta", text: delta };
           break;
+        }
         case "tool-call": {
           const tc = part as unknown as Record<string, unknown>;
           yield {
@@ -396,7 +406,7 @@ export async function* runAgentLoopStream(
         type: "tool-call",
         toolCallId: tc.toolCallId,
         toolName: tc.toolName,
-        args: tc.args,
+        input: tc.args,
       });
     }
     messages.push({ role: "assistant", content: assistantParts });
@@ -409,7 +419,8 @@ export async function* runAgentLoopStream(
         type: "tool-result",
         toolCallId: tc.toolCallId,
         toolName: tc.toolName,
-        result: output,
+        input: tc.args,
+        output,
       });
       yield { type: "tool-result", name: tc.toolName, output };
     }

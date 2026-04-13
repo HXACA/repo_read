@@ -93,12 +93,14 @@ export class PageDrafter {
   private readonly model: LanguageModel;
   private readonly repoRoot: string;
   private readonly maxSteps: number;
+  private readonly maxOutputTokens?: number;
   private readonly onStep?: (step: StepInfo) => void;
 
   constructor(options: PageDrafterOptions) {
     this.model = options.model;
     this.repoRoot = options.repoRoot;
     this.maxSteps = options.maxSteps ?? 20;
+    this.maxOutputTokens = options.maxOutputTokens;
     this.onStep = options.onStep;
   }
 
@@ -116,6 +118,7 @@ export class PageDrafter {
         system: systemPrompt,
         tools: tools as unknown as ToolSet,
         maxSteps: this.maxSteps,
+        maxOutputTokens: this.maxOutputTokens,
         onStep: this.onStep,
       }, userPrompt);
 

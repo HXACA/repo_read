@@ -7,6 +7,12 @@ export type RoleModelConfig = {
    *  SDK protocol comes from the provider's `npm` field — roles don't configure it. */
   model: string;
   fallback_models: string[];
+  /** Override reasoning effort for this role (takes precedence over model-level config). */
+  reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+  /** Override reasoning summary for this role. */
+  reasoningSummary?: "auto" | "concise" | "detailed";
+  /** Override service tier for this role. */
+  serviceTier?: "fast" | "flex";
 };
 
 export type ProjectRoleConfig = Record<RoleName, RoleModelConfig>;
@@ -30,6 +36,13 @@ export type ProviderModelConfig = {
   /** Protocol variant for @ai-sdk/openai: "responses" or "chat".
    *  When omitted, auto-detected from model name (gpt-5+ → responses, else chat). */
   variant?: "responses" | "chat";
+  /** Reasoning effort for thinking-capable models.
+   *  When omitted, reasoning is not enabled. */
+  reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+  /** Reasoning summary mode. Defaults to "auto" when reasoningEffort is set. */
+  reasoningSummary?: "auto" | "concise" | "detailed";
+  /** OpenAI service tier. "fast" maps to "priority" (faster, costlier), "flex" may queue (cheaper). */
+  serviceTier?: "fast" | "flex";
 };
 
 export type ProviderCredentialConfig = {
@@ -62,6 +75,10 @@ export type ResolvedRoleRoute = {
   fallbackModels: string[];
   resolvedProvider: string;
   systemPromptTuningId: string;
+  /** Role-level overrides (take precedence over model-level config). */
+  reasoningEffort?: string;
+  reasoningSummary?: string;
+  serviceTier?: string;
 };
 
 export type ResolvedConfig = {

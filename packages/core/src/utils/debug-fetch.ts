@@ -26,17 +26,16 @@ async function writeJson(filePath: string, data: unknown): Promise<void> {
   } catch { /* never break the pipeline */ }
 }
 
-/** Parse SSE lines and merge deltas into a single non-streaming response. */
-/** Parse SSE and assemble into a single response. Supports both Chat Completions and Responses API formats. */
+/** Parse SSE and assemble into a single response. Supports Responses API, Chat Completions, and Anthropic Messages formats. */
 function assembleStreamResponse(raw: string): unknown {
   const lines = raw.split("\n");
 
-  // Detect format: Responses API uses "event:" lines, Chat Completions doesn't
+  // Detect format from event types
   const isResponsesApi = lines.some((l) => l.startsWith("event: response."));
+  const isAnthropic = lines.some((l) => l.startsWith("event: message_start") || l.startsWith("event: content_block_delta"));
 
-  if (isResponsesApi) {
-    return assembleResponsesApi(lines);
-  }
+  if (isResponsesApi) return assembleResponsesApi(lines);
+  if (isAnthropic) return assembleAnthropicMessages(lines);
   return assembleChatCompletions(lines);
 }
 
@@ -90,6 +89,68 @@ function assembleResponsesApi(lines: string[]): unknown {
   }
 
   return { model, message, ...(usage ? { usage } : {}) };
+}
+
+/** Assemble Anthropic Messages API SSE events (event: message_start/content_block_delta/message_stop). */
+function assembleAnthropicMessages(lines: string[]): unknown {
+  let content = "";
+  let model = "";
+  let usage: unknown = null;
+  let stopReason = "";
+  const toolCalls: Array<{ id: string; name: string; arguments: string }> = [];
+  let currentToolId = "";
+  let currentToolName = "";
+  let currentToolArgs = "";
+
+  let currentEvent = "";
+  for (const line of lines) {
+    if (line.startsWith("event: ")) {
+      currentEvent = line.slice(7).trim();
+      continue;
+    }
+    if (!line.startsWith("data: ")) continue;
+    let data: any;
+    try { data = JSON.parse(line.slice(6)); } catch { continue; }
+
+    if (currentEvent === "message_start" && data.message) {
+      model = data.message.model ?? model;
+      if (data.message.usage) usage = data.message.usage;
+    }
+    if (currentEvent === "content_block_delta" && data.delta) {
+      if (data.delta.type === "text_delta") {
+        content += data.delta.text ?? "";
+      } else if (data.delta.type === "input_json_delta") {
+        currentToolArgs += data.delta.partial_json ?? "";
+      }
+    }
+    if (currentEvent === "content_block_start" && data.content_block) {
+      if (data.content_block.type === "tool_use") {
+        currentToolId = data.content_block.id ?? "";
+        currentToolName = data.content_block.name ?? "";
+        currentToolArgs = "";
+      }
+    }
+    if (currentEvent === "content_block_stop") {
+      if (currentToolName) {
+        toolCalls.push({ id: currentToolId, name: currentToolName, arguments: currentToolArgs });
+        currentToolName = "";
+        currentToolArgs = "";
+      }
+    }
+    if (currentEvent === "message_delta" && data.delta) {
+      stopReason = data.delta.stop_reason ?? stopReason;
+      if (data.usage) usage = { ...(usage as Record<string, unknown> ?? {}), ...data.usage };
+    }
+  }
+
+  const message: Record<string, unknown> = { role: "assistant", content };
+  if (toolCalls.length > 0) {
+    message.tool_calls = toolCalls.map((tc) => ({
+      id: tc.id, type: "function", function: { name: tc.name, arguments: tc.arguments },
+    }));
+  }
+
+  return { model, message, ...(usage ? { usage } : {}), stop_reason: stopReason };
 }
 
 /** Assemble Chat Completions SSE events (data: {"choices":[{"delta":...}]}). */

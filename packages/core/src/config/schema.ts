@@ -3,6 +3,9 @@ import { z } from "zod/v4";
 const RoleModelConfigSchema = z.object({
   model: z.string().min(1),
   fallback_models: z.array(z.string()),
+  reasoningEffort: z.enum(["none", "minimal", "low", "medium", "high", "xhigh"]).optional(),
+  reasoningSummary: z.enum(["auto", "concise", "detailed"]).optional(),
+  serviceTier: z.enum(["fast", "flex"]).optional(),
 });
 
 const PresetSchema = z.enum(["quality", "balanced", "budget", "local-only"]);
@@ -17,6 +20,9 @@ const ProviderModelConfigSchema = z.object({
   name: z.string().optional(),
   npm: ProviderSdkSchema.optional(),
   variant: z.enum(["responses", "chat"]).optional(),
+  reasoningEffort: z.enum(["none", "minimal", "low", "medium", "high", "xhigh"]).optional(),
+  reasoningSummary: z.enum(["auto", "concise", "detailed"]).optional(),
+  serviceTier: z.enum(["fast", "flex"]).optional(),
 });
 
 const ProviderCredentialConfigSchema = z.object({
