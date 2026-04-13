@@ -1,5 +1,4 @@
 import * as fs from "node:fs/promises";
-import { streamText, stepCountIs } from "ai";
 import type { LanguageModel, ToolSet } from "ai";
 import type { StorageAdapter } from "../storage/storage-adapter.js";
 import type { WikiJson, PageMeta, CitationRecord } from "../types/generation.js";
@@ -8,6 +7,8 @@ import { createCatalogTools } from "../catalog/catalog-tools.js";
 import { classifyRoute, type AskRoute } from "./route-classifier.js";
 import { AskSessionManager } from "./ask-session.js";
 import { ResearchService } from "../research/research-service.js";
+import { runAgentLoopStream } from "../agent/agent-loop.js";
+import type { AgentLoopEvent } from "../agent/agent-loop.js";
 import type { LabeledFinding } from "../types/research.js";
 
 export type AskStreamOptions = {
@@ -174,46 +175,28 @@ export class AskStreamService {
     let fullText = "";
     const citations: CitationRecord[] = [];
 
-    const result = streamText({
-      model: this.model,
-      system: systemPrompt,
-      prompt: userPrompt,
-      tools: toolSet,
-      stopWhen: stepCountIs(budget),
-    });
-
-    for await (const part of result.fullStream) {
-      switch (part.type) {
+    for await (const event of runAgentLoopStream(
+      {
+        model: this.model,
+        system: systemPrompt,
+        tools: toolSet as any,
+        maxSteps: budget,
+      },
+      userPrompt,
+    )) {
+      switch (event.type) {
+        case "text-delta":
+          fullText += event.text;
+          yield { type: "text-delta", text: event.text };
+          break;
         case "reasoning-delta":
-          yield {
-            type: "reasoning-delta",
-            text: (part as { text: string }).text,
-          };
+          yield { type: "reasoning-delta", text: event.text };
           break;
-        case "text-delta": {
-          const delta = (part as { text: string }).text;
-          fullText += delta;
-          yield { type: "text-delta", text: delta };
-          break;
-        }
         case "tool-call":
-          yield {
-            type: "tool-call",
-            toolName: (part as { toolName: string }).toolName,
-            input: (part as { input?: unknown }).input,
-          };
+          yield { type: "tool-call", toolName: event.name, input: event.args };
           break;
         case "tool-result":
-          yield {
-            type: "tool-result",
-            toolName: (part as { toolName: string }).toolName,
-          };
-          break;
-        case "error":
-          yield {
-            type: "error",
-            message: String((part as { error: unknown }).error),
-          };
+          yield { type: "tool-result", toolName: event.name };
           break;
       }
     }
