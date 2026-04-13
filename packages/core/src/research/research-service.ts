@@ -10,6 +10,7 @@ import { ResearchExecutor } from "./research-executor.js";
 import type { SubQuestionResult } from "./research-executor.js";
 import { ResearchStore } from "./research-store.js";
 import { extractJson } from "../utils/extract-json.js";
+import { PromptAssembler } from "../prompt/assembler.js";
 
 export type ResearchResult = {
   note: ResearchNote;
@@ -49,6 +50,7 @@ export class ResearchService {
   private readonly executor: ResearchExecutor;
   private readonly store: ResearchStore;
   private readonly model: LanguageModel;
+  private readonly promptAssembler = new PromptAssembler();
 
   constructor(options: ResearchServiceOptions) {
     this.planner = new ResearchPlanner({
@@ -140,17 +142,18 @@ Schema:
 }`;
 
     const userPrompt = this.buildSynthesisPrompt(plan, subResults);
+    const assembled = this.promptAssembler.assemble({ role: "research", language: "en", systemPrompt, userPrompt });
 
     try {
       const result = await runAgentLoop(
         {
           model: this.model,
-          system: systemPrompt,
+          system: assembled.system,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any -- empty ToolSet cast for AI SDK type
           tools: {} as any,
           maxSteps: 1,
         },
-        userPrompt,
+        assembled.user,
       );
 
       const parsed = extractJson(result.text);

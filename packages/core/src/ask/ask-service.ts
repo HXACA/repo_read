@@ -9,6 +9,7 @@ import { createCatalogTools } from "../catalog/catalog-tools.js";
 import { classifyRoute } from "./route-classifier.js";
 import { AskSessionManager } from "./ask-session.js";
 import type { AskSession } from "../types/events.js";
+import { PromptAssembler } from "../prompt/assembler.js";
 
 export type AskOptions = {
   model: LanguageModel;
@@ -32,6 +33,7 @@ export class AskService {
   private readonly sessionManager: AskSessionManager;
   private readonly qualityProfile?: QualityProfile;
   private readonly allowBash: boolean;
+  private readonly promptAssembler = new PromptAssembler();
 
   constructor(options: AskOptions) {
     this.model = options.model;
@@ -99,6 +101,7 @@ export class AskService {
     // Build prompt
     const systemPrompt = this.buildSystemPrompt(route);
     const userPrompt = this.buildUserPrompt(question, pageContent, wiki, session);
+    const assembled = this.promptAssembler.assemble({ role: "ask", language: "en", systemPrompt, userPrompt });
 
     // Call LLM
     const tools = createCatalogTools(this.repoRoot, { allowBash: this.allowBash });
@@ -111,12 +114,12 @@ export class AskService {
       const result = await runAgentLoop(
         {
           model: this.model,
-          system: systemPrompt,
+          system: assembled.system,
           tools: tools as unknown as ToolSet,
           maxSteps: askBudget,
           providerCallOptions: { cacheKey: `ask-${session.id}` },
         },
-        userPrompt,
+        assembled.user,
       );
 
       const { answer, citations } = this.parseAnswer(result.text);

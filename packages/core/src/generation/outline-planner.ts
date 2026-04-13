@@ -3,6 +3,7 @@ import { runAgentLoop } from "../agent/agent-loop.js";
 import type { PageOutline, PageOutlineSection } from "../types/agent.js";
 import { extractJson } from "../utils/extract-json.js";
 import type { ProviderCallOptions } from "../utils/generate-via-stream.js";
+import { PromptAssembler } from "../prompt/assembler.js";
 
 export type OutlinePlannerInput = {
   pageTitle: string;
@@ -39,6 +40,7 @@ export class OutlinePlanner {
   private readonly model: LanguageModel;
   private readonly providerCallOptions?: ProviderCallOptions;
   private readonly onStep?: (step: import("../agent/agent-loop.js").StepInfo) => void;
+  private readonly promptAssembler = new PromptAssembler();
 
   constructor(options: OutlinePlannerOptions) {
     this.model = options.model;
@@ -68,16 +70,17 @@ Schema:
 }`;
 
     const userPrompt = this.buildUserPrompt(input);
+    const assembled = this.promptAssembler.assemble({ role: "outline", language: input.language, systemPrompt, userPrompt });
 
     try {
       const result = await runAgentLoop({
         model: this.model,
-        system: systemPrompt,
+        system: assembled.system,
         tools: {},
         maxSteps: 1,
         providerCallOptions: this.providerCallOptions,
         onStep: this.onStep,
-      }, userPrompt);
+      }, assembled.user);
 
       const parsed = extractJson(result.text);
       if (parsed && Array.isArray(parsed.sections)) {

@@ -2,6 +2,7 @@ import type { LanguageModel, ToolSet } from "ai";
 import { runAgentLoop } from "../agent/agent-loop.js";
 import type { CitationRecord } from "../types/generation.js";
 import { createCatalogTools } from "../catalog/catalog-tools.js";
+import { PromptAssembler } from "../prompt/assembler.js";
 
 export type SubQuestionResult = {
   question: string;
@@ -19,6 +20,7 @@ export type ResearchExecutorOptions = {
 
 export class ResearchExecutor {
   private readonly maxSteps: number;
+  private readonly promptAssembler = new PromptAssembler();
 
   constructor(private readonly options: ResearchExecutorOptions) {
     this.maxSteps = options.maxSteps ?? 15;
@@ -27,9 +29,7 @@ export class ResearchExecutor {
   async investigate(question: string): Promise<SubQuestionResult> {
     const tools = createCatalogTools(this.options.repoRoot, { allowBash: this.options.allowBash });
 
-    const result = await runAgentLoop({
-      model: this.options.model,
-      system: `You are a focused code investigator. Answer the given question by examining the codebase.
+    const systemPrompt = `You are a focused code investigator. Answer the given question by examining the codebase.
 
 Return a JSON object:
 {
@@ -37,10 +37,16 @@ Return a JSON object:
   "findings": ["finding 1", "finding 2"],
   "citations": [{ "kind": "file", "target": "path", "locator": "10-20", "note": "desc" }],
   "openQuestions": ["any unresolved questions"]
-}`,
+}`;
+    const userPrompt = `Investigate: ${question}\n\nUse the tools to find evidence and return structured findings as JSON.`;
+    const assembled = this.promptAssembler.assemble({ role: "research", language: "en", systemPrompt, userPrompt });
+
+    const result = await runAgentLoop({
+      model: this.options.model,
+      system: assembled.system,
       tools: tools as unknown as ToolSet,
       maxSteps: this.maxSteps,
-    }, `Investigate: ${question}\n\nUse the tools to find evidence and return structured findings as JSON.`);
+    }, assembled.user);
 
     return this.parseResult(result.text, question);
   }

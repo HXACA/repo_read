@@ -2,6 +2,7 @@ import type { LanguageModel } from "ai";
 import { runAgentLoop } from "../agent/agent-loop.js";
 import { extractJson } from "../utils/extract-json.js";
 import type { ProviderCallOptions } from "../utils/generate-via-stream.js";
+import { PromptAssembler } from "../prompt/assembler.js";
 
 /**
  * A single evidence-gathering subtask that a `worker` will execute.
@@ -62,6 +63,7 @@ const LANGUAGE_NAMES: Record<string, string> = {
 export class EvidencePlanner {
   private readonly model: LanguageModel;
   private readonly providerCallOptions?: ProviderCallOptions;
+  private readonly promptAssembler = new PromptAssembler();
 
   constructor(options: EvidencePlannerOptions) {
     this.model = options.model;
@@ -101,15 +103,16 @@ export class EvidencePlanner {
 
     const systemPrompt = buildPlannerSystemPrompt();
     const userPrompt = buildPlannerUserPrompt(input, effectiveTaskCount);
+    const assembled = this.promptAssembler.assemble({ role: "drafter", language: input.language, systemPrompt, userPrompt });
 
     try {
       const result = await runAgentLoop({
         model: this.model,
-        system: systemPrompt,
+        system: assembled.system,
         tools: {},
         maxSteps: 1,
         providerCallOptions: this.providerCallOptions,
-      }, userPrompt);
+      }, assembled.user);
 
       const parsed = extractJson(result.text);
       if (!parsed || !Array.isArray(parsed.tasks)) {

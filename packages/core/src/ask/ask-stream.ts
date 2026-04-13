@@ -10,6 +10,7 @@ import { ResearchService } from "../research/research-service.js";
 import { runAgentLoopStream } from "../agent/agent-loop.js";
 import { setSessionId } from "../utils/generate-via-stream.js";
 import type { LabeledFinding } from "../types/research.js";
+import { PromptAssembler } from "../prompt/assembler.js";
 
 export type AskStreamOptions = {
   model: LanguageModel;
@@ -46,6 +47,7 @@ export class AskStreamService {
   private readonly sessionManager: AskSessionManager;
   private readonly qualityProfile?: QualityProfile;
   private readonly allowBash: boolean;
+  private readonly promptAssembler = new PromptAssembler();
 
   constructor(options: AskStreamOptions) {
     this.model = options.model;
@@ -170,6 +172,7 @@ export class AskStreamService {
       wiki,
       turns,
     );
+    const assembled = this.promptAssembler.assemble({ role: "ask", language: this.language, systemPrompt, userPrompt });
 
     const profileAskBudget = this.qualityProfile?.askMaxSteps ?? 10;
     const isPageFirst = route === "page-first";
@@ -184,13 +187,13 @@ export class AskStreamService {
     for await (const event of runAgentLoopStream(
       {
         model: this.model,
-        system: systemPrompt,
+        system: assembled.system,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ToolSet cast for AI SDK type compatibility
         tools: toolSet as any,
         maxSteps: budget,
         providerCallOptions: { cacheKey: `ask-${sessionId}` },
       },
-      userPrompt,
+      assembled.user,
     )) {
       switch (event.type) {
         case "text-delta":
