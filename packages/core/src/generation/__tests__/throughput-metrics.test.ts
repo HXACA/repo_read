@@ -1,0 +1,170 @@
+import { describe, it, expect, beforeEach } from "vitest";
+import {
+  ThroughputMetricsCollector,
+  zeroUsage,
+  cloneUsage,
+  addUsage,
+} from "../throughput-metrics.js";
+import type { UsageBucket } from "../../utils/usage-tracker.js";
+
+function makeUsage(overrides: Partial<UsageBucket> = {}): UsageBucket {
+  return {
+    inputTokens: 0,
+    outputTokens: 0,
+    reasoningTokens: 0,
+    cachedTokens: 0,
+    requests: 0,
+    ...overrides,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Helper tests
+// ---------------------------------------------------------------------------
+
+describe("zeroUsage", () => {
+  it("returns a bucket with all zeroes", () => {
+    const u = zeroUsage();
+    expect(u.inputTokens).toBe(0);
+    expect(u.outputTokens).toBe(0);
+    expect(u.reasoningTokens).toBe(0);
+    expect(u.cachedTokens).toBe(0);
+    expect(u.requests).toBe(0);
+  });
+});
+
+describe("cloneUsage", () => {
+  it("returns a shallow copy with the same values", () => {
+    const original = makeUsage({ inputTokens: 10, outputTokens: 20, requests: 2 });
+    const clone = cloneUsage(original);
+    expect(clone).toEqual(original);
+    expect(clone).not.toBe(original);
+  });
+});
+
+describe("addUsage", () => {
+  it("accumulates all fields from source into target", () => {
+    const target = makeUsage({ inputTokens: 5, requests: 1 });
+    const source = makeUsage({ inputTokens: 10, outputTokens: 15, reasoningTokens: 3, cachedTokens: 2, requests: 2 });
+    addUsage(target, source);
+    expect(target.inputTokens).toBe(15);
+    expect(target.outputTokens).toBe(15);
+    expect(target.reasoningTokens).toBe(3);
+    expect(target.cachedTokens).toBe(2);
+    expect(target.requests).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ThroughputMetricsCollector
+// ---------------------------------------------------------------------------
+
+describe("ThroughputMetricsCollector", () => {
+  let collector: ThroughputMetricsCollector;
+
+  beforeEach(() => {
+    collector = new ThroughputMetricsCollector();
+  });
+
+  it("finish returns zero pages when nothing was tracked", () => {
+    const result = collector.finish("job-1", "my-proj");
+    expect(result.jobId).toBe("job-1");
+    expect(result.projectSlug).toBe("my-proj");
+    expect(result.totalPages).toBe(0);
+    expect(result.pages).toHaveLength(0);
+    expect(result.totalUsage).toEqual(zeroUsage());
+  });
+
+  it("setCatalog sets totalPages on the report", () => {
+    collector.setCatalog(7);
+    const result = collector.finish("job-2", "proj");
+    expect(result.totalPages).toBe(7);
+  });
+
+  it("addPage + finishPage records a page with correct lane and duration", () => {
+    collector.addPage("overview", "standard");
+    collector.finishPage("overview");
+
+    const result = collector.finish("job-3", "proj");
+    expect(result.pages).toHaveLength(1);
+
+    const page = result.pages[0];
+    expect(page.pageSlug).toBe("overview");
+    expect(page.lane).toBe("standard");
+    expect(page.durationMs).toBeGreaterThanOrEqual(0);
+    expect(page.startedAt).toBeTruthy();
+    expect(page.finishedAt).toBeTruthy();
+  });
+
+  it("recordStage stores stage metrics and they contribute to totalUsage", () => {
+    collector.addPage("intro", "fast");
+    collector.recordStage("intro", "draft", 500, makeUsage({ inputTokens: 100, outputTokens: 50, requests: 1 }));
+    collector.recordStage("intro", "review", 200, makeUsage({ inputTokens: 30, outputTokens: 10, requests: 1 }));
+    collector.finishPage("intro");
+
+    const result = collector.finish("job-4", "proj");
+    const page = result.pages[0];
+
+    expect(page.stages.draft?.durationMs).toBe(500);
+    expect(page.stages.draft?.usage.inputTokens).toBe(100);
+    expect(page.stages.review?.durationMs).toBe(200);
+
+    expect(page.totalUsage.inputTokens).toBe(130);
+    expect(page.totalUsage.outputTokens).toBe(60);
+    expect(page.totalUsage.requests).toBe(2);
+  });
+
+  it("byLane aggregates correctly across multiple pages", () => {
+    collector.addPage("p1", "fast");
+    collector.recordStage("p1", "draft", 100, makeUsage({ inputTokens: 10, requests: 1 }));
+    collector.finishPage("p1");
+
+    collector.addPage("p2", "fast");
+    collector.recordStage("p2", "draft", 200, makeUsage({ inputTokens: 20, requests: 1 }));
+    collector.finishPage("p2");
+
+    collector.addPage("p3", "deep");
+    collector.recordStage("p3", "draft", 1000, makeUsage({ inputTokens: 500, requests: 1 }));
+    collector.finishPage("p3");
+
+    const result = collector.finish("job-5", "proj");
+
+    expect(result.byLane.fast.count).toBe(2);
+    expect(result.byLane.fast.totalUsage.inputTokens).toBe(30);
+    expect(result.byLane.deep.count).toBe(1);
+    expect(result.byLane.deep.totalUsage.inputTokens).toBe(500);
+    expect(result.byLane.standard.count).toBe(0);
+  });
+
+  it("totalUsage on the job sums all pages", () => {
+    collector.addPage("a", "standard");
+    collector.recordStage("a", "evidence", 300, makeUsage({ inputTokens: 200, outputTokens: 100, requests: 2 }));
+    collector.finishPage("a");
+
+    collector.addPage("b", "standard");
+    collector.recordStage("b", "evidence", 300, makeUsage({ inputTokens: 50, outputTokens: 25, requests: 1 }));
+    collector.finishPage("b");
+
+    const result = collector.finish("job-6", "proj");
+    expect(result.totalUsage.inputTokens).toBe(250);
+    expect(result.totalUsage.outputTokens).toBe(125);
+    expect(result.totalUsage.requests).toBe(3);
+  });
+
+  it("finishPage on unknown slug is a no-op", () => {
+    collector.finishPage("nonexistent");
+    const result = collector.finish("job-7", "proj");
+    expect(result.pages).toHaveLength(0);
+  });
+
+  it("recordStage on unknown slug is a no-op", () => {
+    collector.recordStage("ghost", "draft", 100, makeUsage({ requests: 1 }));
+    const result = collector.finish("job-8", "proj");
+    expect(result.pages).toHaveLength(0);
+  });
+
+  it("durationMs on job is non-negative", () => {
+    const result = collector.finish("job-9", "proj");
+    expect(result.durationMs).toBeGreaterThanOrEqual(0);
+  });
+});

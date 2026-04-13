@@ -3,6 +3,13 @@ import { ArtifactStore } from "../artifact-store.js";
 import type { StorageAdapter } from "../../storage/storage-adapter.js";
 import type { StoragePaths } from "../../storage/paths.js";
 
+vi.mock("node:fs/promises", () => ({
+  writeFile: vi.fn().mockResolvedValue(undefined),
+  mkdir: vi.fn().mockResolvedValue(undefined),
+}));
+
+import * as fsMock from "node:fs/promises";
+
 function makeStorage(): StorageAdapter {
   const paths = {
     evidenceJson: vi.fn((slug: string, jobId: string, pageSlug: string) =>
@@ -23,6 +30,7 @@ function makeStorage(): StorageAdapter {
     researchNoteJson: vi.fn((slug: string, versionId: string, noteId: string) =>
       `/${slug}/research/${versionId}/${noteId}.json`,
     ),
+    jobDir: vi.fn((slug: string, jobId: string) => `/${slug}/jobs/${jobId}`),
   } as unknown as StoragePaths;
 
   return {
@@ -163,6 +171,21 @@ describe("ArtifactStore", () => {
     expect(storage.writeJson).toHaveBeenCalledWith(
       "/proj/research/v1/note-xyz.json",
       data,
+    );
+  });
+
+  // --- saveThroughputMetrics ---
+
+  it("saveThroughputMetrics writes throughput.json inside jobDir", async () => {
+    const ref = { projectSlug: "proj", jobId: "job-42" };
+    const data = { totalPages: 3, pages: [] };
+    await store.saveThroughputMetrics(ref, data);
+
+    expect(storage.paths.jobDir).toHaveBeenCalledWith("proj", "job-42");
+    expect(fsMock.writeFile).toHaveBeenCalledWith(
+      "/proj/jobs/job-42/throughput.json",
+      JSON.stringify(data, null, 2),
+      "utf-8",
     );
   });
 });
