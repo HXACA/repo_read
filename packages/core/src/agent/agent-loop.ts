@@ -111,7 +111,9 @@ export function extractUsage(usage: Record<string, unknown>): {
     | Record<string, unknown>
     | undefined;
   const cachedTokens =
-    (inputDetails?.cached_tokens as number | undefined) ?? 0;
+    (inputDetails?.cached_tokens as number | undefined) ??
+    (usage.cache_read_input_tokens as number | undefined) ?? // Anthropic format
+    0;
 
   return { inputTokens, outputTokens, reasoningTokens, cachedTokens };
 }

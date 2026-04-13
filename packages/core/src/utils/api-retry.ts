@@ -8,6 +8,7 @@ export type ApiErrorKind =
   | "auth_error"       // 401, 403
   | "bad_request"      // 400 other
   | "timeout"          // SSETimeoutError
+  | "network_error"    // ECONNREFUSED, ECONNRESET, ETIMEDOUT, fetch failed
   | "unknown";
 
 export type ApiErrorClassification = {
@@ -105,6 +106,19 @@ export function classifyApiError(error: unknown): ApiErrorClassification {
       return { kind: "context_overflow", retryable: false };
     }
     return { kind: "bad_request", retryable: false };
+  }
+
+  // Network-level errors (no HTTP response — connection refused, reset, timeout, DNS failure)
+  if (!statusCode && error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    if (
+      msg.includes("econnrefused") || msg.includes("econnreset") ||
+      msg.includes("etimedout") || msg.includes("fetch failed") ||
+      msg.includes("network") || msg.includes("socket hang up") ||
+      msg.includes("dns")
+    ) {
+      return { kind: "network_error", retryable: true };
+    }
   }
 
   return { kind: "unknown", retryable: false };

@@ -17,7 +17,7 @@ export function createResilientFetch(
     const response = await baseFetch(input, init);
     const contentType = response.headers.get("content-type") ?? "";
     const isStreaming =
-      contentType.includes("event-stream") || contentType.includes("stream");
+      contentType.includes("text/event-stream") || contentType.includes("application/x-ndjson");
 
     if (!isStreaming || !response.body) {
       return response;

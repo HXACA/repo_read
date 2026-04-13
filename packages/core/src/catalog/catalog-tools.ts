@@ -9,6 +9,7 @@
  * - git_log → recent commits
  * - bash → run_bash (read-only shell commands)
  */
+import * as path from "node:path";
 import { jsonSchema } from "ai";
 import { readFile } from "../tools/read-tool.js";
 import { grepSearch } from "../tools/grep-tool.js";
@@ -48,7 +49,13 @@ export function createCatalogTools(repoRoot: string, options?: { allowBash?: boo
         required: ["path"],
       }),
       execute: async ({ path: filePath, offset, limit }: { path: string; offset?: number; limit?: number }) => {
-        const result = await readFile(`${repoRoot}/${filePath}`, { offset, limit });
+        // Path traversal protection: resolved path must stay within repoRoot
+        const resolved = path.resolve(repoRoot, filePath);
+        const resolvedRoot = path.resolve(repoRoot);
+        if (resolved !== resolvedRoot && !resolved.startsWith(resolvedRoot + path.sep)) {
+          return "Error: Path is outside repository root";
+        }
+        const result = await readFile(resolved, { offset, limit });
         if (!result.success) return `Error: ${result.error}`;
         return `File: ${filePath} (${result.totalLines} lines total, showing ${result.linesReturned} from line ${result.offset + 1})\n${result.content}`;
       },

@@ -36,7 +36,9 @@ export async function getDirStructure(
   // Clamp maxDepth to a sane range
   const depth = Math.max(1, Math.min(maxDepth, 10));
 
-  // Use find + sort to build a tree, filtering common noise directories
+  // Note: We use exec (not execFile) because find's -prune expressions are hard
+  // to express as argv. The target path is already validated above and shell-escaped
+  // below, and maxDepth is clamped to an integer, so injection risk is mitigated.
   const excludes = [
     "node_modules", ".git", "__pycache__", ".egg-info", "dist", "build",
     ".next", ".nuxt", "vendor", ".venv", "venv", ".tox", "coverage",

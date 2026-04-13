@@ -44,7 +44,11 @@ describe("validateBashCommand", () => {
     expect(validateBashCommand("ls && rm file")).toMatchObject({ allowed: false });
   });
 
-  it("rejects cat (use Read tool instead)", () => {
-    expect(validateBashCommand("cat file.txt")).toMatchObject({ allowed: false });
+  it("allows cat, grep, find, git (read-only exploration commands)", () => {
+    expect(validateBashCommand("cat file.txt")).toMatchObject({ allowed: true });
+    expect(validateBashCommand("grep -r pattern .")).toMatchObject({ allowed: true });
+    expect(validateBashCommand("find . -name '*.ts'")).toMatchObject({ allowed: true });
+    expect(validateBashCommand("git log --oneline -10")).toMatchObject({ allowed: true });
+    expect(validateBashCommand("git show HEAD")).toMatchObject({ allowed: true });
   });
 });

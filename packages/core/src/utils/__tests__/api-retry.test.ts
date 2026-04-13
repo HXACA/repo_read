@@ -108,8 +108,16 @@ describe("classifyApiError", () => {
     expect(result.retryable).toBe(true);
   });
 
+  it("classifies network errors as network_error + retryable", () => {
+    expect(classifyApiError(new Error("fetch failed")).kind).toBe("network_error");
+    expect(classifyApiError(new Error("fetch failed")).retryable).toBe(true);
+    expect(classifyApiError(new Error("ECONNREFUSED")).retryable).toBe(true);
+    expect(classifyApiError(new Error("ECONNRESET")).retryable).toBe(true);
+    expect(classifyApiError(new Error("socket hang up")).retryable).toBe(true);
+  });
+
   it("classifies unknown errors as unknown + NOT retryable", () => {
-    const result = classifyApiError(new Error("network failure"));
+    const result = classifyApiError(new Error("something unexpected"));
     expect(result.kind).toBe("unknown");
     expect(result.retryable).toBe(false);
   });

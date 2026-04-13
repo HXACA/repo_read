@@ -260,7 +260,9 @@ describe("Reviewer degradation", () => {
     mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("overview")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("overview")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("overview", "Overview")));
-    mockGenerateText.mockRejectedValueOnce(new Error("Network timeout"));
+    // Reviewer throws — use a non-retryable error (auth) so withRetry doesn't consume extra mock calls
+    const authError = Object.assign(new Error("Unauthorized"), { statusCode: 401 });
+    mockGenerateText.mockRejectedValueOnce(authError);
 
     // Page "core": worker, outline, draft, review (normal)
     mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("core")));

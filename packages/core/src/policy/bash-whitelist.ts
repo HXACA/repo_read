@@ -1,6 +1,7 @@
 const ALLOWED_COMMANDS = new Set([
   "wc", "sort", "uniq", "head", "tail",
   "tree", "file", "stat", "du", "ls",
+  "cat", "grep", "find", "git",
 ]);
 
 const FORBIDDEN_PATTERNS = [
@@ -9,7 +10,7 @@ const FORBIDDEN_PATTERNS = [
 
 const FORBIDDEN_COMMANDS = new Set([
   "rm", "mv", "cp", "chmod", "chown", "kill", "sudo",
-  "curl", "wget", "cat", "dd", "mkfs", "mount",
+  "curl", "wget", "dd", "mkfs", "mount",
   "npm", "npx", "yarn", "pnpm", "pip", "cargo",
   "python", "python3", "node", "ruby", "perl",
   "bash", "sh", "zsh",
