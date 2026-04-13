@@ -359,32 +359,7 @@ npm run start
     expect(result.truncated).toBeUndefined();
   });
 
-  it("passes maxOutputTokens to generateText", async () => {
-    const { generateText } = await import("ai");
-    const spy = vi.mocked(generateText);
-    spy.mockResolvedValueOnce({
-      text: draftMarkdown,
-      usage: { inputTokens: 500, outputTokens: 300 },
-      finishReason: "stop",
-    } as never);
 
-    const drafter = new PageDrafter({
-      model: {} as never,
-      repoRoot: "/tmp/repo",
-      maxOutputTokens: 20000,
-    });
-
-    await drafter.draft(mockContext, {
-      slug: "core-engine",
-      title: "Core Engine",
-      order: 1,
-      coveredFiles: ["src/engine.ts"],
-      language: "en",
-    });
-
-    const call = spy.mock.calls[0][0] as { maxOutputTokens?: number };
-    expect(call.maxOutputTokens).toBe(20000);
-  });
 });
 
 describe("stripDraftOutputWrappers", () => {

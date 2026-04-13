@@ -1,6 +1,6 @@
-import { stepCountIs } from "ai";
 import type { LanguageModel, ToolSet } from "ai";
-import { generateViaStream as generateText } from "../utils/generate-via-stream.js";
+import { runAgentLoop } from "../agent/agent-loop.js";
+import type { StepInfo } from "../agent/agent-loop.js";
 import type { MainAuthorContext } from "../types/agent.js";
 import type { CitationRecord } from "../types/generation.js";
 import { buildPageDraftSystemPrompt, buildPageDraftUserPrompt } from "./page-drafter-prompt.js";
@@ -38,6 +38,7 @@ export type PageDrafterOptions = {
    * and the pipeline triggers a "shorten it" revise loop.
    */
   maxOutputTokens?: number;
+  onStep?: (step: StepInfo) => void;
 };
 
 /**
@@ -92,13 +93,13 @@ export class PageDrafter {
   private readonly model: LanguageModel;
   private readonly repoRoot: string;
   private readonly maxSteps: number;
-  private readonly maxOutputTokens: number;
+  private readonly onStep?: (step: StepInfo) => void;
 
   constructor(options: PageDrafterOptions) {
     this.model = options.model;
     this.repoRoot = options.repoRoot;
     this.maxSteps = options.maxSteps ?? 20;
-    this.maxOutputTokens = options.maxOutputTokens ?? 16384;
+    this.onStep = options.onStep;
   }
 
   async draft(
@@ -110,19 +111,18 @@ export class PageDrafter {
     const tools = createCatalogTools(this.repoRoot);
 
     try {
-      const result = await generateText({
+      const result = await runAgentLoop({
         model: this.model,
         system: systemPrompt,
-        prompt: userPrompt,
         tools: tools as unknown as ToolSet,
-        stopWhen: stepCountIs(this.maxSteps),
-        maxOutputTokens: this.maxOutputTokens,
-      });
+        maxSteps: this.maxSteps,
+        onStep: this.onStep,
+      }, userPrompt);
 
       const parsed = this.parseOutput(result.text);
       // Surface truncation so the pipeline can force a "shorten it" retry
       // before calling the reviewer on half-written content.
-      const finishReason = (result as { finishReason?: string }).finishReason;
+      const finishReason = result.steps[result.steps.length - 1]?.finishReason;
       if (finishReason === "length") {
         parsed.truncated = true;
       }

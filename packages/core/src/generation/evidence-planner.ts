@@ -1,5 +1,5 @@
 import type { LanguageModel } from "ai";
-import { generateViaStream as generateText } from "../utils/generate-via-stream.js";
+import { runAgentLoop } from "../agent/agent-loop.js";
 import { extractJson } from "../utils/extract-json.js";
 
 /**
@@ -99,11 +99,12 @@ export class EvidencePlanner {
     const userPrompt = buildPlannerUserPrompt(input, effectiveTaskCount);
 
     try {
-      const result = await generateText({
+      const result = await runAgentLoop({
         model: this.model,
         system: systemPrompt,
-        prompt: userPrompt,
-      });
+        tools: {},
+        maxSteps: 1,
+      }, userPrompt);
 
       const parsed = extractJson(result.text);
       if (!parsed || !Array.isArray(parsed.tasks)) {

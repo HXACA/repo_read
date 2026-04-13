@@ -1,6 +1,5 @@
-import { stepCountIs } from "ai";
 import type { LanguageModel, ToolSet } from "ai";
-import { generateViaStream as generateText } from "../utils/generate-via-stream.js";
+import { runAgentLoop } from "../agent/agent-loop.js";
 import { createCatalogTools } from "../catalog/catalog-tools.js";
 
 export type ResearchPlan = {
@@ -31,7 +30,7 @@ export class ResearchPlanner {
   async plan(topic: string, context?: string): Promise<ResearchPlan> {
     const tools = createCatalogTools(this.options.repoRoot);
 
-    const result = await generateText({
+    const result = await runAgentLoop({
       model: this.options.model,
       system: `You are a research planner for a code wiki. Break down a broad question into 2-5 focused sub-questions that can be investigated independently.
 
@@ -41,12 +40,11 @@ Return a JSON object:
   "subQuestions": ["sub-question 1", "sub-question 2", ...],
   "scope": "brief description of what this research covers"
 }`,
-      prompt: `Research topic: ${topic}${context ? `\n\nContext: ${context}` : ""}
-
-Use the tools to understand the codebase, then break this into focused sub-questions. Return JSON.`,
       tools: tools as unknown as ToolSet,
-      stopWhen: stepCountIs(this.maxSteps),
-    });
+      maxSteps: this.maxSteps,
+    }, `Research topic: ${topic}${context ? `\n\nContext: ${context}` : ""}
+
+Use the tools to understand the codebase, then break this into focused sub-questions. Return JSON.`);
 
     return this.parsePlan(result.text, topic);
   }

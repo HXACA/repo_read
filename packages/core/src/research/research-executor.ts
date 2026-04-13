@@ -1,6 +1,5 @@
-import { stepCountIs } from "ai";
 import type { LanguageModel, ToolSet } from "ai";
-import { generateViaStream as generateText } from "../utils/generate-via-stream.js";
+import { runAgentLoop } from "../agent/agent-loop.js";
 import type { CitationRecord } from "../types/generation.js";
 import { createCatalogTools } from "../catalog/catalog-tools.js";
 
@@ -31,7 +30,7 @@ export class ResearchExecutor {
   async investigate(question: string): Promise<SubQuestionResult> {
     const tools = createCatalogTools(this.options.repoRoot);
 
-    const result = await generateText({
+    const result = await runAgentLoop({
       model: this.options.model,
       system: `You are a focused code investigator. Answer the given question by examining the codebase.
 
@@ -42,10 +41,9 @@ Return a JSON object:
   "citations": [{ "kind": "file", "target": "path", "locator": "10-20", "note": "desc" }],
   "openQuestions": ["any unresolved questions"]
 }`,
-      prompt: `Investigate: ${question}\n\nUse the tools to find evidence and return structured findings as JSON.`,
       tools: tools as unknown as ToolSet,
-      stopWhen: stepCountIs(this.maxSteps),
-    });
+      maxSteps: this.maxSteps,
+    }, `Investigate: ${question}\n\nUse the tools to find evidence and return structured findings as JSON.`);
 
     return this.parseResult(result.text, question);
   }

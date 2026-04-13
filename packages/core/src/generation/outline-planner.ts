@@ -1,5 +1,5 @@
 import type { LanguageModel } from "ai";
-import { generateViaStream as generateText } from "../utils/generate-via-stream.js";
+import { runAgentLoop } from "../agent/agent-loop.js";
 import type { PageOutline, PageOutlineSection } from "../types/agent.js";
 import { extractJson } from "../utils/extract-json.js";
 
@@ -63,11 +63,12 @@ Schema:
     const userPrompt = this.buildUserPrompt(input);
 
     try {
-      const result = await generateText({
+      const result = await runAgentLoop({
         model: this.model,
         system: systemPrompt,
-        prompt: userPrompt,
-      });
+        tools: {},
+        maxSteps: 1,
+      }, userPrompt);
 
       const parsed = extractJson(result.text);
       if (parsed && Array.isArray(parsed.sections)) {

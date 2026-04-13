@@ -1,6 +1,5 @@
-import { stepCountIs } from "ai";
 import type { LanguageModel, ToolSet } from "ai";
-import { generateViaStream as generateText } from "../utils/generate-via-stream.js";
+import { runAgentLoop } from "../agent/agent-loop.js";
 import type {
   ReviewBriefing,
   ReviewConclusion,
@@ -63,13 +62,12 @@ export class FreshReviewer {
     const tools = createCatalogTools(this.repoRoot);
 
     try {
-      const result = await generateText({
+      const result = await runAgentLoop({
         model: this.model,
         system: systemPrompt,
-        prompt: userPrompt,
         tools: tools as unknown as ToolSet,
-        stopWhen: stepCountIs(this.maxSteps),
-      });
+        maxSteps: this.maxSteps,
+      }, userPrompt);
 
       return this.parseOutput(result.text);
     } catch (err) {

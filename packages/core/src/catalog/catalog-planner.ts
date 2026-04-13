@@ -1,6 +1,6 @@
-import { stepCountIs } from "ai";
 import type { LanguageModel, ToolSet } from "ai";
-import { generateViaStream as generateText } from "../utils/generate-via-stream.js";
+import { runAgentLoop } from "../agent/agent-loop.js";
+import type { StepInfo } from "../agent/agent-loop.js";
 import type { RepoProfile } from "../types/project.js";
 import type { WikiJson } from "../types/generation.js";
 import { buildCatalogSystemPrompt, buildCatalogUserPrompt } from "./catalog-prompt.js";
@@ -12,6 +12,7 @@ export type CatalogPlannerOptions = {
   language: string;
   maxSteps?: number;
   maxRetries?: number;
+  onStep?: (step: StepInfo) => void;
 };
 
 export type CatalogPlanResult = {
@@ -26,12 +27,14 @@ export class CatalogPlanner {
   private readonly language: string;
   private readonly maxSteps: number;
   private readonly maxRetries: number;
+  private readonly onStep?: (step: StepInfo) => void;
 
   constructor(options: CatalogPlannerOptions) {
     this.model = options.model;
     this.language = options.language;
     this.maxSteps = options.maxSteps ?? 20;
     this.maxRetries = options.maxRetries ?? 3;
+    this.onStep = options.onStep;
   }
 
   async plan(profile: RepoProfile): Promise<CatalogPlanResult> {
@@ -47,24 +50,24 @@ export class CatalogPlanner {
           userPrompt += `\n\n## Previous Attempt Failed (attempt ${attempt}/${this.maxRetries})\n\nError: ${lastError}\n\nPlease fix the issue and output a valid JSON object with "summary" and "reading_order" fields. Output ONLY the JSON object.`;
         }
 
-        const result = await generateText({
+        const result = await runAgentLoop({
           model: this.model,
           system: systemPrompt,
-          prompt: userPrompt,
           tools: tools as unknown as ToolSet,
-          stopWhen: stepCountIs(this.maxSteps),
-        });
+          maxSteps: this.maxSteps,
+          onStep: this.onStep,
+        }, userPrompt);
 
         const wiki = this.parseWikiJson(result.text);
 
         return {
           success: true,
           wiki,
-          usage: result.usage ? {
-            promptTokens: (result.usage as { inputTokens?: number }).inputTokens ?? 0,
-            completionTokens: (result.usage as { outputTokens?: number }).outputTokens ?? 0,
-            totalTokens: ((result.usage as { inputTokens?: number }).inputTokens ?? 0) + ((result.usage as { outputTokens?: number }).outputTokens ?? 0),
-          } : undefined,
+          usage: {
+            promptTokens: result.totalUsage.inputTokens,
+            completionTokens: result.totalUsage.outputTokens,
+            totalTokens: result.totalUsage.inputTokens + result.totalUsage.outputTokens,
+          },
         };
       } catch (err) {
         lastError = (err as Error).message;
