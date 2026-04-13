@@ -1,6 +1,7 @@
 import type { LanguageModel } from "ai";
 import type { CitationRecord } from "../types/generation.js";
 import type { MainAuthorContext } from "../types/agent.js";
+import type { UsageInput } from "../utils/usage-tracker.js";
 import { ForkWorker } from "./fork-worker.js";
 import {
   EvidencePlanner,
@@ -9,6 +10,7 @@ import {
   type EvidencePlanInput,
   type EvidenceTask,
 } from "./evidence-planner.js";
+import { zeroUsage, addUsage } from "./throughput-metrics.js";
 import type { ProviderCallOptions } from "../runtime/turn-types.js";
 
 export type EvidenceCoordinatorOptions = {
@@ -45,6 +47,7 @@ export type EvidenceCollectionResult = {
   plan: EvidencePlan;
   failedTaskIds: string[];
   usedFallback: boolean;
+  metrics: { llmCalls: number; usage: UsageInput };
 };
 
 /**
@@ -149,6 +152,25 @@ export class EvidenceCoordinator {
       }
     }
 
+    // Aggregate metrics from planner + workers
+    const aggregatedUsage = zeroUsage();
+    let totalLlmCalls = 0;
+    // The planner uses 1 LLM call when it succeeds and the plan has >1 tasks
+    // (single-task plans skip the LLM). When the planner fails, fallback is
+    // deterministic so llmCalls stays 0.
+    if (planResult.success && plan.tasks.length > 1) {
+      totalLlmCalls += 1;
+    }
+    for (const r of results) {
+      if (r.status === "ok" && r.metrics) {
+        addUsage(aggregatedUsage, {
+          ...r.metrics.usage,
+          requests: r.metrics.llmCalls,
+        });
+        totalLlmCalls += r.metrics.llmCalls;
+      }
+    }
+
     return {
       ledger: Array.from(ledgerMap.values()),
       findings,
@@ -156,6 +178,15 @@ export class EvidenceCoordinator {
       plan,
       failedTaskIds,
       usedFallback,
+      metrics: {
+        llmCalls: totalLlmCalls,
+        usage: {
+          inputTokens: aggregatedUsage.inputTokens,
+          outputTokens: aggregatedUsage.outputTokens,
+          reasoningTokens: aggregatedUsage.reasoningTokens,
+          cachedTokens: aggregatedUsage.cachedTokens,
+        },
+      },
     };
   }
 
@@ -199,7 +230,7 @@ export class EvidenceCoordinator {
           relevantFiles: task.targetFiles,
         });
         if (result.success && result.data) {
-          return { status: "ok", taskId: task.id, data: result.data };
+          return { status: "ok", taskId: task.id, data: result.data, metrics: result.metrics };
         }
         // success=false: fall through to retry
       } catch {
@@ -215,6 +246,7 @@ type WorkerOutcome =
       status: "ok";
       taskId: string;
       data: { findings: string[]; citations: CitationRecord[]; open_questions: string[] };
+      metrics?: { llmCalls: number; usage: UsageInput };
     }
   | { status: "failed"; taskId: string };
 

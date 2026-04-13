@@ -5,6 +5,7 @@ import type {
   ReviewConclusion,
   VerifiedCitation,
 } from "../types/review.js";
+import type { UsageInput } from "../utils/usage-tracker.js";
 import {
   buildReviewerSystemPrompt,
   buildReviewerUserPrompt,
@@ -20,6 +21,7 @@ export type ReviewResult = {
   success: boolean;
   conclusion?: ReviewConclusion;
   error?: string;
+  metrics?: { llmCalls: number; usage: UsageInput };
 };
 
 export type FreshReviewerOptions = {
@@ -92,7 +94,19 @@ export class FreshReviewer {
         onStep: this.onStep,
       });
 
-      return this.parseOutput(result.text);
+      const parsed = this.parseOutput(result.text);
+      return {
+        ...parsed,
+        metrics: {
+          llmCalls: 1,
+          usage: {
+            inputTokens: result.usage.inputTokens,
+            outputTokens: result.usage.outputTokens,
+            reasoningTokens: result.usage.reasoningTokens,
+            cachedTokens: result.usage.cachedTokens,
+          },
+        },
+      };
     } catch (err) {
       return {
         success: false,

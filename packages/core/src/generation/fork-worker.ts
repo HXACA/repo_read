@@ -2,6 +2,7 @@ import type { LanguageModel, ToolSet } from "ai";
 import type { StepInfo } from "../agent/agent-loop.js";
 import type { ForkWorkerResult } from "../types/agent.js";
 import type { CitationKind } from "../types/generation.js";
+import type { UsageInput } from "../utils/usage-tracker.js";
 import { buildForkWorkerSystemPrompt, buildForkWorkerUserPrompt } from "./fork-worker-prompt.js";
 import type { ForkWorkerInput } from "./fork-worker-prompt.js";
 import { createCatalogTools } from "../catalog/catalog-tools.js";
@@ -14,6 +15,7 @@ export type ForkWorkerResponse = {
   success: boolean;
   data?: ForkWorkerResult;
   error?: string;
+  metrics?: { llmCalls: number; usage: UsageInput };
 };
 
 export type ForkWorkerOptions = {
@@ -66,7 +68,19 @@ export class ForkWorker {
         onStep: this.onStep,
       });
 
-      return this.parseOutput(result.text);
+      const parsed = this.parseOutput(result.text);
+      return {
+        ...parsed,
+        metrics: {
+          llmCalls: 1,
+          usage: {
+            inputTokens: result.usage.inputTokens,
+            outputTokens: result.usage.outputTokens,
+            reasoningTokens: result.usage.reasoningTokens,
+            cachedTokens: result.usage.cachedTokens,
+          },
+        },
+      };
     } catch (err) {
       return { success: false, error: `Fork worker failed: ${(err as Error).message}` };
     }

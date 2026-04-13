@@ -2,6 +2,7 @@ import type { LanguageModel, ToolSet } from "ai";
 import type { StepInfo } from "../agent/agent-loop.js";
 import type { MainAuthorContext } from "../types/agent.js";
 import type { CitationRecord } from "../types/generation.js";
+import type { UsageInput } from "../utils/usage-tracker.js";
 import { buildPageDraftSystemPrompt, buildPageDraftUserPrompt } from "./page-drafter-prompt.js";
 import type { PageDraftPromptInput } from "./page-drafter-prompt.js";
 import { createCatalogTools } from "../catalog/catalog-tools.js";
@@ -25,6 +26,7 @@ export type PageDraftResult = {
    * "shorten the page" retry cycle before the reviewer runs.
    */
   truncated?: boolean;
+  metrics?: { llmCalls: number; usage: UsageInput };
 };
 
 export type PageDrafterOptions = {
@@ -147,6 +149,15 @@ export class PageDrafter {
       if (finishReason === "length") {
         parsed.truncated = true;
       }
+      parsed.metrics = {
+        llmCalls: 1,
+        usage: {
+          inputTokens: result.usage.inputTokens,
+          outputTokens: result.usage.outputTokens,
+          reasoningTokens: result.usage.reasoningTokens,
+          cachedTokens: result.usage.cachedTokens,
+        },
+      };
       return parsed;
     } catch (err) {
       return { success: false, error: `Page drafting failed: ${(err as Error).message}` };

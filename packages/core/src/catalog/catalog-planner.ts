@@ -2,6 +2,7 @@ import type { LanguageModel, ToolSet } from "ai";
 import type { StepInfo } from "../agent/agent-loop.js";
 import type { RepoProfile } from "../types/project.js";
 import type { WikiJson } from "../types/generation.js";
+import type { UsageInput } from "../utils/usage-tracker.js";
 import { buildCatalogSystemPrompt, buildCatalogUserPrompt } from "./catalog-prompt.js";
 import { createCatalogTools } from "./catalog-tools.js";
 import { extractJson } from "../utils/extract-json.js";
@@ -24,6 +25,7 @@ export type CatalogPlanResult = {
   wiki?: WikiJson;
   error?: string;
   usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
+  metrics?: { llmCalls: number; usage: UsageInput };
 };
 
 export class CatalogPlanner {
@@ -85,6 +87,15 @@ export class CatalogPlanner {
             promptTokens: result.usage.inputTokens,
             completionTokens: result.usage.outputTokens,
             totalTokens: result.usage.inputTokens + result.usage.outputTokens,
+          },
+          metrics: {
+            llmCalls: 1,
+            usage: {
+              inputTokens: result.usage.inputTokens,
+              outputTokens: result.usage.outputTokens,
+              reasoningTokens: result.usage.reasoningTokens,
+              cachedTokens: result.usage.cachedTokens,
+            },
           },
         };
       } catch (err) {

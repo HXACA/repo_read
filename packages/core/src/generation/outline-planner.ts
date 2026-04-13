@@ -1,5 +1,6 @@
 import type { LanguageModel, ToolSet } from "ai";
 import type { PageOutline, PageOutlineSection } from "../types/agent.js";
+import type { UsageInput } from "../utils/usage-tracker.js";
 import { extractJson } from "../utils/extract-json.js";
 import type { ProviderCallOptions } from "../runtime/turn-types.js";
 import { PromptAssembler } from "../prompt/assembler.js";
@@ -27,6 +28,12 @@ export type OutlinePlannerOptions = {
   onStep?: (step: import("../agent/agent-loop.js").StepInfo) => void;
 };
 
+export type OutlinePlanResult = {
+  outline: PageOutline;
+  usedFallback: boolean;
+  metrics: { llmCalls: number; usage: UsageInput };
+};
+
 /**
  * Produces a structured outline that maps page sections to evidence
  * entries. Sits between evidence collection and drafting so the drafter
@@ -50,6 +57,10 @@ export class OutlinePlanner {
   }
 
   async plan(input: OutlinePlannerInput): Promise<PageOutline> {
+    return (await this.planWithMetrics(input)).outline;
+  }
+
+  async planWithMetrics(input: OutlinePlannerInput): Promise<OutlinePlanResult> {
     const systemPrompt = `You are a documentation outline planner. Given a page topic, its evidence (file citations and findings), produce a structured JSON outline.
 
 Rules:
@@ -91,14 +102,33 @@ Schema:
       if (parsed && Array.isArray(parsed.sections)) {
         const outline = this.parseOutline(parsed.sections);
         if (outline.sections.length >= 2) {
-          return outline;
+          return {
+            outline,
+            usedFallback: false,
+            metrics: {
+              llmCalls: 1,
+              usage: {
+                inputTokens: result.usage.inputTokens,
+                outputTokens: result.usage.outputTokens,
+                reasoningTokens: result.usage.reasoningTokens,
+                cachedTokens: result.usage.cachedTokens,
+              },
+            },
+          };
         }
       }
     } catch {
       // fall through to fallback
     }
 
-    return this.fallbackOutline(input);
+    return {
+      outline: this.fallbackOutline(input),
+      usedFallback: true,
+      metrics: {
+        llmCalls: 0,
+        usage: { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 },
+      },
+    };
   }
 
   private buildUserPrompt(input: OutlinePlannerInput): string {

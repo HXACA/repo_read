@@ -21,6 +21,13 @@ import { EvidenceCoordinator, type EvidenceCollectionResult } from "./evidence-c
 import { OutlinePlanner } from "./outline-planner.js";
 import type { PageOutline } from "../types/agent.js";
 import { ArtifactStore } from "../artifacts/artifact-store.js";
+import {
+  ThroughputReportBuilder,
+  zeroPhaseMetric,
+  zeroUsage as zeroThroughputUsage,
+  type PhaseMetric,
+  type PageThroughputRecord,
+} from "./throughput-metrics.js";
 import type { PageRef, VersionedPageRef } from "../artifacts/types.js";
 import { computeComplexity } from "./complexity-scorer.js";
 import { adjustParams, type AdjustedParams } from "./param-adjuster.js";
@@ -129,11 +136,22 @@ export class GenerationPipeline {
     );
     const isResume = !!options.resumeWith;
 
+    const pipelineStartedAt = Date.now();
+    const throughput = new ThroughputReportBuilder();
+
     try {
       // === CATALOG PHASE ===
+      const catalogStartedAt = Date.now();
       const catalogResult = await this.runCatalogPhase(job, emitter, options);
       job = catalogResult.job;
       const wiki = catalogResult.wiki;
+
+      throughput.setCatalog({
+        durationMs: Date.now() - catalogStartedAt,
+        llmCalls: catalogResult.metrics?.llmCalls ?? 0,
+        usage: catalogResult.metrics?.usage ?? { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 },
+        reused: isResume,
+      });
 
       job.summary.totalPages = wiki.reading_order.length;
       if (!isResume) {
@@ -251,6 +269,9 @@ export class GenerationPipeline {
         }
 
         job = pageResult.job;
+        if (pageResult.pageMetrics) {
+          throughput.addPage(pageResult.pageMetrics);
+        }
 
         // Transition: back to page_drafting for next page, or to publishing for last
         if (i < wiki.reading_order.length - 1) {
@@ -272,6 +293,10 @@ export class GenerationPipeline {
       );
 
       await this.artifactStore.saveUsage({ projectSlug: slug, jobId }, this.usageTracker.toJSON()).catch(() => {});
+      await this.artifactStore.saveThroughputMetrics(
+        { projectSlug: slug, jobId },
+        throughput.finish({ totalLatencyMs: Date.now() - pipelineStartedAt }),
+      ).catch(() => {});
       return { success: true, job, usageTracker: this.usageTracker };
     } catch (err) {
       return this.failJob(job, emitter, (err as Error).message);
@@ -286,7 +311,7 @@ export class GenerationPipeline {
     job: GenerationJob,
     emitter: JobEventEmitter,
     options: PipelineRunOptions,
-  ): Promise<{ job: GenerationJob; wiki: WikiJson }> {
+  ): Promise<{ job: GenerationJob; wiki: WikiJson; metrics?: { llmCalls: number; usage: import("../utils/usage-tracker.js").UsageInput } }> {
     const slug = job.projectSlug;
     const jobId = job.id;
     const versionId = job.versionId;
@@ -336,7 +361,7 @@ export class GenerationPipeline {
     await emitter.catalogCompleted(wiki.reading_order.length);
 
     job = await this.jobManager.transition(slug, jobId, "page_drafting");
-    return { job, wiki };
+    return { job, wiki, metrics: catalogResult.metrics };
   }
 
   // ---------------------------------------------------------------------------
@@ -361,7 +386,7 @@ export class GenerationPipeline {
     coordinator: EvidenceCoordinator | null;
     outlinePlanner: OutlinePlanner;
     drafterProviderOpts: ProviderCallOptions;
-  }): Promise<{ success: boolean; job: GenerationJob; error?: string }> {
+  }): Promise<{ success: boolean; job: GenerationJob; error?: string; pageMetrics?: PageThroughputRecord }> {
     const {
       page, pageIndex: i, wiki, slug, jobId, versionId, emitter,
       publishedSummaries, knownPages, qp, allowBash, drafter, reviewer,
@@ -406,6 +431,7 @@ export class GenerationPipeline {
 
     job = await this.jobManager.updatePage(slug, jobId, page.slug, i + 1);
 
+    const pageStartedAt = Date.now();
     let draftResult: Awaited<ReturnType<typeof drafter.draft>> | null = null;
     let reviewResult: Awaited<ReturnType<typeof reviewer.review>> | null =
       null;
@@ -419,6 +445,12 @@ export class GenerationPipeline {
     const runtimeSignals: import("./param-adjuster.js").RuntimeSignals = {};
     const pageRef: PageRef = { projectSlug: slug, jobId, pageSlug: page.slug };
     const versionedRef: VersionedPageRef = { ...pageRef, versionId };
+
+    // Throughput phase metrics — accumulated across revision attempts
+    let evidenceMetric: PhaseMetric = zeroPhaseMetric();
+    let outlineMetric: PhaseMetric = zeroPhaseMetric();
+    let draftMetric: PhaseMetric = zeroPhaseMetric();
+    let reviewMetric: PhaseMetric = zeroPhaseMetric();
 
     while (true) {
       reviewUnverified = false;
@@ -435,6 +467,11 @@ export class GenerationPipeline {
           // Skip to drafting
           await emitter.pageEvidencePlanned(page.slug, evidenceResult.plan?.tasks?.length ?? 0, false);
           await emitter.pageEvidenceCollected(page.slug, evidenceResult.ledger.length, 0, 0);
+          // Mark as reused for throughput tracking
+          evidenceMetric = { llmCalls: 0, durationMs: 0, usage: { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 }, reused: true };
+          if (existingOutline) {
+            outlineMetric = { llmCalls: 0, durationMs: 0, usage: { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 }, reused: true };
+          }
         }
       }
 
@@ -454,6 +491,7 @@ export class GenerationPipeline {
 
       if (shouldCollectEvidence) {
         evidenceJustCollected = true;
+        const evidenceStartedAt = Date.now();
         evidenceResult = await coordinator!.collect({
           pageTitle: page.title,
           pageRationale: page.rationale,
@@ -504,6 +542,11 @@ export class GenerationPipeline {
           pageRef,
           { ledger: evidenceResult.ledger, findings: evidenceResult.findings, openQuestions: evidenceResult.openQuestions, failedTaskIds: evidenceResult.failedTaskIds },
         );
+        evidenceMetric = {
+          durationMs: Date.now() - evidenceStartedAt,
+          llmCalls: evidenceResult.metrics.llmCalls,
+          usage: evidenceResult.metrics.usage,
+        };
       }
 
       // === OUTLINE PLANNING ===
@@ -511,7 +554,8 @@ export class GenerationPipeline {
       // evidence was just re-collected on a retry (the evidence base
       // changed, so the outline should reflect the new findings).
       if (evidenceResult && (outline === null || evidenceJustCollected)) {
-        outline = await outlinePlanner.plan({
+        const outlineStartedAt = Date.now();
+        const outlineResult = await outlinePlanner.planWithMetrics({
           pageTitle: page.title,
           pageRationale: page.rationale,
           coveredFiles: page.covered_files,
@@ -519,6 +563,12 @@ export class GenerationPipeline {
           ledger: evidenceResult.ledger,
           findings: evidenceResult.findings,
         });
+        outline = outlineResult.outline;
+        outlineMetric = {
+          durationMs: Date.now() - outlineStartedAt,
+          llmCalls: outlineResult.metrics.llmCalls,
+          usage: outlineResult.metrics.usage,
+        };
         if (outline) {
           await this.artifactStore.saveOutline(pageRef, outline);
         }
@@ -578,6 +628,7 @@ export class GenerationPipeline {
           })
         : drafter;
 
+      const draftStartedAt = Date.now();
       draftResult = await activeDrafter.draft(authorContext, {
         slug: page.slug,
         title: page.title,
@@ -585,6 +636,11 @@ export class GenerationPipeline {
         coveredFiles: page.covered_files,
         language: this.config.language,
       });
+      draftMetric = {
+        durationMs: Date.now() - draftStartedAt,
+        llmCalls: draftResult.metrics?.llmCalls ?? 0,
+        usage: draftResult.metrics?.usage ?? { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 },
+      };
 
       if (
         !draftResult.success ||
@@ -662,6 +718,7 @@ export class GenerationPipeline {
         } : {}),
       };
 
+      const reviewStartedAt = Date.now();
       try {
         reviewResult = await reviewer.review(briefing);
       } catch (reviewErr) {
@@ -670,6 +727,11 @@ export class GenerationPipeline {
           error: `Review threw: ${(reviewErr as Error).message}`,
         };
       }
+      reviewMetric = {
+        durationMs: Date.now() - reviewStartedAt,
+        llmCalls: reviewResult.metrics?.llmCalls ?? 0,
+        usage: reviewResult.metrics?.usage ?? { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 },
+      };
 
       if (!reviewResult.success || !reviewResult.conclusion) {
         // Synthesize an unverified pass so the page can proceed.
@@ -730,6 +792,7 @@ export class GenerationPipeline {
     // --- VALIDATE ---
     job = await this.jobManager.transition(slug, jobId, "validating");
 
+    const validateStartedAt = Date.now();
     const validationResult = validatePage({
       markdown: finalDraft.markdown!,
       citations: finalDraft.metadata!.citations,
@@ -737,6 +800,11 @@ export class GenerationPipeline {
       knownPages,
       pageSlug: page.slug,
     });
+    const validateMetric: PhaseMetric = {
+      durationMs: Date.now() - validateStartedAt,
+      llmCalls: 0,
+      usage: { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 },
+    };
 
     await this.artifactStore.saveValidation(pageRef, validationResult);
     await emitter.pageValidated(page.slug, validationResult.passed);
@@ -808,7 +876,32 @@ export class GenerationPipeline {
     job.summary.succeededPages = (job.summary.succeededPages ?? 0) + 1;
     await this.persistJobSummary(job);
 
-    return { success: true, job };
+    // Build page throughput record
+    const pageUsage = zeroThroughputUsage();
+    for (const pm of [evidenceMetric, outlineMetric, draftMetric, reviewMetric, validateMetric]) {
+      pageUsage.inputTokens += pm.usage.inputTokens;
+      pageUsage.outputTokens += pm.usage.outputTokens;
+      pageUsage.reasoningTokens += pm.usage.reasoningTokens;
+      pageUsage.cachedTokens += pm.usage.cachedTokens;
+      pageUsage.requests += pm.llmCalls;
+    }
+    const pageMetrics: PageThroughputRecord = {
+      pageSlug: page.slug,
+      lane: "standard",
+      totalLatencyMs: Date.now() - pageStartedAt,
+      revisionAttempts: attempt,
+      escalatedToDeepLane: false,
+      phases: {
+        evidence: evidenceMetric,
+        outline: outlineMetric,
+        draft: draftMetric,
+        review: reviewMetric,
+        validate: validateMetric,
+      },
+      usage: pageUsage,
+    };
+
+    return { success: true, job, pageMetrics };
   }
 
   // ---------------------------------------------------------------------------

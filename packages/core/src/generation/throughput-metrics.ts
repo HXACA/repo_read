@@ -1,4 +1,5 @@
 import type { UsageBucket } from "../utils/usage-tracker.js";
+import type { UsageInput } from "../utils/usage-tracker.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -9,6 +10,42 @@ export type ExecutionLane = "fast" | "standard" | "deep";
 export type StageMetrics = {
   durationMs: number;
   usage: UsageBucket;
+};
+
+/** Per-phase metric recorded by the pipeline for throughput reports. */
+export type PhaseMetric = {
+  llmCalls: number;
+  durationMs: number;
+  usage: UsageInput;
+  reused?: boolean;
+};
+
+/** Per-page throughput record with phase-level breakdown. */
+export type PageThroughputRecord = {
+  pageSlug: string;
+  lane: ExecutionLane;
+  totalLatencyMs: number;
+  revisionAttempts: number;
+  escalatedToDeepLane: boolean;
+  phases: {
+    evidence: PhaseMetric;
+    outline: PhaseMetric;
+    draft: PhaseMetric;
+    review: PhaseMetric;
+    validate: PhaseMetric;
+  };
+  usage: UsageBucket;
+};
+
+/** Top-level throughput report persisted as throughput.json. */
+export type ThroughputReport = {
+  catalog: PhaseMetric;
+  pages: PageThroughputRecord[];
+  totals: {
+    llmCalls: number;
+    durationMs: number;
+    usage: UsageBucket;
+  };
 };
 
 export type PageThroughputMetrics = {
@@ -167,6 +204,65 @@ export class ThroughputMetricsCollector {
       pages: this.pages,
       byLane,
       totalUsage,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ThroughputReportBuilder — builds the throughput.json report
+// ---------------------------------------------------------------------------
+
+export function zeroPhaseMetric(): PhaseMetric {
+  return { llmCalls: 0, durationMs: 0, usage: { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 } };
+}
+
+/**
+ * Builds the `ThroughputReport` that gets persisted as `throughput.json`.
+ * The pipeline creates one instance per job run, records the catalog phase,
+ * then adds page-level throughput records as each page completes.
+ */
+export class ThroughputReportBuilder {
+  private catalog: PhaseMetric = zeroPhaseMetric();
+  private readonly pageRecords: PageThroughputRecord[] = [];
+
+  setCatalog(metric: PhaseMetric): void {
+    this.catalog = metric;
+  }
+
+  addPage(record: PageThroughputRecord): void {
+    this.pageRecords.push(record);
+  }
+
+  finish(opts: { totalLatencyMs: number }): ThroughputReport {
+    let totalLlmCalls = this.catalog.llmCalls;
+    const totalUsage = zeroUsage();
+
+    // Add catalog usage
+    totalUsage.inputTokens += this.catalog.usage.inputTokens;
+    totalUsage.outputTokens += this.catalog.usage.outputTokens;
+    totalUsage.reasoningTokens += this.catalog.usage.reasoningTokens;
+    totalUsage.cachedTokens += this.catalog.usage.cachedTokens;
+    totalUsage.requests += this.catalog.llmCalls;
+
+    for (const page of this.pageRecords) {
+      for (const phase of Object.values(page.phases)) {
+        totalLlmCalls += phase.llmCalls;
+        totalUsage.inputTokens += phase.usage.inputTokens;
+        totalUsage.outputTokens += phase.usage.outputTokens;
+        totalUsage.reasoningTokens += phase.usage.reasoningTokens;
+        totalUsage.cachedTokens += phase.usage.cachedTokens;
+        totalUsage.requests += phase.llmCalls;
+      }
+    }
+
+    return {
+      catalog: this.catalog,
+      pages: this.pageRecords,
+      totals: {
+        llmCalls: totalLlmCalls,
+        durationMs: opts.totalLatencyMs,
+        usage: totalUsage,
+      },
     };
   }
 }
