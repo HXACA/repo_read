@@ -95,6 +95,15 @@ export class ArtifactStore {
     await fs.writeFile(usagePath, json, "utf-8");
   }
 
+  // --- Catalog (wiki.json) ---
+
+  async saveWikiJson(ref: JobRef & { versionId: string }, data: unknown): Promise<void> {
+    return this.storage.writeJson(
+      this.storage.paths.draftWikiJson(ref.projectSlug, ref.jobId, ref.versionId),
+      data,
+    );
+  }
+
   // --- Published Index ---
 
   async loadPublishedIndex<T = unknown>(ref: JobRef): Promise<T | null> {

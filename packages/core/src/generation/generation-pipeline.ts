@@ -332,7 +332,7 @@ export class GenerationPipeline {
       );
     }
 
-    await persistCatalog(this.storage, slug, jobId, versionId, wiki);
+    await persistCatalog(this.artifactStore, slug, jobId, versionId, wiki);
     await emitter.catalogCompleted(wiki.reading_order.length);
 
     job = await this.jobManager.transition(slug, jobId, "page_drafting");

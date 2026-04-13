@@ -4,11 +4,13 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { persistCatalog } from "../catalog-persister.js";
 import { StorageAdapter } from "../../storage/storage-adapter.js";
+import { ArtifactStore } from "../../artifacts/artifact-store.js";
 import type { WikiJson } from "../../types/generation.js";
 
 describe("persistCatalog", () => {
   let tmpDir: string;
   let storage: StorageAdapter;
+  let artifactStore: ArtifactStore;
   const wiki: WikiJson = {
     summary: "A test project for unit testing",
     reading_order: [
@@ -21,6 +23,7 @@ describe("persistCatalog", () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "reporead-persist-"));
     storage = new StorageAdapter(tmpDir);
     await storage.initialize();
+    artifactStore = new ArtifactStore(storage);
   });
 
   afterEach(async () => {
@@ -28,7 +31,7 @@ describe("persistCatalog", () => {
   });
 
   it("writes wiki.json to draft directory", async () => {
-    await persistCatalog(storage, "proj", "job-1", "v1", wiki);
+    await persistCatalog(artifactStore, "proj", "job-1", "v1", wiki);
     const filePath = storage.paths.draftWikiJson("proj", "job-1", "v1");
     const content = await fs.readFile(filePath, "utf-8");
     const parsed = JSON.parse(content);
@@ -37,7 +40,7 @@ describe("persistCatalog", () => {
   });
 
   it("reading_order is preserved in order", async () => {
-    await persistCatalog(storage, "proj", "job-1", "v1", wiki);
+    await persistCatalog(artifactStore, "proj", "job-1", "v1", wiki);
     const filePath = storage.paths.draftWikiJson("proj", "job-1", "v1");
     const parsed = JSON.parse(await fs.readFile(filePath, "utf-8"));
     expect(parsed.reading_order[0].slug).toBe("overview");
