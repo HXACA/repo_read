@@ -36,6 +36,7 @@ export type FreshReviewerOptions = {
    * - `lenient` only gates on hard blockers that actively mislead
    */
   strictness?: ReviewerStrictness;
+  onStep?: (step: import("../agent/agent-loop.js").StepInfo) => void;
 };
 
 export class FreshReviewer {
@@ -44,6 +45,7 @@ export class FreshReviewer {
   private readonly maxSteps: number;
   private readonly verifyMinCitations: number;
   private readonly strictness: ReviewerStrictness;
+  private readonly onStep?: (step: import("../agent/agent-loop.js").StepInfo) => void;
 
   constructor(options: FreshReviewerOptions) {
     this.model = options.model;
@@ -51,6 +53,7 @@ export class FreshReviewer {
     this.maxSteps = options.maxSteps ?? 10;
     this.verifyMinCitations = options.verifyMinCitations ?? 0;
     this.strictness = options.strictness ?? "normal";
+    this.onStep = options.onStep;
   }
 
   async review(briefing: ReviewBriefing): Promise<ReviewResult> {
@@ -67,6 +70,7 @@ export class FreshReviewer {
         system: systemPrompt,
         tools: tools as unknown as ToolSet,
         maxSteps: this.maxSteps,
+        onStep: this.onStep,
       }, userPrompt);
 
       return this.parseOutput(result.text);

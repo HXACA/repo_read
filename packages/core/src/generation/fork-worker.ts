@@ -17,17 +17,20 @@ export type ForkWorkerOptions = {
   model: LanguageModel;
   repoRoot: string;
   maxSteps?: number;
+  onStep?: (step: import("../agent/agent-loop.js").StepInfo) => void;
 };
 
 export class ForkWorker {
   private readonly model: LanguageModel;
   private readonly repoRoot: string;
   private readonly maxSteps: number;
+  private readonly onStep?: (step: import("../agent/agent-loop.js").StepInfo) => void;
 
   constructor(options: ForkWorkerOptions) {
     this.model = options.model;
     this.repoRoot = options.repoRoot;
     this.maxSteps = options.maxSteps ?? 8;
+    this.onStep = options.onStep;
   }
 
   async execute(input: ForkWorkerInput): Promise<ForkWorkerResponse> {
@@ -41,6 +44,7 @@ export class ForkWorker {
         system: systemPrompt,
         tools: tools as unknown as ToolSet,
         maxSteps: this.maxSteps,
+        onStep: this.onStep,
       }, userPrompt);
 
       return this.parseOutput(result.text);

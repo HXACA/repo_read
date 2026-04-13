@@ -16,6 +16,7 @@ export type EvidenceCoordinatorOptions = {
   repoRoot: string;
   concurrency: number;
   workerMaxSteps?: number;
+  onWorkerStep?: (step: import("../agent/agent-loop.js").StepInfo) => void;
 };
 
 export type CollectInput = {
@@ -70,6 +71,7 @@ export class EvidenceCoordinator {
         model: options.workerModel,
         repoRoot: options.repoRoot,
         maxSteps: options.workerMaxSteps,
+        onStep: options.onWorkerStep,
       });
     this.concurrency = Math.max(1, options.concurrency);
   }

@@ -21,6 +21,7 @@ export type OutlinePlannerInput = {
 
 export type OutlinePlannerOptions = {
   model: LanguageModel;
+  onStep?: (step: import("../agent/agent-loop.js").StepInfo) => void;
 };
 
 /**
@@ -34,9 +35,11 @@ export type OutlinePlannerOptions = {
  */
 export class OutlinePlanner {
   private readonly model: LanguageModel;
+  private readonly onStep?: (step: import("../agent/agent-loop.js").StepInfo) => void;
 
   constructor(options: OutlinePlannerOptions) {
     this.model = options.model;
+    this.onStep = options.onStep;
   }
 
   async plan(input: OutlinePlannerInput): Promise<PageOutline> {
@@ -68,6 +71,7 @@ Schema:
         system: systemPrompt,
         tools: {},
         maxSteps: 1,
+        onStep: this.onStep,
       }, userPrompt);
 
       const parsed = extractJson(result.text);

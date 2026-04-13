@@ -11,6 +11,7 @@ import {
   JobStateManager,
   createModelForRole,
   setDebugDir,
+  UsageTracker,
 } from "@reporead/core";
 import type {
   GenerationJob,
@@ -202,6 +203,7 @@ export async function runGenerate(options: GenerateOptions): Promise<void> {
   // Update debug dir to job-specific path now that we have the job ID
   if (isDebug) setDebugDir(path.join(storage.paths.jobDir(slug, job.id), "debug"));
 
+  const usageTracker = new UsageTracker();
   const pipeline = new GenerationPipeline({
     storage,
     jobManager,
@@ -213,6 +215,7 @@ export async function runGenerate(options: GenerateOptions): Promise<void> {
     reviewerModel,
     repoRoot,
     commitHash,
+    usageTracker,
   });
 
   const progress = new ProgressRenderer();
@@ -258,6 +261,11 @@ export async function runGenerate(options: GenerateOptions): Promise<void> {
   });
 
   progress.printSummary(result.success, result.job);
+
+  if (result.usageTracker) {
+    console.log(result.usageTracker.formatDisplay());
+    console.log();
+  }
 
   if (!result.success) {
     process.exitCode = 1;

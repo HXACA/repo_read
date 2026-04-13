@@ -6,7 +6,7 @@ export type { UserEditableConfigInput } from "./config/index.js";
 export { loadProjectConfig, saveProjectConfig, resolveConfig, resolveApiKeys } from "./config/index.js";
 export { SecretStore } from "./secrets/index.js";
 export type { SecretBackend, SecretStoreOptions } from "./secrets/index.js";
-export { ProviderCenter, getStaticCapabilities, buildFallbackChain, createModelForRole } from "./providers/index.js";
+export { ProviderCenter, getStaticCapabilities, buildFallbackChain, createModelForRole, getModelOptionsForRole } from "./providers/index.js";
 export type { ModelFactoryOptions } from "./providers/index.js";
 export { StoragePaths, StorageAdapter } from "./storage/index.js";
 export { ProjectModel } from "./project/index.js";
@@ -28,6 +28,7 @@ export type {
 } from "./generation/index.js";
 export { PathPolicy, validateBashCommand } from "./policy/index.js";
 export { setDebugDir } from "./utils/debug-fetch.js";
+export { setModelOptions, buildResponsesProviderOptions } from "./utils/generate-via-stream.js";
 export type { BashValidationResult } from "./policy/index.js";
 export {
   readFile, grepSearch, findFiles,
@@ -61,3 +62,8 @@ export type {
 
 export { CitationLedger } from "./wiki/index.js";
 export type { PageCitations } from "./wiki/index.js";
+
+export { UsageTracker } from "./utils/usage-tracker.js";
+export type { UsageBucket, UsageInput, JobUsage } from "./utils/usage-tracker.js";
+export { runAgentLoop, runAgentLoopStream } from "./agent/agent-loop.js";
+export type { AgentLoopOptions, AgentLoopResult, AgentLoopEvent, StepInfo } from "./agent/agent-loop.js";
