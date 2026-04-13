@@ -61,8 +61,7 @@ type ToolResultPart = {
   type: "tool-result";
   toolCallId: string;
   toolName: string;
-  input: unknown;
-  output: string;
+  output: { type: "text"; value: string };
 };
 
 export type AgentLoopEvent =
@@ -300,13 +299,12 @@ export async function runAgentLoop(
     // Execute tools and append results
     const toolResults: ToolResultPart[] = [];
     for (const tc of toolCalls) {
-      const output = await executeTool(tools, tc.toolName, tc.args);
+      const raw = await executeTool(tools, tc.toolName, tc.args);
       toolResults.push({
         type: "tool-result",
         toolCallId: tc.toolCallId,
         toolName: tc.toolName,
-        input: tc.args,
-        output,
+        output: { type: "text", value: raw },
       });
     }
     messages.push({ role: "tool", content: toolResults });
@@ -418,15 +416,14 @@ export async function* runAgentLoopStream(
     // Execute tools and yield results
     const toolResults: ToolResultPart[] = [];
     for (const tc of toolCalls) {
-      const output = await executeTool(tools, tc.toolName, tc.args);
+      const raw = await executeTool(tools, tc.toolName, tc.args);
       toolResults.push({
         type: "tool-result",
         toolCallId: tc.toolCallId,
         toolName: tc.toolName,
-        input: tc.args,
-        output,
+        output: { type: "text", value: raw },
       });
-      yield { type: "tool-result", name: tc.toolName, output };
+      yield { type: "tool-result", name: tc.toolName, output: raw };
     }
     messages.push({ role: "tool", content: toolResults });
   }

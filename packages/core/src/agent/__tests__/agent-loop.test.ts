@@ -347,7 +347,7 @@ describe("runAgentLoop", () => {
     const toolMsg = result.messages.find((m) => m.role === "tool");
     expect(toolMsg).toBeDefined();
     const toolContent = (toolMsg as any).content[0];
-    expect(toolContent.output).toBe("Error: disk is full");
+    expect(toolContent.output).toEqual({ type: "text", value: "Error: disk is full" });
   });
 });
 
