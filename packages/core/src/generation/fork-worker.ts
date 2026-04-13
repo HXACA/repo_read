@@ -1,11 +1,13 @@
 import type { LanguageModel, ToolSet } from "ai";
-import { runAgentLoop } from "../agent/agent-loop.js";
+import type { StepInfo } from "../agent/agent-loop.js";
 import type { ForkWorkerResult } from "../types/agent.js";
 import type { CitationKind } from "../types/generation.js";
 import { buildForkWorkerSystemPrompt, buildForkWorkerUserPrompt } from "./fork-worker-prompt.js";
 import type { ForkWorkerInput } from "./fork-worker-prompt.js";
 import { createCatalogTools } from "../catalog/catalog-tools.js";
 import { extractJson } from "../utils/extract-json.js";
+import { PromptAssembler } from "../prompt/assembler.js";
+import { TurnEngineAdapter } from "../runtime/turn-engine.js";
 
 export type ForkWorkerResponse = {
   success: boolean;
@@ -18,7 +20,7 @@ export type ForkWorkerOptions = {
   repoRoot: string;
   maxSteps?: number;
   allowBash?: boolean;
-  onStep?: (step: import("../agent/agent-loop.js").StepInfo) => void;
+  onStep?: (step: StepInfo) => void;
 };
 
 export class ForkWorker {
@@ -26,7 +28,9 @@ export class ForkWorker {
   private readonly repoRoot: string;
   private readonly maxSteps: number;
   private readonly allowBash: boolean;
-  private readonly onStep?: (step: import("../agent/agent-loop.js").StepInfo) => void;
+  private readonly onStep?: (step: StepInfo) => void;
+  private readonly promptAssembler: PromptAssembler;
+  private readonly turnEngine: TurnEngineAdapter;
 
   constructor(options: ForkWorkerOptions) {
     this.model = options.model;
@@ -34,6 +38,8 @@ export class ForkWorker {
     this.maxSteps = options.maxSteps ?? 8;
     this.allowBash = options.allowBash ?? true;
     this.onStep = options.onStep;
+    this.promptAssembler = new PromptAssembler();
+    this.turnEngine = new TurnEngineAdapter();
   }
 
   async execute(input: ForkWorkerInput): Promise<ForkWorkerResponse> {
@@ -42,13 +48,21 @@ export class ForkWorker {
     const tools = createCatalogTools(this.repoRoot, { allowBash: this.allowBash });
 
     try {
-      const result = await runAgentLoop({
+      const assembled = this.promptAssembler.assemble({ role: "worker", language: "en", systemPrompt, userPrompt });
+      const result = await this.turnEngine.run({
+        purpose: "worker",
         model: this.model,
-        system: systemPrompt,
+        systemPrompt: assembled.system,
+        userPrompt: assembled.user,
         tools: tools as unknown as ToolSet,
-        maxSteps: this.maxSteps,
+        policy: {
+          maxSteps: this.maxSteps,
+          retry: { maxRetries: 0, baseDelayMs: 0, backoffFactor: 1 },
+          overflow: { strategy: "none" },
+          toolBatch: { strategy: "sequential" },
+        },
         onStep: this.onStep,
-      }, userPrompt);
+      });
 
       return this.parseOutput(result.text);
     } catch (err) {

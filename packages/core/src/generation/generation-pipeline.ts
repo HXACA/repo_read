@@ -20,6 +20,8 @@ import { Publisher } from "./publisher.js";
 import { EvidenceCoordinator, type EvidenceCollectionResult } from "./evidence-coordinator.js";
 import { OutlinePlanner } from "./outline-planner.js";
 import type { PageOutline } from "../types/agent.js";
+import { ArtifactStore } from "../artifacts/artifact-store.js";
+import type { PageRef } from "../artifacts/types.js";
 import { computeComplexity } from "./complexity-scorer.js";
 import { adjustParams, type AdjustedParams } from "./param-adjuster.js";
 import { setCacheKey, setModelOptions } from "../utils/generate-via-stream.js";
@@ -85,6 +87,7 @@ export class GenerationPipeline {
   private readonly repoRoot: string;
   private readonly commitHash: string;
   private readonly usageTracker: UsageTracker;
+  private readonly artifactStore: ArtifactStore;
 
   constructor(options: GenerationPipelineOptions) {
     this.storage = options.storage;
@@ -98,6 +101,7 @@ export class GenerationPipeline {
     this.repoRoot = options.repoRoot;
     this.commitHash = options.commitHash;
     this.usageTracker = options.usageTracker ?? new UsageTracker();
+    this.artifactStore = new ArtifactStore(this.storage);
   }
 
   async run(
@@ -310,12 +314,13 @@ export class GenerationPipeline {
 
           // === RESUME: load existing evidence + outline from disk ===
           if (attempt === 0 && !evidenceResult) {
+            const pageRef: PageRef = { projectSlug: slug, jobId, pageSlug: page.slug };
             // eslint-disable-next-line @typescript-eslint/no-explicit-any -- reading JSON blob of unknown structure
-            const existing = await this.storage.readJson<any>(this.storage.paths.evidenceJson(slug, jobId, page.slug));
+            const existing = await this.artifactStore.loadEvidence<any>(pageRef);
             if (existing && existing.ledger) {
               evidenceResult = existing as EvidenceCollectionResult;
               // Also try loading outline
-              const existingOutline = await this.storage.readJson<PageOutline>(this.storage.paths.outlineJson(slug, jobId, page.slug));
+              const existingOutline = await this.artifactStore.loadOutline<PageOutline>(pageRef);
               if (existingOutline) outline = existingOutline;
               // Skip to drafting
               await emitter.pageEvidencePlanned(page.slug, evidenceResult.plan?.tasks?.length ?? 0, false);
@@ -386,8 +391,8 @@ export class GenerationPipeline {
               evidenceResult.plan.tasks.length - evidenceResult.failedTaskIds.length,
               evidenceResult.failedTaskIds.length,
             );
-            await this.storage.writeJson(
-              this.storage.paths.evidenceJson(slug, jobId, page.slug),
+            await this.artifactStore.saveEvidence(
+              { projectSlug: slug, jobId, pageSlug: page.slug },
               { ledger: evidenceResult.ledger, findings: evidenceResult.findings, openQuestions: evidenceResult.openQuestions, failedTaskIds: evidenceResult.failedTaskIds },
             );
           }
@@ -407,8 +412,8 @@ export class GenerationPipeline {
               findings: evidenceResult.findings,
             });
             if (outline) {
-              await this.storage.writeJson(
-                this.storage.paths.outlineJson(slug, jobId, page.slug),
+              await this.artifactStore.saveOutline(
+                { projectSlug: slug, jobId, pageSlug: page.slug },
                 outline,
               );
             }

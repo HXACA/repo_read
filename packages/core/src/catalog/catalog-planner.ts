@@ -1,11 +1,12 @@
 import type { LanguageModel, ToolSet } from "ai";
-import { runAgentLoop } from "../agent/agent-loop.js";
 import type { StepInfo } from "../agent/agent-loop.js";
 import type { RepoProfile } from "../types/project.js";
 import type { WikiJson } from "../types/generation.js";
 import { buildCatalogSystemPrompt, buildCatalogUserPrompt } from "./catalog-prompt.js";
 import { createCatalogTools } from "./catalog-tools.js";
 import { extractJson } from "../utils/extract-json.js";
+import { PromptAssembler } from "../prompt/assembler.js";
+import { TurnEngineAdapter } from "../runtime/turn-engine.js";
 
 export type CatalogPlannerOptions = {
   model: LanguageModel;
@@ -30,6 +31,8 @@ export class CatalogPlanner {
   private readonly maxRetries: number;
   private readonly allowBash: boolean;
   private readonly onStep?: (step: StepInfo) => void;
+  private readonly promptAssembler: PromptAssembler;
+  private readonly turnEngine: TurnEngineAdapter;
 
   constructor(options: CatalogPlannerOptions) {
     this.model = options.model;
@@ -38,6 +41,8 @@ export class CatalogPlanner {
     this.maxRetries = options.maxRetries ?? 3;
     this.allowBash = options.allowBash ?? true;
     this.onStep = options.onStep;
+    this.promptAssembler = new PromptAssembler();
+    this.turnEngine = new TurnEngineAdapter();
   }
 
   async plan(profile: RepoProfile): Promise<CatalogPlanResult> {
@@ -53,13 +58,21 @@ export class CatalogPlanner {
           userPrompt += `\n\n## Previous Attempt Failed (attempt ${attempt}/${this.maxRetries})\n\nError: ${lastError}\n\nPlease fix the issue and output a valid JSON object with "summary" and "reading_order" fields. Output ONLY the JSON object.`;
         }
 
-        const result = await runAgentLoop({
+        const assembled = this.promptAssembler.assemble({ role: "catalog", language: this.language, systemPrompt, userPrompt });
+        const result = await this.turnEngine.run({
+          purpose: "catalog",
           model: this.model,
-          system: systemPrompt,
+          systemPrompt: assembled.system,
+          userPrompt: assembled.user,
           tools: tools as unknown as ToolSet,
-          maxSteps: this.maxSteps,
+          policy: {
+            maxSteps: this.maxSteps,
+            retry: { maxRetries: 0, baseDelayMs: 0, backoffFactor: 1 },
+            overflow: { strategy: "none" },
+            toolBatch: { strategy: "sequential" },
+          },
           onStep: this.onStep,
-        }, userPrompt);
+        });
 
         const wiki = this.parseWikiJson(result.text);
 
@@ -67,9 +80,9 @@ export class CatalogPlanner {
           success: true,
           wiki,
           usage: {
-            promptTokens: result.totalUsage.inputTokens,
-            completionTokens: result.totalUsage.outputTokens,
-            totalTokens: result.totalUsage.inputTokens + result.totalUsage.outputTokens,
+            promptTokens: result.usage.inputTokens,
+            completionTokens: result.usage.outputTokens,
+            totalTokens: result.usage.inputTokens + result.usage.outputTokens,
           },
         };
       } catch (err) {

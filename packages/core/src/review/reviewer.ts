@@ -1,5 +1,5 @@
 import type { LanguageModel, ToolSet } from "ai";
-import { runAgentLoop } from "../agent/agent-loop.js";
+import type { StepInfo } from "../agent/agent-loop.js";
 import type {
   ReviewBriefing,
   ReviewConclusion,
@@ -12,6 +12,8 @@ import {
 } from "./reviewer-prompt.js";
 import { createCatalogTools } from "../catalog/catalog-tools.js";
 import { extractJson } from "../utils/extract-json.js";
+import { PromptAssembler } from "../prompt/assembler.js";
+import { TurnEngineAdapter } from "../runtime/turn-engine.js";
 
 export type ReviewResult = {
   success: boolean;
@@ -37,7 +39,7 @@ export type FreshReviewerOptions = {
    */
   strictness?: ReviewerStrictness;
   allowBash?: boolean;
-  onStep?: (step: import("../agent/agent-loop.js").StepInfo) => void;
+  onStep?: (step: StepInfo) => void;
 };
 
 export class FreshReviewer {
@@ -47,7 +49,9 @@ export class FreshReviewer {
   private readonly verifyMinCitations: number;
   private readonly strictness: ReviewerStrictness;
   private readonly allowBash: boolean;
-  private readonly onStep?: (step: import("../agent/agent-loop.js").StepInfo) => void;
+  private readonly onStep?: (step: StepInfo) => void;
+  private readonly promptAssembler: PromptAssembler;
+  private readonly turnEngine: TurnEngineAdapter;
 
   constructor(options: FreshReviewerOptions) {
     this.model = options.model;
@@ -57,6 +61,8 @@ export class FreshReviewer {
     this.strictness = options.strictness ?? "normal";
     this.allowBash = options.allowBash ?? true;
     this.onStep = options.onStep;
+    this.promptAssembler = new PromptAssembler();
+    this.turnEngine = new TurnEngineAdapter();
   }
 
   async review(briefing: ReviewBriefing): Promise<ReviewResult> {
@@ -68,13 +74,21 @@ export class FreshReviewer {
     const tools = createCatalogTools(this.repoRoot, { allowBash: this.allowBash });
 
     try {
-      const result = await runAgentLoop({
+      const assembled = this.promptAssembler.assemble({ role: "reviewer", language: "en", systemPrompt, userPrompt });
+      const result = await this.turnEngine.run({
+        purpose: "review",
         model: this.model,
-        system: systemPrompt,
+        systemPrompt: assembled.system,
+        userPrompt: assembled.user,
         tools: tools as unknown as ToolSet,
-        maxSteps: this.maxSteps,
+        policy: {
+          maxSteps: this.maxSteps,
+          retry: { maxRetries: 0, baseDelayMs: 0, backoffFactor: 1 },
+          overflow: { strategy: "none" },
+          toolBatch: { strategy: "sequential" },
+        },
         onStep: this.onStep,
-      }, userPrompt);
+      });
 
       return this.parseOutput(result.text);
     } catch (err) {

@@ -1,11 +1,12 @@
 import type { LanguageModel, ToolSet } from "ai";
-import { runAgentLoop } from "../agent/agent-loop.js";
 import type { StepInfo } from "../agent/agent-loop.js";
 import type { MainAuthorContext } from "../types/agent.js";
 import type { CitationRecord } from "../types/generation.js";
 import { buildPageDraftSystemPrompt, buildPageDraftUserPrompt } from "./page-drafter-prompt.js";
 import type { PageDraftPromptInput } from "./page-drafter-prompt.js";
 import { createCatalogTools } from "../catalog/catalog-tools.js";
+import { PromptAssembler } from "../prompt/assembler.js";
+import { TurnEngineAdapter } from "../runtime/turn-engine.js";
 
 
 export type PageDraftResult = {
@@ -97,6 +98,8 @@ export class PageDrafter {
   private readonly maxOutputTokens?: number;
   private readonly allowBash: boolean;
   private readonly onStep?: (step: StepInfo) => void;
+  private readonly promptAssembler: PromptAssembler;
+  private readonly turnEngine: TurnEngineAdapter;
 
   constructor(options: PageDrafterOptions) {
     this.model = options.model;
@@ -105,6 +108,8 @@ export class PageDrafter {
     this.maxOutputTokens = options.maxOutputTokens;
     this.allowBash = options.allowBash ?? true;
     this.onStep = options.onStep;
+    this.promptAssembler = new PromptAssembler();
+    this.turnEngine = new TurnEngineAdapter();
   }
 
   async draft(
@@ -116,19 +121,27 @@ export class PageDrafter {
     const tools = createCatalogTools(this.repoRoot, { allowBash: this.allowBash });
 
     try {
-      const result = await runAgentLoop({
+      const assembled = this.promptAssembler.assemble({ role: "drafter", language: input.language, systemPrompt, userPrompt });
+      const result = await this.turnEngine.run({
+        purpose: "draft",
         model: this.model,
-        system: systemPrompt,
+        systemPrompt: assembled.system,
+        userPrompt: assembled.user,
         tools: tools as unknown as ToolSet,
-        maxSteps: this.maxSteps,
-        maxOutputTokens: this.maxOutputTokens,
+        policy: {
+          maxSteps: this.maxSteps,
+          ...(this.maxOutputTokens ? { maxOutputTokens: this.maxOutputTokens } : {}),
+          retry: { maxRetries: 0, baseDelayMs: 0, backoffFactor: 1 },
+          overflow: { strategy: "none" },
+          toolBatch: { strategy: "sequential" },
+        },
         onStep: this.onStep,
-      }, userPrompt);
+      });
 
       const parsed = this.parseOutput(result.text);
       // Surface truncation so the pipeline can force a "shorten it" retry
       // before calling the reviewer on half-written content.
-      const finishReason = result.steps[result.steps.length - 1]?.finishReason;
+      const finishReason = result.finishReason;
       if (finishReason === "length") {
         parsed.truncated = true;
       }
