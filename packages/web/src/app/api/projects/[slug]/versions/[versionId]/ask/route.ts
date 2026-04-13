@@ -69,6 +69,7 @@ export async function POST(
     repoRoot,
     language: resolvedConfig.language,
     qualityProfile: resolvedConfig.qualityProfile,
+    allowBash: resolvedConfig.retrieval.allowControlledBash,
   });
 
   // Create SSE stream

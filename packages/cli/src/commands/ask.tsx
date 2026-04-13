@@ -58,6 +58,7 @@ export async function runAsk(options: AskOptions): Promise<void> {
     storage,
     repoRoot,
     qualityProfile: resolvedConfig.qualityProfile,
+    allowBash: resolvedConfig.retrieval.allowControlledBash,
   });
   let sessionId: string | undefined;
 

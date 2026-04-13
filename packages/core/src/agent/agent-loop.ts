@@ -340,8 +340,18 @@ export async function* runAgentLoopStream(
   for (let stepIndex = 0; stepIndex < maxSteps; stepIndex++) {
     const params = buildStreamParams(model, system, messages, tools, maxOutputTokens);
 
-    // Stream creation with retry (only creation, not consumption — can't un-yield).
-    // SSE timeouts during read propagate to the caller which can retry the whole ask.
+    // Design note on streaming retry scope:
+    // withRetry wraps stream CREATION only. Mid-stream failures (SSE timeout,
+    // network drop during fullStream iteration) cannot be retried here because
+    // we've already yielded partial text-deltas to the caller — can't un-yield.
+    //
+    // For the non-streaming runAgentLoop(), withRetry wraps the entire step
+    // (creation + consumption), providing full retry coverage.
+    //
+    // For streaming, mid-stream SSETimeoutError propagates to the caller
+    // (AskStreamService → Web SSE route), which can surface it to the UI
+    // for user-initiated retry. resilient-fetch ensures the error surfaces
+    // within 2 minutes rather than hanging forever.
     const stream = await withRetry(() =>
       Promise.resolve(streamText(params as Parameters<typeof streamText>[0])),
     );

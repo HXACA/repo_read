@@ -67,6 +67,7 @@ export async function runResearch(options: ResearchOptions): Promise<void> {
     repoRoot,
     plannerMaxSteps: Math.max(3, Math.ceil(researchBudget / 2)),
     executorMaxSteps: researchBudget,
+    allowBash: resolvedConfig.retrieval.allowControlledBash,
   });
 
   try {

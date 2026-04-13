@@ -29,6 +29,7 @@ export type ResearchServiceOptions = {
    */
   plannerMaxSteps?: number;
   executorMaxSteps?: number;
+  allowBash?: boolean;
 };
 
 /**
@@ -54,11 +55,13 @@ export class ResearchService {
       model: options.model,
       repoRoot: options.repoRoot,
       maxSteps: options.plannerMaxSteps,
+      allowBash: options.allowBash,
     });
     this.executor = new ResearchExecutor({
       model: options.model,
       repoRoot: options.repoRoot,
       maxSteps: options.executorMaxSteps,
+      allowBash: options.allowBash,
     });
     this.store = new ResearchStore(options.storage);
     this.model = options.model;

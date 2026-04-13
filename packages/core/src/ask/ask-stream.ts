@@ -248,6 +248,7 @@ export class AskStreamService {
       repoRoot: this.repoRoot,
       plannerMaxSteps: plannerBudget,
       executorMaxSteps: researchBudget,
+      allowBash: this.allowBash,
     });
 
     // Signal to the UI that research is running so the thinking indicator
