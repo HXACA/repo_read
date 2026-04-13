@@ -9,6 +9,7 @@ import { AskSessionManager } from "./ask-session.js";
 import type { AskSession } from "../types/events.js";
 import { PromptAssembler } from "../prompt/assembler.js";
 import { TurnEngineAdapter } from "../runtime/turn-engine.js";
+import { ConversationContextManager, type ContextView } from "../context/conversation-context.js";
 
 export type AskOptions = {
   model: LanguageModel;
@@ -36,6 +37,7 @@ export class AskService {
   private readonly allowBash: boolean;
   private readonly promptAssembler = new PromptAssembler();
   private readonly turnEngine = new TurnEngineAdapter();
+  private readonly contextManager = new ConversationContextManager();
 
   constructor(options: AskOptions) {
     this.model = options.model;
@@ -101,9 +103,17 @@ export class AskService {
     // Add user turn
     this.sessionManager.addUserTurn(session.id, question);
 
+    // Load existing turns into context manager and get windowed view
+    const scope = { projectSlug, sessionId: session.id };
+    this.contextManager.loadTurns(
+      scope,
+      session.turns.map((t) => ({ role: t.role, content: t.content })),
+    );
+    const contextView = this.contextManager.getContextView(scope, { maxTurns: 4 });
+
     // Build prompt
     const systemPrompt = this.buildSystemPrompt(route);
-    const userPrompt = this.buildUserPrompt(question, pageContent, wiki, session);
+    const userPrompt = this.buildUserPrompt(question, pageContent, wiki, contextView);
     const assembled = this.promptAssembler.assemble({ role: "ask", language: this.language, systemPrompt, userPrompt });
 
     // Call LLM
@@ -163,7 +173,7 @@ Rules:
     question: string,
     pageContent: string,
     wiki: WikiJson | null,
-    session: AskSession,
+    contextView: ContextView,
   ): string {
     const parts: string[] = [];
 
@@ -176,10 +186,9 @@ Rules:
     }
 
     // Include recent conversation turns for context
-    if (session.turns.length > 0) {
-      const recentTurns = session.turns.slice(-4);
+    if (contextView.turns.length > 0) {
       parts.push("## Recent Conversation");
-      for (const turn of recentTurns) {
+      for (const turn of contextView.turns) {
         parts.push(`**${turn.role}:** ${turn.content}`);
       }
     }

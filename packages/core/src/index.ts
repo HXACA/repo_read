@@ -80,3 +80,6 @@ export type { PromptAssemblyInput, AssembledPrompt, PromptRole } from "./prompt/
 
 export { ArtifactStore } from "./artifacts/index.js";
 export type { PageRef, JobRef, AskSessionRef, ResearchNoteRef } from "./artifacts/index.js";
+
+export { ConversationContextManager } from "./context/index.js";
+export type { ConversationScope, ContextTurn, ContextViewOptions, ContextView } from "./context/index.js";

@@ -10,6 +10,7 @@ import { ResearchService } from "../research/research-service.js";
 import type { LabeledFinding } from "../types/research.js";
 import { PromptAssembler } from "../prompt/assembler.js";
 import { TurnEngineAdapter } from "../runtime/turn-engine.js";
+import { ConversationContextManager, type ContextView } from "../context/conversation-context.js";
 
 export type AskStreamOptions = {
   model: LanguageModel;
@@ -48,6 +49,7 @@ export class AskStreamService {
   private readonly allowBash: boolean;
   private readonly promptAssembler = new PromptAssembler();
   private readonly turnEngine = new TurnEngineAdapter();
+  private readonly contextManager = new ConversationContextManager();
 
   constructor(options: AskStreamOptions) {
     this.model = options.model;
@@ -120,6 +122,14 @@ export class AskStreamService {
 
     this.sessionManager.addUserTurn(session.id, question);
 
+    // Load existing turns into context manager and get windowed view
+    const scope = { projectSlug, sessionId: session.id };
+    this.contextManager.loadTurns(
+      scope,
+      session.turns.map((t) => ({ role: t.role, content: t.content })),
+    );
+    const contextView = this.contextManager.getContextView(scope, { maxTurns: 4 });
+
     try {
       if (route === "research") {
         yield* this.runResearchRoute(
@@ -137,7 +147,7 @@ export class AskStreamService {
         pageContent,
         wiki,
         session.id,
-        session.turns,
+        contextView,
       );
     } catch (err) {
       yield { type: "error", message: (err as Error).message };
@@ -160,14 +170,14 @@ export class AskStreamService {
     pageContent: string,
     wiki: WikiJson | null,
     sessionId: string,
-    turns: Array<{ role: string; content: string }>,
+    contextView: ContextView,
   ): AsyncGenerator<AskStreamEvent> {
     const systemPrompt = this.buildSystemPrompt(route);
     const userPrompt = this.buildUserPrompt(
       question,
       pageContent,
       wiki,
-      turns,
+      contextView,
     );
     const assembled = this.promptAssembler.assemble({ role: "ask", language: this.language, systemPrompt, userPrompt });
 
@@ -465,7 +475,7 @@ Now answer the user. Remember: **short, precise, cited**.${pageFirstGuardEn}`;
     question: string,
     pageContent: string,
     wiki: WikiJson | null,
-    turns: Array<{ role: string; content: string }>,
+    contextView: ContextView,
   ): string {
     const zh = this.language === "zh";
     const parts: string[] = [];
@@ -481,10 +491,9 @@ Now answer the user. Remember: **short, precise, cited**.${pageFirstGuardEn}`;
       );
     }
 
-    if (turns.length > 0) {
-      const recent = turns.slice(-4);
+    if (contextView.turns.length > 0) {
       parts.push(zh ? "## 最近对话" : "## Recent Conversation");
-      for (const t of recent) {
+      for (const t of contextView.turns) {
         parts.push(`**${t.role}:** ${t.content}`);
       }
     }
