@@ -15,6 +15,7 @@ export type AskOptions = {
   model: LanguageModel;
   storage: StorageAdapter;
   repoRoot: string;
+  language?: string;
   qualityProfile?: QualityProfile;
   allowBash?: boolean;
 };
@@ -31,6 +32,7 @@ export class AskService {
   private readonly storage: StorageAdapter;
   private readonly repoRoot: string;
   private readonly sessionManager: AskSessionManager;
+  private readonly language: string;
   private readonly qualityProfile?: QualityProfile;
   private readonly allowBash: boolean;
   private readonly promptAssembler = new PromptAssembler();
@@ -40,6 +42,7 @@ export class AskService {
     this.model = options.model;
     this.storage = options.storage;
     this.repoRoot = options.repoRoot;
+    this.language = options.language ?? "en";
     this.sessionManager = new AskSessionManager(options.storage);
     this.allowBash = options.allowBash ?? true;
     this.qualityProfile = options.qualityProfile;
@@ -102,13 +105,14 @@ export class AskService {
     // Build prompt
     const systemPrompt = this.buildSystemPrompt(route);
     const userPrompt = this.buildUserPrompt(question, pageContent, wiki, session);
-    const assembled = this.promptAssembler.assemble({ role: "ask", language: "en", systemPrompt, userPrompt });
+    const assembled = this.promptAssembler.assemble({ role: "ask", language: this.language, systemPrompt, userPrompt });
 
     // Call LLM
     const tools = createCatalogTools(this.repoRoot, { allowBash: this.allowBash });
 
     const askBudget = this.qualityProfile?.askMaxSteps ?? 10;
 
+    // Phase 5 cleanup target: replace module-level sessionId with request-scoped context
     setSessionId(`ask-${session.id}`);
 
     try {
@@ -120,9 +124,6 @@ export class AskService {
         tools: tools as unknown as ToolSet,
         policy: {
           maxSteps: askBudget,
-          retry: { maxRetries: 0, baseDelayMs: 0, backoffFactor: 1 },
-          overflow: { strategy: "none" },
-          toolBatch: { strategy: "sequential" },
           providerOptions: { cacheKey: `ask-${session.id}` },
         },
       });
@@ -137,6 +138,8 @@ export class AskService {
       const errorAnswer = `I encountered an error while answering: ${(err as Error).message}`;
       this.sessionManager.addAssistantTurn(session.id, errorAnswer, []);
       return { answer: errorAnswer, citations: [], route, sessionId: session.id };
+    } finally {
+      setSessionId(null);
     }
   }
 

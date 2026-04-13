@@ -82,9 +82,6 @@ Schema:
         tools: {} as ToolSet,
         policy: {
           maxSteps: 1,
-          retry: { maxRetries: 0, baseDelayMs: 0, backoffFactor: 1 },
-          overflow: { strategy: "none" },
-          toolBatch: { strategy: "sequential" },
           providerOptions: this.providerCallOptions,
         },
         onStep: this.onStep,

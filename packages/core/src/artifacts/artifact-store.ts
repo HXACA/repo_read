@@ -34,6 +34,15 @@ export class ArtifactStore {
     );
   }
 
+  // --- Page Meta ---
+
+  async savePageMeta(ref: PageRef & { versionId: string }, data: unknown): Promise<void> {
+    return this.storage.writeJson(
+      this.storage.paths.draftPageMeta(ref.projectSlug, ref.jobId, ref.versionId, ref.pageSlug),
+      data,
+    );
+  }
+
   // --- Review ---
 
   async saveReview(ref: PageRef, data: unknown): Promise<void> {

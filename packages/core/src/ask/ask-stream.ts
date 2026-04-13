@@ -121,7 +121,7 @@ export class AskStreamService {
 
     this.sessionManager.addUserTurn(session.id, question);
 
-    // Set session ID for Responses API session_id header
+    // Phase 5 cleanup target: replace module-level sessionId with request-scoped context
     setSessionId(`ask-${session.id}`);
 
     try {
@@ -145,6 +145,8 @@ export class AskStreamService {
       );
     } catch (err) {
       yield { type: "error", message: (err as Error).message };
+    } finally {
+      setSessionId(null);
     }
   }
 
@@ -194,9 +196,6 @@ export class AskStreamService {
       tools: toolSet as any,
       policy: {
         maxSteps: budget,
-        retry: { maxRetries: 0, baseDelayMs: 0, backoffFactor: 1 },
-        overflow: { strategy: "none" },
-        toolBatch: { strategy: "sequential" },
         providerOptions: { cacheKey: `ask-${sessionId}` },
       },
     })) {
@@ -257,6 +256,7 @@ export class AskStreamService {
       plannerMaxSteps: plannerBudget,
       executorMaxSteps: researchBudget,
       allowBash: this.allowBash,
+      providerCallOptions: { cacheKey: `ask-${sessionId}` },
     });
 
     // Signal to the UI that research is running so the thinking indicator

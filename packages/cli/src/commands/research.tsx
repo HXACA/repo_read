@@ -68,6 +68,7 @@ export async function runResearch(options: ResearchOptions): Promise<void> {
     plannerMaxSteps: Math.max(3, Math.ceil(researchBudget / 2)),
     executorMaxSteps: researchBudget,
     allowBash: resolvedConfig.retrieval.allowControlledBash,
+    providerCallOptions: { cacheKey: `research-${Date.now()}` },
   });
 
   try {

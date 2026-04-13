@@ -3,6 +3,7 @@ import type { CitationRecord } from "../types/generation.js";
 import { createCatalogTools } from "../catalog/catalog-tools.js";
 import { PromptAssembler } from "../prompt/assembler.js";
 import { TurnEngineAdapter } from "../runtime/turn-engine.js";
+import type { ProviderCallOptions } from "../utils/generate-via-stream.js";
 
 export type SubQuestionResult = {
   question: string;
@@ -16,6 +17,7 @@ export type ResearchExecutorOptions = {
   repoRoot: string;
   maxSteps?: number;
   allowBash?: boolean;
+  providerCallOptions?: ProviderCallOptions;
 };
 
 export class ResearchExecutor {
@@ -50,9 +52,7 @@ Return a JSON object:
       tools: tools as unknown as ToolSet,
       policy: {
         maxSteps: this.maxSteps,
-        retry: { maxRetries: 0, baseDelayMs: 0, backoffFactor: 1 },
-        overflow: { strategy: "none" },
-        toolBatch: { strategy: "sequential" },
+        providerOptions: this.options.providerCallOptions,
       },
     });
 

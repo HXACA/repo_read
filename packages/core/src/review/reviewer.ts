@@ -87,9 +87,6 @@ export class FreshReviewer {
         tools: tools as unknown as ToolSet,
         policy: {
           maxSteps: this.maxSteps,
-          retry: { maxRetries: 0, baseDelayMs: 0, backoffFactor: 1 },
-          overflow: { strategy: "none" },
-          toolBatch: { strategy: "sequential" },
           providerOptions: this.providerCallOptions,
         },
         onStep: this.onStep,

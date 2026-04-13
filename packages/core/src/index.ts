@@ -71,8 +71,8 @@ export type { AgentLoopOptions, AgentLoopResult, AgentLoopEvent, StepInfo } from
 // ── Phase 0 Runtime facades ──
 export { TurnEngineAdapter } from "./runtime/index.js";
 export type {
-  TurnPurpose, ProviderCallOptions, RetryPolicy, OverflowPolicy,
-  ToolBatchPolicy, TurnPolicy, TurnRequest, TurnResult,
+  TurnPurpose, ProviderCallOptions,
+  TurnPolicy, TurnRequest, TurnResult,
 } from "./runtime/index.js";
 
 export { PromptAssembler } from "./prompt/index.js";

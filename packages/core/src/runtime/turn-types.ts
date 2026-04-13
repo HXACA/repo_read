@@ -3,7 +3,8 @@ import type { Message, StepInfo } from "../agent/agent-loop.js";
 
 export type TurnPurpose =
   | "catalog" | "outline" | "draft" | "worker" | "review"
-  | "ask" | "research-plan" | "research-exec" | "research-synthesize";
+  | "ask" | "research-plan" | "research-exec" | "research-synthesize"
+  | "evidence-plan";
 
 export type ProviderCallOptions = {
   cacheKey?: string;
@@ -11,16 +12,20 @@ export type ProviderCallOptions = {
   serviceTier?: string | null;
 };
 
+/**
+ * Internal types reserved for future use. Retry behavior is handled by
+ * agent-loop.ts's `withRetry` and is not yet configurable through TurnPolicy.
+ * @internal
+ */
 export type RetryPolicy = { maxRetries: number; baseDelayMs: number; backoffFactor: number };
+/** @internal */
 export type OverflowPolicy = { strategy: "none" | "truncate" | "compact" };
+/** @internal */
 export type ToolBatchPolicy = { strategy: "sequential" | "parallel" };
 
 export type TurnPolicy = {
   maxSteps: number;
   maxOutputTokens?: number;
-  retry: RetryPolicy;
-  overflow: OverflowPolicy;
-  toolBatch: ToolBatchPolicy;
   providerOptions?: ProviderCallOptions;
 };
 

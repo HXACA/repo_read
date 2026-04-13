@@ -104,20 +104,17 @@ export class EvidencePlanner {
 
     const systemPrompt = buildPlannerSystemPrompt();
     const userPrompt = buildPlannerUserPrompt(input, effectiveTaskCount);
-    const assembled = this.promptAssembler.assemble({ role: "drafter", language: input.language, systemPrompt, userPrompt });
+    const assembled = this.promptAssembler.assemble({ role: "evidence-plan", language: input.language, systemPrompt, userPrompt });
 
     try {
       const result = await this.turnEngine.run({
-        purpose: "worker",
+        purpose: "evidence-plan",
         model: this.model,
         systemPrompt: assembled.system,
         userPrompt: assembled.user,
         tools: {} as ToolSet,
         policy: {
           maxSteps: 1,
-          retry: { maxRetries: 0, baseDelayMs: 0, backoffFactor: 1 },
-          overflow: { strategy: "none" },
-          toolBatch: { strategy: "sequential" },
           providerOptions: this.providerCallOptions,
         },
       });

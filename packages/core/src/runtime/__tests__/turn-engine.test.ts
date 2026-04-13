@@ -43,9 +43,6 @@ function makeRequest(overrides: Partial<TurnRequest> = {}): TurnRequest {
     tools: {} as ToolSet,
     policy: {
       maxSteps: 5,
-      retry: { maxRetries: 2, baseDelayMs: 100, backoffFactor: 2 },
-      overflow: { strategy: "none" },
-      toolBatch: { strategy: "sequential" },
     },
     ...overrides,
   };
@@ -135,9 +132,6 @@ describe("TurnEngineAdapter", () => {
         tools,
         policy: {
           maxSteps: 10,
-          retry: { maxRetries: 2, baseDelayMs: 100, backoffFactor: 2 },
-          overflow: { strategy: "none" },
-          toolBatch: { strategy: "sequential" },
         },
       });
 
@@ -161,9 +155,6 @@ describe("TurnEngineAdapter", () => {
         policy: {
           maxSteps: 5,
           maxOutputTokens: 4096,
-          retry: { maxRetries: 2, baseDelayMs: 100, backoffFactor: 2 },
-          overflow: { strategy: "none" },
-          toolBatch: { strategy: "sequential" },
         },
       });
 
@@ -225,9 +216,6 @@ describe("TurnEngineAdapter", () => {
       const request = makeRequest({
         policy: {
           maxSteps: 5,
-          retry: { maxRetries: 2, baseDelayMs: 100, backoffFactor: 2 },
-          overflow: { strategy: "none" },
-          toolBatch: { strategy: "sequential" },
           providerOptions: { cacheKey: "only-cache-key" },
         },
       });
@@ -245,9 +233,6 @@ describe("TurnEngineAdapter", () => {
       const request = makeRequest({
         policy: {
           maxSteps: 5,
-          retry: { maxRetries: 2, baseDelayMs: 100, backoffFactor: 2 },
-          overflow: { strategy: "none" },
-          toolBatch: { strategy: "sequential" },
           providerOptions: {
             reasoning: { effort: "high", summary: "auto" },
           },
@@ -269,9 +254,6 @@ describe("TurnEngineAdapter", () => {
       const request = makeRequest({
         policy: {
           maxSteps: 5,
-          retry: { maxRetries: 2, baseDelayMs: 100, backoffFactor: 2 },
-          overflow: { strategy: "none" },
-          toolBatch: { strategy: "sequential" },
           providerOptions: { serviceTier: "flex" },
         },
       });
@@ -289,9 +271,6 @@ describe("TurnEngineAdapter", () => {
       const request = makeRequest({
         policy: {
           maxSteps: 5,
-          retry: { maxRetries: 2, baseDelayMs: 100, backoffFactor: 2 },
-          overflow: { strategy: "none" },
-          toolBatch: { strategy: "sequential" },
           providerOptions: {
             cacheKey: "test-key",
             reasoning: { effort: "medium", summary: "detailed" },
@@ -308,6 +287,69 @@ describe("TurnEngineAdapter", () => {
         reasoning: { effort: "medium", summary: "detailed" },
         serviceTier: "fast",
       });
+    });
+  });
+
+  describe("stream() — event pass-through", () => {
+    it("yields text-delta events from invokeStream", async () => {
+      async function* fakeStream(): AsyncGenerator<import("../../agent/agent-loop.js").AgentLoopEvent> {
+        yield { type: "text-delta", text: "hello " };
+        yield { type: "text-delta", text: "world" };
+        yield { type: "done", result: makeAgentLoopResult({ text: "hello world" }) };
+      }
+      const invokeStream = vi.fn().mockReturnValue(fakeStream());
+      const adapter = new TurnEngineAdapter({ invokeStream });
+
+      const events: Array<import("../../agent/agent-loop.js").AgentLoopEvent> = [];
+      for await (const event of adapter.stream(makeRequest())) {
+        events.push(event);
+      }
+
+      expect(events.filter((e) => e.type === "text-delta")).toHaveLength(2);
+      expect(events[0]).toEqual({ type: "text-delta", text: "hello " });
+      expect(events[1]).toEqual({ type: "text-delta", text: "world" });
+    });
+
+    it("passes providerCallOptions through in stream path", async () => {
+      async function* fakeStream(): AsyncGenerator<import("../../agent/agent-loop.js").AgentLoopEvent> {
+        yield { type: "done", result: makeAgentLoopResult() };
+      }
+      const invokeStream = vi.fn().mockReturnValue(fakeStream());
+      const adapter = new TurnEngineAdapter({ invokeStream });
+
+      const request = makeRequest({
+        policy: {
+          maxSteps: 5,
+          providerOptions: { cacheKey: "stream-key" },
+        },
+      });
+
+      // Consume the generator
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- draining
+      for await (const _ of adapter.stream(request)) { /* drain */ }
+
+      const [calledOptions] = invokeStream.mock.calls[0] as [Record<string, unknown>, unknown];
+      expect(calledOptions.providerCallOptions).toEqual({ cacheKey: "stream-key" });
+    });
+
+    it("yields done event containing the result", async () => {
+      const loopResult = makeAgentLoopResult({ text: "final answer" });
+      async function* fakeStream(): AsyncGenerator<import("../../agent/agent-loop.js").AgentLoopEvent> {
+        yield { type: "text-delta", text: "final answer" };
+        yield { type: "done", result: loopResult };
+      }
+      const invokeStream = vi.fn().mockReturnValue(fakeStream());
+      const adapter = new TurnEngineAdapter({ invokeStream });
+
+      const events: Array<import("../../agent/agent-loop.js").AgentLoopEvent> = [];
+      for await (const event of adapter.stream(makeRequest())) {
+        events.push(event);
+      }
+
+      const doneEvent = events.find((e) => e.type === "done");
+      expect(doneEvent).toBeDefined();
+      expect(doneEvent!.type).toBe("done");
+      expect((doneEvent as { type: "done"; result: AgentLoopResult }).result.text).toBe("final answer");
     });
   });
 

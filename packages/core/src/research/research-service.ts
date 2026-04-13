@@ -11,6 +11,7 @@ import { ResearchStore } from "./research-store.js";
 import { extractJson } from "../utils/extract-json.js";
 import { PromptAssembler } from "../prompt/assembler.js";
 import { TurnEngineAdapter } from "../runtime/turn-engine.js";
+import type { ProviderCallOptions } from "../utils/generate-via-stream.js";
 
 export type ResearchResult = {
   note: ResearchNote;
@@ -31,6 +32,7 @@ export type ResearchServiceOptions = {
   plannerMaxSteps?: number;
   executorMaxSteps?: number;
   allowBash?: boolean;
+  providerCallOptions?: ProviderCallOptions;
 };
 
 /**
@@ -53,21 +55,26 @@ export class ResearchService {
   private readonly promptAssembler = new PromptAssembler();
   private readonly turnEngine = new TurnEngineAdapter();
 
+  private readonly providerCallOptions?: ProviderCallOptions;
+
   constructor(options: ResearchServiceOptions) {
     this.planner = new ResearchPlanner({
       model: options.model,
       repoRoot: options.repoRoot,
       maxSteps: options.plannerMaxSteps,
       allowBash: options.allowBash,
+      providerCallOptions: options.providerCallOptions,
     });
     this.executor = new ResearchExecutor({
       model: options.model,
       repoRoot: options.repoRoot,
       maxSteps: options.executorMaxSteps,
       allowBash: options.allowBash,
+      providerCallOptions: options.providerCallOptions,
     });
     this.store = new ResearchStore(options.storage);
     this.model = options.model;
+    this.providerCallOptions = options.providerCallOptions;
   }
 
   async research(
@@ -154,9 +161,7 @@ Schema:
         tools: {} as ToolSet,
         policy: {
           maxSteps: 1,
-          retry: { maxRetries: 0, baseDelayMs: 0, backoffFactor: 1 },
-          overflow: { strategy: "none" },
-          toolBatch: { strategy: "sequential" },
+          providerOptions: this.providerCallOptions,
         },
       });
 

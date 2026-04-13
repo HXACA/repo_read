@@ -732,8 +732,8 @@ export class GenerationPipeline {
           },
         };
 
-        await this.storage.writeJson(
-          this.storage.paths.draftPageMeta(slug, jobId, versionId, page.slug),
+        await this.artifactStore.savePageMeta(
+          { projectSlug: slug, jobId, pageSlug: page.slug, versionId },
           pageMeta,
         );
 
@@ -744,8 +744,8 @@ export class GenerationPipeline {
           title: page.title,
           summary: finalDraft.metadata!.summary,
         });
-        await this.storage.writeJson(
-          this.storage.paths.publishedIndexJson(slug, jobId),
+        await this.artifactStore.savePublishedIndex(
+          { projectSlug: slug, jobId },
           publishedSummaries,
         );
         job.summary.succeededPages = (job.summary.succeededPages ?? 0) + 1;
@@ -770,13 +770,14 @@ export class GenerationPipeline {
         job.summary.failedPages ?? 0,
       );
 
-      setSessionId(null);
       const usagePath = path.join(this.storage.paths.jobDir(slug, jobId), "usage.json");
       await fs.writeFile(usagePath, this.usageTracker.toJSON(), "utf-8").catch(() => {});
       return { success: true, job, usageTracker: this.usageTracker };
     } catch (err) {
-      setSessionId(null);
       return this.failJob(job, emitter, (err as Error).message);
+    } finally {
+      // Phase 5 cleanup target: replace module-level sessionId with request-scoped context
+      setSessionId(null);
     }
   }
 

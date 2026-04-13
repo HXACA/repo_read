@@ -1,4 +1,4 @@
-export type PromptRole = "catalog" | "outline" | "drafter" | "worker" | "reviewer" | "ask" | "research";
+export type PromptRole = "catalog" | "outline" | "drafter" | "worker" | "reviewer" | "ask" | "research" | "evidence-plan";
 
 export type PromptAssemblyInput = {
   role: PromptRole;
