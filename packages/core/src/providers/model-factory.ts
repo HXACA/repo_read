@@ -2,10 +2,12 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModel } from "ai";
-import type { ResolvedConfig, RoleName, ProviderSdk } from "../types/config.js";
+import type { ResolvedConfig, RoleName, ProviderSdk, ProviderModelConfig } from "../types/config.js";
 import { parseModelId } from "../types/config.js";
 import { AppError } from "../errors.js";
 import { getDebugDir, createDebugFetch } from "../utils/debug-fetch.js";
+import { createResilientFetch } from "../utils/resilient-fetch.js";
+import { getCacheKey } from "../utils/generate-via-stream.js";
 
 export type ModelFactoryOptions = {
   apiKeys: Record<string, string>;
@@ -37,9 +39,40 @@ export function createModelForRole(
 
   // npm priority: model-level > provider-level > inferred from provider name
   const npm = modelConfig?.npm ?? providerConfig?.npm ?? inferNpm(resolvedProviderName);
-  // Inject debug fetch when debug mode is active
-  const fetchFn = getDebugDir() ? createDebugFetch() : undefined;
+  // Inject debug fetch when debug mode is active, then wrap with resilient-fetch for SSE timeout protection
+  const debugFetchFn = getDebugDir() ? createDebugFetch() : undefined;
+  const fetchFn = createResilientFetch(debugFetchFn ?? globalThis.fetch);
   return createModel(npm, resolvedProviderName, modelName, apiKey, providerConfig?.baseUrl, fetchFn, modelConfig?.variant);
+}
+
+export type ModelOptions = {
+  reasoning: { effort: string; summary: string } | null;
+  serviceTier: string | null;
+};
+
+/** Look up model options (reasoning, serviceTier) for a role.
+ *  Priority: role-level override > model-level config. */
+export function getModelOptionsForRole(
+  config: ResolvedConfig,
+  role: RoleName,
+): ModelOptions {
+  const route = config.roles[role];
+  const { provider: providerName, model: modelName } = parseModelId(route.primaryModel);
+  const resolvedProviderName = providerName ?? route.resolvedProvider;
+  const providerConfig = config.providers.find(
+    (p) => p.provider === resolvedProviderName && p.enabled,
+  );
+  const modelConfig = providerConfig?.models?.[modelName];
+
+  // Role-level overrides take precedence over model-level config
+  const effort = route.reasoningEffort ?? modelConfig?.reasoningEffort;
+  const summary = route.reasoningSummary ?? modelConfig?.reasoningSummary;
+  const tier = route.serviceTier ?? modelConfig?.serviceTier;
+
+  return {
+    reasoning: effort ? { effort, summary: summary ?? "auto" } : null,
+    serviceTier: tier ?? null,
+  };
 }
 
 function inferNpm(provider: string): ProviderSdk {
@@ -78,10 +111,22 @@ function createModel(
       return anthropic(modelId);
     }
     case "@ai-sdk/openai": {
+      // Wrap fetch to dynamically inject session_id header (synced with prompt_cache_key).
+      // Must be dynamic because cacheKey is set after model creation.
+      const baseFetch = fetchFn ?? globalThis.fetch;
+      const fetchWithSession: typeof globalThis.fetch = (input, init) => {
+        const key = getCacheKey();
+        if (key) {
+          const headers = new Headers(init?.headers);
+          headers.set("session_id", key);
+          return baseFetch(input, { ...init, headers });
+        }
+        return baseFetch(input, init);
+      };
       const openai = createOpenAI({
         apiKey,
         ...(baseUrl ? { baseURL: baseUrl } : {}),
-        ...(fetchFn ? { fetch: fetchFn } : {}),
+        fetch: fetchWithSession,
       });
       const resolved = variant ?? detectOpenAIVariant(modelId);
       return resolved === "responses"

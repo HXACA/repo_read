@@ -28,7 +28,7 @@ export function createResilientFetch(
       async pull(controller) {
         // Use a manual race to avoid PromiseRejectionHandledWarning from
         // Promise.race when fake timers fire the timeout synchronously.
-        const result = await new Promise<ReadableStreamReadResult<Uint8Array>>(
+        const result = await new Promise<Awaited<ReturnType<typeof reader.read>>>(
           (resolve, reject) => {
             const timerId = setTimeout(
               () => reject(new SSETimeoutError(timeoutMs)),
