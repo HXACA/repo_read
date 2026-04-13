@@ -67,3 +67,16 @@ export { UsageTracker } from "./utils/usage-tracker.js";
 export type { UsageBucket, UsageInput, JobUsage } from "./utils/usage-tracker.js";
 export { runAgentLoop, runAgentLoopStream } from "./agent/agent-loop.js";
 export type { AgentLoopOptions, AgentLoopResult, AgentLoopEvent, StepInfo } from "./agent/agent-loop.js";
+
+// ── Phase 0 Runtime facades ──
+export { TurnEngineAdapter } from "./runtime/index.js";
+export type {
+  TurnPurpose, ProviderCallOptions, RetryPolicy, OverflowPolicy,
+  ToolBatchPolicy, TurnPolicy, TurnRequest, TurnResult,
+} from "./runtime/index.js";
+
+export { PromptAssembler } from "./prompt/index.js";
+export type { PromptAssemblyInput, AssembledPrompt, PromptRole } from "./prompt/index.js";
+
+export { ArtifactStore } from "./artifacts/index.js";
+export type { PageRef, JobRef, AskSessionRef, ResearchNoteRef } from "./artifacts/index.js";
