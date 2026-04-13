@@ -30,7 +30,7 @@ import {
 } from "./throughput-metrics.js";
 import type { PageRef, VersionedPageRef } from "../artifacts/types.js";
 import { computeComplexity } from "./complexity-scorer.js";
-import { adjustParams, type AdjustedParams } from "./param-adjuster.js";
+import { selectExecutionLane } from "./execution-lane.js";
 import type { ProviderCallOptions } from "../runtime/turn-types.js";
 import { getModelOptionsForRole, type ModelOptions } from "../providers/model-factory.js";
 import { UsageTracker } from "../utils/usage-tracker.js";
@@ -396,7 +396,16 @@ export class GenerationPipeline {
 
     // === COMPLEXITY SCORING + DYNAMIC PARAM ADJUSTMENT ===
     const complexity = computeComplexity({ coveredFiles: page.covered_files });
-    let pageParams: AdjustedParams = adjustParams(qp, complexity);
+    // Cumulative runtime signals — persist across retries so boosts aren't lost
+    const runtimeSignals: import("./param-adjuster.js").RuntimeSignals = {};
+    let lanePlan = selectExecutionLane({
+      preset: this.config.preset,
+      base: qp,
+      complexity,
+      signals: runtimeSignals,
+    });
+    let lane = lanePlan.lane;
+    let pageParams = lanePlan.params;
 
     if (process.env.REPOREAD_DEBUG) {
       // Write to debug log file instead of stderr to avoid Ink rendering conflicts
@@ -441,8 +450,6 @@ export class GenerationPipeline {
     let evidenceResult: EvidenceCollectionResult | null = null;
     // Outline is planned once after evidence collection and reused across retries
     let outline: PageOutline | null = null;
-    // Cumulative runtime signals — persist across retries so boosts aren't lost
-    const runtimeSignals: import("./param-adjuster.js").RuntimeSignals = {};
     const pageRef: PageRef = { projectSlug: slug, jobId, pageSlug: page.slug };
     const versionedRef: VersionedPageRef = { ...pageRef, versionId };
 
@@ -664,9 +671,16 @@ export class GenerationPipeline {
       // produce a shorter page. This avoids publishing half-written
       // content and re-uses the existing revision loop machinery.
       if (draftResult.truncated && attempt < pageParams.maxRevisionAttempts) {
-        // Accumulate truncation signal and re-adjust params
+        // Accumulate truncation signal and re-select lane
         runtimeSignals.draftTruncated = true;
-        pageParams = adjustParams(qp, complexity, runtimeSignals);
+        lanePlan = selectExecutionLane({
+          preset: this.config.preset,
+          base: qp,
+          complexity,
+          signals: runtimeSignals,
+        });
+        lane = lanePlan.lane;
+        pageParams = lanePlan.params;
         reviewResult = {
           success: true,
           conclusion: {
@@ -757,11 +771,18 @@ export class GenerationPipeline {
         reviewResult.conclusion!.verdict,
       );
 
-      // Accumulate reviewer feedback signals and re-adjust (preserves prior boosts like truncation)
+      // Accumulate reviewer feedback signals and re-select lane (preserves prior boosts like truncation)
       if (reviewResult.conclusion) {
         runtimeSignals.factualRisksCount = reviewResult.conclusion.factual_risks.length;
         runtimeSignals.missingEvidenceCount = reviewResult.conclusion.missing_evidence.length;
-        pageParams = adjustParams(qp, complexity, runtimeSignals);
+        lanePlan = selectExecutionLane({
+          preset: this.config.preset,
+          base: qp,
+          complexity,
+          signals: runtimeSignals,
+        });
+        lane = lanePlan.lane;
+        pageParams = lanePlan.params;
       }
 
       // Decide whether to retry: if the reviewer says "revise" and we
@@ -887,10 +908,10 @@ export class GenerationPipeline {
     }
     const pageMetrics: PageThroughputRecord = {
       pageSlug: page.slug,
-      lane: "standard",
+      lane,
       totalLatencyMs: Date.now() - pageStartedAt,
       revisionAttempts: attempt,
-      escalatedToDeepLane: false,
+      escalatedToDeepLane: lane === "deep",
       phases: {
         evidence: evidenceMetric,
         outline: outlineMetric,
