@@ -12,6 +12,7 @@
  */
 
 import type { LanguageModel } from "ai";
+import type { ProviderCallOptions } from "../runtime/turn-types.js";
 
 // ── Session-id header state (Phase 3 will remove) ──────────────────────────
 
@@ -28,12 +29,7 @@ export function getSessionId(): string | null {
 }
 
 // ── Provider call options (pure) ────────────────────────────────────────────
-
-export type ProviderCallOptions = {
-  cacheKey?: string;
-  reasoning?: { effort: string; summary: string } | null;
-  serviceTier?: string | null;
-};
+// ProviderCallOptions is now canonically defined in runtime/turn-types.ts
 
 /**
  * Build Responses API provider options for a given model.

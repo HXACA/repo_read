@@ -9,7 +9,7 @@ import {
   type EvidencePlanInput,
   type EvidenceTask,
 } from "./evidence-planner.js";
-import type { ProviderCallOptions } from "../utils/generate-via-stream.js";
+import type { ProviderCallOptions } from "../runtime/turn-types.js";
 
 export type EvidenceCoordinatorOptions = {
   plannerModel: LanguageModel;

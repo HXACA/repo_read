@@ -42,7 +42,7 @@ export class AskService {
     this.model = options.model;
     this.storage = options.storage;
     this.repoRoot = options.repoRoot;
-    this.language = options.language ?? "en";
+    this.language = options.language ?? "zh";
     this.sessionManager = new AskSessionManager(options.storage);
     this.allowBash = options.allowBash ?? true;
     this.qualityProfile = options.qualityProfile;

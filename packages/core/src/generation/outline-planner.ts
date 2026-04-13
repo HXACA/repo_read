@@ -1,7 +1,7 @@
 import type { LanguageModel, ToolSet } from "ai";
 import type { PageOutline, PageOutlineSection } from "../types/agent.js";
 import { extractJson } from "../utils/extract-json.js";
-import type { ProviderCallOptions } from "../utils/generate-via-stream.js";
+import type { ProviderCallOptions } from "../runtime/turn-types.js";
 import { PromptAssembler } from "../prompt/assembler.js";
 import { TurnEngineAdapter } from "../runtime/turn-engine.js";
 

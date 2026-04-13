@@ -12,7 +12,8 @@
 import { streamText } from "ai";
 import type { LanguageModel, ToolSet } from "ai";
 import { withRetry } from "../utils/api-retry.js";
-import { buildResponsesProviderOptions, type ProviderCallOptions } from "../utils/generate-via-stream.js";
+import { buildResponsesProviderOptions } from "../utils/generate-via-stream.js";
+import type { ProviderCallOptions } from "../runtime/turn-types.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

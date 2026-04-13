@@ -353,6 +353,91 @@ describe("TurnEngineAdapter", () => {
     });
   });
 
+  describe("stream() — reasoning, tool-call, tool-result pass-through", () => {
+    it("yields reasoning-delta events from invokeStream", async () => {
+      async function* fakeStream(): AsyncGenerator<import("../../agent/agent-loop.js").AgentLoopEvent> {
+        yield { type: "reasoning-delta", text: "thinking..." };
+        yield { type: "text-delta", text: "answer" };
+        yield { type: "done", result: makeAgentLoopResult({ text: "answer" }) };
+      }
+      const invokeStream = vi.fn().mockReturnValue(fakeStream());
+      const adapter = new TurnEngineAdapter({ invokeStream });
+
+      const events: Array<import("../../agent/agent-loop.js").AgentLoopEvent> = [];
+      for await (const event of adapter.stream(makeRequest())) {
+        events.push(event);
+      }
+
+      const reasoningEvents = events.filter((e) => e.type === "reasoning-delta");
+      expect(reasoningEvents).toHaveLength(1);
+      expect(reasoningEvents[0]).toEqual({ type: "reasoning-delta", text: "thinking..." });
+    });
+
+    it("yields tool-call events from invokeStream", async () => {
+      async function* fakeStream(): AsyncGenerator<import("../../agent/agent-loop.js").AgentLoopEvent> {
+        yield { type: "tool-call", name: "read_file", args: { path: "src/index.ts" } };
+        yield { type: "text-delta", text: "result" };
+        yield { type: "done", result: makeAgentLoopResult({ text: "result" }) };
+      }
+      const invokeStream = vi.fn().mockReturnValue(fakeStream());
+      const adapter = new TurnEngineAdapter({ invokeStream });
+
+      const events: Array<import("../../agent/agent-loop.js").AgentLoopEvent> = [];
+      for await (const event of adapter.stream(makeRequest())) {
+        events.push(event);
+      }
+
+      const toolCallEvents = events.filter((e) => e.type === "tool-call");
+      expect(toolCallEvents).toHaveLength(1);
+      expect(toolCallEvents[0]).toEqual({ type: "tool-call", name: "read_file", args: { path: "src/index.ts" } });
+    });
+
+    it("yields tool-result events from invokeStream", async () => {
+      async function* fakeStream(): AsyncGenerator<import("../../agent/agent-loop.js").AgentLoopEvent> {
+        yield { type: "tool-call", name: "grep_search", args: { pattern: "foo" } };
+        yield { type: "tool-result", name: "grep_search", output: "line 42: foo" };
+        yield { type: "text-delta", text: "found it" };
+        yield { type: "done", result: makeAgentLoopResult({ text: "found it" }) };
+      }
+      const invokeStream = vi.fn().mockReturnValue(fakeStream());
+      const adapter = new TurnEngineAdapter({ invokeStream });
+
+      const events: Array<import("../../agent/agent-loop.js").AgentLoopEvent> = [];
+      for await (const event of adapter.stream(makeRequest())) {
+        events.push(event);
+      }
+
+      const toolResultEvents = events.filter((e) => e.type === "tool-result");
+      expect(toolResultEvents).toHaveLength(1);
+      expect(toolResultEvents[0]).toEqual({ type: "tool-result", name: "grep_search", output: "line 42: foo" });
+    });
+
+    it("yields mixed event types in correct order from invokeStream", async () => {
+      async function* fakeStream(): AsyncGenerator<import("../../agent/agent-loop.js").AgentLoopEvent> {
+        yield { type: "reasoning-delta", text: "let me think" };
+        yield { type: "tool-call", name: "find_files", args: { pattern: "*.ts" } };
+        yield { type: "tool-result", name: "find_files", output: "src/a.ts\nsrc/b.ts" };
+        yield { type: "text-delta", text: "I found 2 files" };
+        yield { type: "done", result: makeAgentLoopResult({ text: "I found 2 files" }) };
+      }
+      const invokeStream = vi.fn().mockReturnValue(fakeStream());
+      const adapter = new TurnEngineAdapter({ invokeStream });
+
+      const events: Array<import("../../agent/agent-loop.js").AgentLoopEvent> = [];
+      for await (const event of adapter.stream(makeRequest())) {
+        events.push(event);
+      }
+
+      expect(events.map((e) => e.type)).toEqual([
+        "reasoning-delta",
+        "tool-call",
+        "tool-result",
+        "text-delta",
+        "done",
+      ]);
+    });
+  });
+
   describe("constructor — default dependency injection", () => {
     it("constructs without options (uses real defaults)", () => {
       // Just verifies no error is thrown when constructing with defaults

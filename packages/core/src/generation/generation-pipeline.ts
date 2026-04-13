@@ -24,7 +24,8 @@ import { ArtifactStore } from "../artifacts/artifact-store.js";
 import type { PageRef } from "../artifacts/types.js";
 import { computeComplexity } from "./complexity-scorer.js";
 import { adjustParams, type AdjustedParams } from "./param-adjuster.js";
-import { setSessionId, type ProviderCallOptions } from "../utils/generate-via-stream.js";
+import { setSessionId } from "../utils/generate-via-stream.js";
+import type { ProviderCallOptions } from "../runtime/turn-types.js";
 import { getModelOptionsForRole, type ModelOptions } from "../providers/model-factory.js";
 import { UsageTracker } from "../utils/usage-tracker.js";
 
@@ -136,6 +137,7 @@ export class GenerationPipeline {
         // === RESUME PATH ===
         // Skip catalog. Reuse existing wiki.json and meta files.
         wiki = options.resumeWith.wiki;
+        setSessionId(jobId);
         // The job may already be in "page_drafting" (killed mid-run) or
         // "failed" (clean failure). Only transition if not already there.
         if (job.status !== "page_drafting") {

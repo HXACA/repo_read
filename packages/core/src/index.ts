@@ -28,7 +28,7 @@ export type {
 } from "./generation/index.js";
 export { PathPolicy, validateBashCommand } from "./policy/index.js";
 export { setDebugDir } from "./utils/debug-fetch.js";
-export { setSessionId, buildResponsesProviderOptions } from "./utils/generate-via-stream.js";
+// setSessionId and buildResponsesProviderOptions are internal — not re-exported
 export type { BashValidationResult } from "./policy/index.js";
 export {
   readFile, grepSearch, findFiles,
@@ -65,7 +65,7 @@ export type { PageCitations } from "./wiki/index.js";
 
 export { UsageTracker } from "./utils/usage-tracker.js";
 export type { UsageBucket, UsageInput, JobUsage } from "./utils/usage-tracker.js";
-export { runAgentLoop, runAgentLoopStream } from "./agent/agent-loop.js";
+// runAgentLoop and runAgentLoopStream are internal — callers should use TurnEngineAdapter
 export type { AgentLoopOptions, AgentLoopResult, AgentLoopEvent, StepInfo } from "./agent/agent-loop.js";
 
 // ── Phase 0 Runtime facades ──

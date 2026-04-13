@@ -7,7 +7,7 @@ import { createCatalogTools } from "./catalog-tools.js";
 import { extractJson } from "../utils/extract-json.js";
 import { PromptAssembler } from "../prompt/assembler.js";
 import { TurnEngineAdapter } from "../runtime/turn-engine.js";
-import type { ProviderCallOptions } from "../utils/generate-via-stream.js";
+import type { ProviderCallOptions } from "../runtime/turn-types.js";
 
 export type CatalogPlannerOptions = {
   model: LanguageModel;
