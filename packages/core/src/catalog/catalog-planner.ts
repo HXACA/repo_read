@@ -12,6 +12,7 @@ export type CatalogPlannerOptions = {
   language: string;
   maxSteps?: number;
   maxRetries?: number;
+  allowBash?: boolean;
   onStep?: (step: StepInfo) => void;
 };
 
@@ -27,6 +28,7 @@ export class CatalogPlanner {
   private readonly language: string;
   private readonly maxSteps: number;
   private readonly maxRetries: number;
+  private readonly allowBash: boolean;
   private readonly onStep?: (step: StepInfo) => void;
 
   constructor(options: CatalogPlannerOptions) {
@@ -34,12 +36,13 @@ export class CatalogPlanner {
     this.language = options.language;
     this.maxSteps = options.maxSteps ?? 20;
     this.maxRetries = options.maxRetries ?? 3;
+    this.allowBash = options.allowBash ?? true;
     this.onStep = options.onStep;
   }
 
   async plan(profile: RepoProfile): Promise<CatalogPlanResult> {
     const systemPrompt = buildCatalogSystemPrompt();
-    const tools = createCatalogTools(profile.repoRoot);
+    const tools = createCatalogTools(profile.repoRoot, { allowBash: this.allowBash });
 
     let lastError = "";
     for (let attempt = 0; attempt < this.maxRetries; attempt++) {

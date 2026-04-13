@@ -17,8 +17,8 @@ import { gitLog } from "../tools/git-tool.js";
 import { getDirStructure } from "../tools/dir-structure-tool.js";
 import { execBash } from "../tools/bash-tool.js";
 
-export function createCatalogTools(repoRoot: string) {
-  return {
+export function createCatalogTools(repoRoot: string, options?: { allowBash?: boolean }) {
+  const tools: Record<string, unknown> = {
     dir_structure: {
       description:
         "Get directory structure as a tree. Use this first to understand project layout. Supports specifying a subdirectory and max depth.",
@@ -108,7 +108,10 @@ export function createCatalogTools(repoRoot: string) {
           .join("\n");
       },
     },
-    bash: {
+  };
+
+  if (options?.allowBash !== false) {
+    tools.bash = {
       description:
         "Run a read-only shell command in the repository. Only informational commands allowed (ls, find, cat, grep, head, tail, wc, git log, git show, etc.). No write/delete/modify commands. Timeout: 30s.",
       inputSchema: jsonSchema<{ command: string }>({
@@ -123,6 +126,8 @@ export function createCatalogTools(repoRoot: string) {
         if (!result.success) return `Error: ${result.error}`;
         return result.output;
       },
-    },
-  };
+    };
+  }
+
+  return tools;
 }

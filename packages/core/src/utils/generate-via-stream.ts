@@ -69,6 +69,6 @@ export function buildResponsesProviderOptions(model: LanguageModel): {
   return {
     providerOptions: { openai: openaiOptions },
     stripSystem: true, // caller should move system to instructions
-    stripMaxOutputTokens: true,
+    stripMaxOutputTokens: false, // let maxOutputTokens through — proxies with pass_through support it
   };
 }

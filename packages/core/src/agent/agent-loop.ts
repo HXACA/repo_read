@@ -340,48 +340,48 @@ export async function* runAgentLoopStream(
   for (let stepIndex = 0; stepIndex < maxSteps; stepIndex++) {
     const params = buildStreamParams(model, system, messages, tools, maxOutputTokens);
 
-    // For streaming, we can't wrap fullStream iteration in withRetry (generator can't be replayed).
-    // Retry only the stream creation; SSE timeouts during read will propagate to the caller.
-    const stream = await withRetry(() =>
-      Promise.resolve(streamText(params as Parameters<typeof streamText>[0])),
-    );
+    // Retry wraps the entire step: stream creation + fullStream consumption + final awaits.
+    // On retry, a fresh stream is created and events are re-yielded from scratch for this step.
+    // Events from previous successful steps are NOT re-yielded.
+    const { stepText, finishReason, usage, toolCalls, events } = await withRetry(async () => {
+      const stream = streamText(params as Parameters<typeof streamText>[0]);
+      let text = "";
+      const evts: AgentLoopEvent[] = [];
 
-    // Stream events from fullStream
-    // AI SDK 6 fullStream uses `delta` (not `text`) for text-delta and reasoning-delta
-    let stepText = "";
-    for await (const part of stream.fullStream) {
-      switch (part.type) {
-        case "text-delta": {
-          const delta = (part as { delta?: string; textDelta?: string }).delta
-            ?? (part as { textDelta?: string }).textDelta ?? "";
-          stepText += delta;
-          yield { type: "text-delta", text: delta };
-          break;
-        }
-        case "reasoning-delta": {
-          const delta = (part as { delta?: string }).delta ?? "";
-          yield { type: "reasoning-delta", text: delta };
-          break;
-        }
-        case "tool-call": {
-          const tc = part as unknown as Record<string, unknown>;
-          yield {
-            type: "tool-call",
-            name: tc.toolName as string,
-            args: tc.input ?? tc.args,
-          };
-          break;
+      for await (const part of stream.fullStream) {
+        switch (part.type) {
+          case "text-delta": {
+            const d = (part as { delta?: string; textDelta?: string }).delta
+              ?? (part as { textDelta?: string }).textDelta ?? "";
+            text += d;
+            evts.push({ type: "text-delta", text: d });
+            break;
+          }
+          case "reasoning-delta": {
+            const d = (part as { delta?: string }).delta ?? "";
+            evts.push({ type: "reasoning-delta", text: d });
+            break;
+          }
+          case "tool-call": {
+            const tc = part as unknown as Record<string, unknown>;
+            evts.push({ type: "tool-call", name: tc.toolName as string, args: tc.input ?? tc.args });
+            break;
+          }
         }
       }
+
+      const fr = (await stream.finishReason) ?? "stop";
+      const u = ((await stream.usage) as Record<string, unknown>) ?? {};
+      const raw = (await stream.toolCalls) ?? [];
+      return { stepText: text, finishReason: fr, usage: u, toolCalls: normaliseToolCalls(raw as unknown[]), events: evts };
+    });
+
+    // Yield all buffered events from this step
+    for (const evt of events) {
+      yield evt;
     }
 
-    // After fullStream exhausted, await final values
-    const finishReason = (await stream.finishReason) ?? "stop";
-    const usage = ((await stream.usage) as Record<string, unknown>) ?? {};
-    const rawToolCalls = (await stream.toolCalls) ?? [];
-    const toolCalls = normaliseToolCalls(rawToolCalls as unknown[]);
-
-    lastText = stepText || (await stream.text);
+    if (stepText) lastText = stepText;
 
     const step = makeStepInfo(stepIndex, usage, toolCalls, finishReason);
     steps.push(step);

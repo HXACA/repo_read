@@ -38,6 +38,7 @@ export type PageDrafterOptions = {
    * and the pipeline triggers a "shorten it" revise loop.
    */
   maxOutputTokens?: number;
+  allowBash?: boolean;
   onStep?: (step: StepInfo) => void;
 };
 
@@ -94,6 +95,7 @@ export class PageDrafter {
   private readonly repoRoot: string;
   private readonly maxSteps: number;
   private readonly maxOutputTokens?: number;
+  private readonly allowBash: boolean;
   private readonly onStep?: (step: StepInfo) => void;
 
   constructor(options: PageDrafterOptions) {
@@ -101,6 +103,7 @@ export class PageDrafter {
     this.repoRoot = options.repoRoot;
     this.maxSteps = options.maxSteps ?? 20;
     this.maxOutputTokens = options.maxOutputTokens;
+    this.allowBash = options.allowBash ?? true;
     this.onStep = options.onStep;
   }
 
@@ -110,7 +113,7 @@ export class PageDrafter {
   ): Promise<PageDraftResult> {
     const systemPrompt = buildPageDraftSystemPrompt();
     const userPrompt = buildPageDraftUserPrompt(context, input);
-    const tools = createCatalogTools(this.repoRoot);
+    const tools = createCatalogTools(this.repoRoot, { allowBash: this.allowBash });
 
     try {
       const result = await runAgentLoop({

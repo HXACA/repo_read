@@ -140,6 +140,7 @@ export class GenerationPipeline {
           model: this.catalogModel,
           language: this.config.language,
           maxSteps: this.config.qualityProfile.catalogMaxSteps,
+          allowBash: this.config.retrieval.allowControlledBash,
           onStep: (step) => this.usageTracker.add("catalog", (this.catalogModel as any).modelId ?? "unknown", step),
         });
         const profileResult =
@@ -209,10 +210,12 @@ export class GenerationPipeline {
 
       // Agents are stateless between pages (they only hold a model ref + config),
       // so we construct them once before the loop.
+      const allowBash = this.config.retrieval.allowControlledBash;
       const drafter = new PageDrafter({
         model: this.drafterModel,
         repoRoot: this.repoRoot,
         maxSteps: qp.drafterMaxSteps,
+        allowBash,
         onStep: (step) => this.usageTracker.add("drafter", (this.drafterModel as any).modelId ?? "unknown", step),
       });
       const reviewer = new FreshReviewer({
@@ -454,6 +457,7 @@ export class GenerationPipeline {
                 model: this.drafterModel,
                 repoRoot: this.repoRoot,
                 maxSteps: pageParams.drafterMaxSteps,
+                allowBash,
                 ...(pageParams.maxOutputTokensBoost > 0
                   ? { maxOutputTokens: 16384 + pageParams.maxOutputTokensBoost }
                   : {}),

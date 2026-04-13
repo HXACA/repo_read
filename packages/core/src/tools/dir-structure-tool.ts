@@ -24,9 +24,12 @@ export async function getDirStructure(
   dirPath: string = ".",
   maxDepth: number = 3,
 ): Promise<DirStructureResult> {
-  // Validate: resolved target must be within repoRoot (prevent path traversal)
+  // Validate: resolved target must be within repoRoot (prevent path traversal).
+  // Append path.sep to repoRoot to prevent sibling prefix attacks:
+  // /tmp/repo-evil must NOT pass /tmp/repo check → compare against /tmp/repo/
+  const resolvedRoot = path.resolve(repoRoot);
   const resolved = path.resolve(repoRoot, dirPath);
-  if (!resolved.startsWith(path.resolve(repoRoot))) {
+  if (resolved !== resolvedRoot && !resolved.startsWith(resolvedRoot + path.sep)) {
     return { success: false, tree: "", error: "Path is outside repository root" };
   }
 
