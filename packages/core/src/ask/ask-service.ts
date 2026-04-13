@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import type { LanguageModel, ToolSet } from "ai";
 import { runAgentLoop } from "../agent/agent-loop.js";
-import { setCacheKey, setModelOptions } from "../utils/generate-via-stream.js";
+import { setSessionId } from "../utils/generate-via-stream.js";
 import type { StorageAdapter } from "../storage/storage-adapter.js";
 import type { WikiJson, PageMeta, CitationRecord } from "../types/generation.js";
 import type { QualityProfile } from "../config/quality-profile.js";
@@ -105,8 +105,7 @@ export class AskService {
 
     const askBudget = this.qualityProfile?.askMaxSteps ?? 10;
 
-    setCacheKey(`ask-${session.id}`);
-    setModelOptions({ reasoning: null, serviceTier: null });
+    setSessionId(`ask-${session.id}`);
 
     try {
       const result = await runAgentLoop(
@@ -115,6 +114,7 @@ export class AskService {
           system: systemPrompt,
           tools: tools as unknown as ToolSet,
           maxSteps: askBudget,
+          providerCallOptions: { cacheKey: `ask-${session.id}` },
         },
         userPrompt,
       );

@@ -7,6 +7,7 @@ import { createCatalogTools } from "./catalog-tools.js";
 import { extractJson } from "../utils/extract-json.js";
 import { PromptAssembler } from "../prompt/assembler.js";
 import { TurnEngineAdapter } from "../runtime/turn-engine.js";
+import type { ProviderCallOptions } from "../utils/generate-via-stream.js";
 
 export type CatalogPlannerOptions = {
   model: LanguageModel;
@@ -14,6 +15,7 @@ export type CatalogPlannerOptions = {
   maxSteps?: number;
   maxRetries?: number;
   allowBash?: boolean;
+  providerCallOptions?: ProviderCallOptions;
   onStep?: (step: StepInfo) => void;
 };
 
@@ -30,6 +32,7 @@ export class CatalogPlanner {
   private readonly maxSteps: number;
   private readonly maxRetries: number;
   private readonly allowBash: boolean;
+  private readonly providerCallOptions?: ProviderCallOptions;
   private readonly onStep?: (step: StepInfo) => void;
   private readonly promptAssembler: PromptAssembler;
   private readonly turnEngine: TurnEngineAdapter;
@@ -40,6 +43,7 @@ export class CatalogPlanner {
     this.maxSteps = options.maxSteps ?? 20;
     this.maxRetries = options.maxRetries ?? 3;
     this.allowBash = options.allowBash ?? true;
+    this.providerCallOptions = options.providerCallOptions;
     this.onStep = options.onStep;
     this.promptAssembler = new PromptAssembler();
     this.turnEngine = new TurnEngineAdapter();
@@ -70,6 +74,7 @@ export class CatalogPlanner {
             retry: { maxRetries: 0, baseDelayMs: 0, backoffFactor: 1 },
             overflow: { strategy: "none" },
             toolBatch: { strategy: "sequential" },
+            providerOptions: this.providerCallOptions,
           },
           onStep: this.onStep,
         });

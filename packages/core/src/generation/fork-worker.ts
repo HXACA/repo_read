@@ -8,6 +8,7 @@ import { createCatalogTools } from "../catalog/catalog-tools.js";
 import { extractJson } from "../utils/extract-json.js";
 import { PromptAssembler } from "../prompt/assembler.js";
 import { TurnEngineAdapter } from "../runtime/turn-engine.js";
+import type { ProviderCallOptions } from "../utils/generate-via-stream.js";
 
 export type ForkWorkerResponse = {
   success: boolean;
@@ -20,6 +21,7 @@ export type ForkWorkerOptions = {
   repoRoot: string;
   maxSteps?: number;
   allowBash?: boolean;
+  providerCallOptions?: ProviderCallOptions;
   onStep?: (step: StepInfo) => void;
 };
 
@@ -28,6 +30,7 @@ export class ForkWorker {
   private readonly repoRoot: string;
   private readonly maxSteps: number;
   private readonly allowBash: boolean;
+  private readonly providerCallOptions?: ProviderCallOptions;
   private readonly onStep?: (step: StepInfo) => void;
   private readonly promptAssembler: PromptAssembler;
   private readonly turnEngine: TurnEngineAdapter;
@@ -37,6 +40,7 @@ export class ForkWorker {
     this.repoRoot = options.repoRoot;
     this.maxSteps = options.maxSteps ?? 8;
     this.allowBash = options.allowBash ?? true;
+    this.providerCallOptions = options.providerCallOptions;
     this.onStep = options.onStep;
     this.promptAssembler = new PromptAssembler();
     this.turnEngine = new TurnEngineAdapter();
@@ -60,6 +64,7 @@ export class ForkWorker {
           retry: { maxRetries: 0, baseDelayMs: 0, backoffFactor: 1 },
           overflow: { strategy: "none" },
           toolBatch: { strategy: "sequential" },
+          providerOptions: this.providerCallOptions,
         },
         onStep: this.onStep,
       });

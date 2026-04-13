@@ -2,6 +2,7 @@ import type { LanguageModel } from "ai";
 import { runAgentLoop } from "../agent/agent-loop.js";
 import type { PageOutline, PageOutlineSection } from "../types/agent.js";
 import { extractJson } from "../utils/extract-json.js";
+import type { ProviderCallOptions } from "../utils/generate-via-stream.js";
 
 export type OutlinePlannerInput = {
   pageTitle: string;
@@ -21,6 +22,7 @@ export type OutlinePlannerInput = {
 
 export type OutlinePlannerOptions = {
   model: LanguageModel;
+  providerCallOptions?: ProviderCallOptions;
   onStep?: (step: import("../agent/agent-loop.js").StepInfo) => void;
 };
 
@@ -35,10 +37,12 @@ export type OutlinePlannerOptions = {
  */
 export class OutlinePlanner {
   private readonly model: LanguageModel;
+  private readonly providerCallOptions?: ProviderCallOptions;
   private readonly onStep?: (step: import("../agent/agent-loop.js").StepInfo) => void;
 
   constructor(options: OutlinePlannerOptions) {
     this.model = options.model;
+    this.providerCallOptions = options.providerCallOptions;
     this.onStep = options.onStep;
   }
 
@@ -71,6 +75,7 @@ Schema:
         system: systemPrompt,
         tools: {},
         maxSteps: 1,
+        providerCallOptions: this.providerCallOptions,
         onStep: this.onStep,
       }, userPrompt);
 

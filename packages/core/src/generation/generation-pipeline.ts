@@ -24,8 +24,8 @@ import { ArtifactStore } from "../artifacts/artifact-store.js";
 import type { PageRef } from "../artifacts/types.js";
 import { computeComplexity } from "./complexity-scorer.js";
 import { adjustParams, type AdjustedParams } from "./param-adjuster.js";
-import { setCacheKey, setModelOptions } from "../utils/generate-via-stream.js";
-import { getModelOptionsForRole } from "../providers/model-factory.js";
+import { setSessionId, type ProviderCallOptions } from "../utils/generate-via-stream.js";
+import { getModelOptionsForRole, type ModelOptions } from "../providers/model-factory.js";
 import { UsageTracker } from "../utils/usage-tracker.js";
 
 export type GenerationPipelineOptions = {
@@ -74,6 +74,15 @@ export type PipelineRunOptions = {
    */
   repoProfile?: RepoProfile;
 };
+
+/** Build request-scoped provider call options from role model options + job cache key. */
+function buildProviderOpts(roleOptions: ModelOptions, cacheKey: string): ProviderCallOptions {
+  return {
+    cacheKey,
+    reasoning: roleOptions.reasoning,
+    serviceTier: roleOptions.serviceTier,
+  };
+}
 
 export class GenerationPipeline {
   private readonly storage: StorageAdapter;
@@ -137,14 +146,14 @@ export class GenerationPipeline {
         // === CATALOGING ===
         job = await this.jobManager.transition(slug, jobId, "cataloging");
         await emitter.jobStarted();
-        setCacheKey(jobId);
-        setModelOptions(getModelOptionsForRole(this.config, "catalog"));
+        setSessionId(jobId);
 
         const catalogPlanner = new CatalogPlanner({
           model: this.catalogModel,
           language: this.config.language,
           maxSteps: this.config.qualityProfile.catalogMaxSteps,
           allowBash: this.config.retrieval.allowControlledBash,
+          providerCallOptions: buildProviderOpts(getModelOptionsForRole(this.config, "catalog"), jobId),
           onStep: (step) => this.usageTracker.add("catalog", (this.catalogModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
         });
         const profileResult =
@@ -215,11 +224,17 @@ export class GenerationPipeline {
       // Agents are stateless between pages (they only hold a model ref + config),
       // so we construct them once before the loop.
       const allowBash = this.config.retrieval.allowControlledBash;
+      const drafterProviderOpts = buildProviderOpts(getModelOptionsForRole(this.config, "drafter"), jobId);
+      const workerProviderOpts = buildProviderOpts(getModelOptionsForRole(this.config, "worker"), jobId);
+      const outlineProviderOpts = buildProviderOpts(getModelOptionsForRole(this.config, "outline"), jobId);
+      const reviewerProviderOpts = buildProviderOpts(getModelOptionsForRole(this.config, "reviewer"), jobId);
+
       const drafter = new PageDrafter({
         model: this.drafterModel,
         repoRoot: this.repoRoot,
         maxSteps: qp.drafterMaxSteps,
         allowBash,
+        providerCallOptions: drafterProviderOpts,
         onStep: (step) => this.usageTracker.add("drafter", (this.drafterModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
       });
       const reviewer = new FreshReviewer({
@@ -229,6 +244,7 @@ export class GenerationPipeline {
         verifyMinCitations: qp.reviewerVerifyMinCitations,
         strictness: qp.reviewerStrictness,
         allowBash,
+        providerCallOptions: reviewerProviderOpts,
         onStep: (step) => this.usageTracker.add("reviewer", (this.reviewerModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
       });
       const coordinator =
@@ -240,11 +256,13 @@ export class GenerationPipeline {
               concurrency: qp.forkWorkerConcurrency,
               workerMaxSteps: qp.workerMaxSteps,
               allowBash,
+              providerCallOptions: workerProviderOpts,
               onWorkerStep: (step) => this.usageTracker.add("worker", (this.workerModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
             })
           : null;
       const outlinePlanner = new OutlinePlanner({
         model: this.outlineModel,
+        providerCallOptions: outlineProviderOpts,
         onStep: (step) => this.usageTracker.add("outline", (this.outlineModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
       });
 
@@ -344,7 +362,6 @@ export class GenerationPipeline {
 
           if (shouldCollectEvidence) {
             evidenceJustCollected = true;
-            setModelOptions(getModelOptionsForRole(this.config, "worker"));
             evidenceResult = await coordinator!.collect({
               pageTitle: page.title,
               pageRationale: page.rationale,
@@ -402,7 +419,6 @@ export class GenerationPipeline {
           // evidence was just re-collected on a retry (the evidence base
           // changed, so the outline should reflect the new findings).
           if (evidenceResult && (outline === null || evidenceJustCollected)) {
-            setModelOptions(getModelOptionsForRole(this.config, "outline"));
             outline = await outlinePlanner.plan({
               pageTitle: page.title,
               pageRationale: page.rationale,
@@ -419,7 +435,6 @@ export class GenerationPipeline {
             }
           }
 
-          setModelOptions(getModelOptionsForRole(this.config, "drafter"));
           await emitter.pageDrafting(page.slug);
 
           // When file paths are available, pass empty in-context content — the
@@ -466,6 +481,7 @@ export class GenerationPipeline {
                 repoRoot: this.repoRoot,
                 maxSteps: pageParams.drafterMaxSteps,
                 allowBash,
+                providerCallOptions: drafterProviderOpts,
                 ...(pageParams.maxOutputTokensBoost > 0
                   ? { maxOutputTokens: 16384 + pageParams.maxOutputTokensBoost }
                   : {}),
@@ -538,7 +554,6 @@ export class GenerationPipeline {
           await fs.writeFile(preDraftMdPath, draftResult.markdown!, "utf-8");
 
           // --- REVIEW ---
-          setModelOptions(getModelOptionsForRole(this.config, "reviewer"));
           job = await this.jobManager.transition(slug, jobId, "reviewing");
 
           // Paths must be relative to repoRoot — the reviewer's `read` tool prepends repoRoot
@@ -755,12 +770,12 @@ export class GenerationPipeline {
         job.summary.failedPages ?? 0,
       );
 
-      setCacheKey(null);
+      setSessionId(null);
       const usagePath = path.join(this.storage.paths.jobDir(slug, jobId), "usage.json");
       await fs.writeFile(usagePath, this.usageTracker.toJSON(), "utf-8").catch(() => {});
       return { success: true, job, usageTracker: this.usageTracker };
     } catch (err) {
-      setCacheKey(null);
+      setSessionId(null);
       return this.failJob(job, emitter, (err as Error).message);
     }
   }

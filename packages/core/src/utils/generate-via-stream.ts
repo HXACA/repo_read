@@ -1,47 +1,49 @@
 /**
  * Provider options management for OpenAI Responses API models.
  *
- * Holds global job-scoped state (cache key, model options) and exposes
- * helpers consumed by the generation pipeline and agent loop:
+ * `buildResponsesProviderOptions` is a **pure function** — it reads from
+ * explicit parameters, not from module-level globals. Callers pass
+ * `ProviderCallOptions` (cacheKey, reasoning, serviceTier) through the
+ * request-scoped `providerCallOptions` field on `AgentLoopOptions`.
  *
- * - `setCacheKey` / `getCacheKey` — prompt-cache routing key, set once per job
- * - `setModelOptions` — reasoning effort + service tier for subsequent calls
- * - `buildResponsesProviderOptions` — constructs the `providerOptions` block
- *   for models whose provider is `openai.responses`
+ * The only remaining module-level state is `sessionId`, used exclusively
+ * by model-factory to inject the `session_id` HTTP header. It will be
+ * removed in Phase 3.
  */
 
 import type { LanguageModel } from "ai";
 
-let cacheKey: string | null = null;
-let currentModelOptions: {
-  reasoning: { effort: string; summary: string } | null;
-  serviceTier: string | null;
-} = { reasoning: null, serviceTier: null };
+// ── Session-id header state (Phase 3 will remove) ──────────────────────────
 
-/** Set a cache key for prompt caching. Call once per job with jobId. */
-export function setCacheKey(key: string | null): void {
-  cacheKey = key;
+let sessionId: string | null = null;
+
+/** Set the session ID injected into OpenAI fetch headers. Call once per job. */
+export function setSessionId(id: string | null): void {
+  sessionId = id;
 }
 
-/** Get the current cache key (used by model-factory for session_id header). */
-export function getCacheKey(): string | null {
-  return cacheKey;
+/** Get the current session ID (used by model-factory for session_id header). */
+export function getSessionId(): string | null {
+  return sessionId;
 }
 
-/** Set model options (reasoning, serviceTier) for subsequent calls. */
-export function setModelOptions(options: {
-  reasoning: { effort: string; summary: string } | null;
-  serviceTier: string | null;
-}): void {
-  currentModelOptions = options;
-}
+// ── Provider call options (pure) ────────────────────────────────────────────
+
+export type ProviderCallOptions = {
+  cacheKey?: string;
+  reasoning?: { effort: string; summary: string } | null;
+  serviceTier?: string | null;
+};
 
 /**
  * Build Responses API provider options for a given model.
- * Reusable by the agent loop and any direct streamText calls.
+ * Pure function — reads from explicit `options`, not from globals.
  * Returns null if the model is not an OpenAI Responses model.
  */
-export function buildResponsesProviderOptions(model: LanguageModel): {
+export function buildResponsesProviderOptions(
+  model: LanguageModel,
+  options?: ProviderCallOptions,
+): {
   providerOptions: Record<string, unknown>;
   stripSystem: boolean;
   stripMaxOutputTokens: boolean;
@@ -54,16 +56,16 @@ export function buildResponsesProviderOptions(model: LanguageModel): {
   openaiOptions.store = false;
   // promptCacheKey: improves routing stickiness so requests hit the same
   // engine and reuse cached KV state (same pattern as Codex's conversation_id)
-  if (cacheKey) openaiOptions.promptCacheKey = cacheKey;
+  if (options?.cacheKey) openaiOptions.promptCacheKey = options.cacheKey;
   // Enable reasoning (thinking) when configured for the model
-  if (currentModelOptions.reasoning) {
-    openaiOptions.reasoningEffort = currentModelOptions.reasoning.effort;
-    openaiOptions.reasoningSummary = currentModelOptions.reasoning.summary;
+  if (options?.reasoning) {
+    openaiOptions.reasoningEffort = options.reasoning.effort;
+    openaiOptions.reasoningSummary = options.reasoning.summary;
   }
   // Service tier: "fast" → "priority" (like Codex), "flex" → "flex"
-  if (currentModelOptions.serviceTier) {
+  if (options?.serviceTier) {
     openaiOptions.serviceTier =
-      currentModelOptions.serviceTier === "fast" ? "priority" : currentModelOptions.serviceTier;
+      options.serviceTier === "fast" ? "priority" : options.serviceTier;
   }
 
   return {

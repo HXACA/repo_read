@@ -7,6 +7,7 @@ import type { PageDraftPromptInput } from "./page-drafter-prompt.js";
 import { createCatalogTools } from "../catalog/catalog-tools.js";
 import { PromptAssembler } from "../prompt/assembler.js";
 import { TurnEngineAdapter } from "../runtime/turn-engine.js";
+import type { ProviderCallOptions } from "../utils/generate-via-stream.js";
 
 
 export type PageDraftResult = {
@@ -40,6 +41,7 @@ export type PageDrafterOptions = {
    */
   maxOutputTokens?: number;
   allowBash?: boolean;
+  providerCallOptions?: ProviderCallOptions;
   onStep?: (step: StepInfo) => void;
 };
 
@@ -97,6 +99,7 @@ export class PageDrafter {
   private readonly maxSteps: number;
   private readonly maxOutputTokens?: number;
   private readonly allowBash: boolean;
+  private readonly providerCallOptions?: ProviderCallOptions;
   private readonly onStep?: (step: StepInfo) => void;
   private readonly promptAssembler: PromptAssembler;
   private readonly turnEngine: TurnEngineAdapter;
@@ -107,6 +110,7 @@ export class PageDrafter {
     this.maxSteps = options.maxSteps ?? 20;
     this.maxOutputTokens = options.maxOutputTokens;
     this.allowBash = options.allowBash ?? true;
+    this.providerCallOptions = options.providerCallOptions;
     this.onStep = options.onStep;
     this.promptAssembler = new PromptAssembler();
     this.turnEngine = new TurnEngineAdapter();
@@ -134,6 +138,7 @@ export class PageDrafter {
           retry: { maxRetries: 0, baseDelayMs: 0, backoffFactor: 1 },
           overflow: { strategy: "none" },
           toolBatch: { strategy: "sequential" },
+          providerOptions: this.providerCallOptions,
         },
         onStep: this.onStep,
       });

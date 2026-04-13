@@ -14,6 +14,7 @@ import { createCatalogTools } from "../catalog/catalog-tools.js";
 import { extractJson } from "../utils/extract-json.js";
 import { PromptAssembler } from "../prompt/assembler.js";
 import { TurnEngineAdapter } from "../runtime/turn-engine.js";
+import type { ProviderCallOptions } from "../utils/generate-via-stream.js";
 
 export type ReviewResult = {
   success: boolean;
@@ -39,6 +40,7 @@ export type FreshReviewerOptions = {
    */
   strictness?: ReviewerStrictness;
   allowBash?: boolean;
+  providerCallOptions?: ProviderCallOptions;
   onStep?: (step: StepInfo) => void;
 };
 
@@ -49,6 +51,7 @@ export class FreshReviewer {
   private readonly verifyMinCitations: number;
   private readonly strictness: ReviewerStrictness;
   private readonly allowBash: boolean;
+  private readonly providerCallOptions?: ProviderCallOptions;
   private readonly onStep?: (step: StepInfo) => void;
   private readonly promptAssembler: PromptAssembler;
   private readonly turnEngine: TurnEngineAdapter;
@@ -60,6 +63,7 @@ export class FreshReviewer {
     this.verifyMinCitations = options.verifyMinCitations ?? 0;
     this.strictness = options.strictness ?? "normal";
     this.allowBash = options.allowBash ?? true;
+    this.providerCallOptions = options.providerCallOptions;
     this.onStep = options.onStep;
     this.promptAssembler = new PromptAssembler();
     this.turnEngine = new TurnEngineAdapter();
@@ -86,6 +90,7 @@ export class FreshReviewer {
           retry: { maxRetries: 0, baseDelayMs: 0, backoffFactor: 1 },
           overflow: { strategy: "none" },
           toolBatch: { strategy: "sequential" },
+          providerOptions: this.providerCallOptions,
         },
         onStep: this.onStep,
       });

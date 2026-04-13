@@ -7,7 +7,7 @@ import { parseModelId } from "../types/config.js";
 import { AppError } from "../errors.js";
 import { getDebugDir, createDebugFetch } from "../utils/debug-fetch.js";
 import { createResilientFetch } from "../utils/resilient-fetch.js";
-import { getCacheKey } from "../utils/generate-via-stream.js";
+import { getSessionId } from "../utils/generate-via-stream.js";
 
 export type ModelFactoryOptions = {
   apiKeys: Record<string, string>;
@@ -112,10 +112,10 @@ function createModel(
     }
     case "@ai-sdk/openai": {
       // Wrap fetch to dynamically inject session_id header (synced with prompt_cache_key).
-      // Must be dynamic because cacheKey is set after model creation.
+      // Must be dynamic because sessionId is set after model creation.
       const baseFetch = fetchFn ?? globalThis.fetch;
       const fetchWithSession: typeof globalThis.fetch = (input, init) => {
-        const key = getCacheKey();
+        const key = getSessionId();
         if (key) {
           const headers = new Headers(init?.headers);
           headers.set("session_id", key);

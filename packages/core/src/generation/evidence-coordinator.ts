@@ -9,6 +9,7 @@ import {
   type EvidencePlanInput,
   type EvidenceTask,
 } from "./evidence-planner.js";
+import type { ProviderCallOptions } from "../utils/generate-via-stream.js";
 
 export type EvidenceCoordinatorOptions = {
   plannerModel: LanguageModel;
@@ -17,6 +18,7 @@ export type EvidenceCoordinatorOptions = {
   concurrency: number;
   workerMaxSteps?: number;
   allowBash?: boolean;
+  providerCallOptions?: ProviderCallOptions;
   onWorkerStep?: (step: import("../agent/agent-loop.js").StepInfo) => void;
 };
 
@@ -66,13 +68,14 @@ export class EvidenceCoordinator {
   private readonly concurrency: number;
 
   constructor(options: EvidenceCoordinatorOptions) {
-    this.planner = new EvidencePlanner({ model: options.plannerModel });
+    this.planner = new EvidencePlanner({ model: options.plannerModel, providerCallOptions: options.providerCallOptions });
     this.workerFactory = () =>
       new ForkWorker({
         model: options.workerModel,
         repoRoot: options.repoRoot,
         maxSteps: options.workerMaxSteps,
         allowBash: options.allowBash,
+        providerCallOptions: options.providerCallOptions,
         onStep: options.onWorkerStep,
       });
     this.concurrency = Math.max(1, options.concurrency);

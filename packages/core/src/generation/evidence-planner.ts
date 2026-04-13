@@ -1,6 +1,7 @@
 import type { LanguageModel } from "ai";
 import { runAgentLoop } from "../agent/agent-loop.js";
 import { extractJson } from "../utils/extract-json.js";
+import type { ProviderCallOptions } from "../utils/generate-via-stream.js";
 
 /**
  * A single evidence-gathering subtask that a `worker` will execute.
@@ -30,6 +31,7 @@ export type EvidencePlanInput = {
 
 export type EvidencePlannerOptions = {
   model: LanguageModel;
+  providerCallOptions?: ProviderCallOptions;
 };
 
 export type EvidencePlanResult =
@@ -59,9 +61,11 @@ const LANGUAGE_NAMES: Record<string, string> = {
  */
 export class EvidencePlanner {
   private readonly model: LanguageModel;
+  private readonly providerCallOptions?: ProviderCallOptions;
 
   constructor(options: EvidencePlannerOptions) {
     this.model = options.model;
+    this.providerCallOptions = options.providerCallOptions;
   }
 
   async plan(input: EvidencePlanInput): Promise<EvidencePlanResult> {
@@ -104,6 +108,7 @@ export class EvidencePlanner {
         system: systemPrompt,
         tools: {},
         maxSteps: 1,
+        providerCallOptions: this.providerCallOptions,
       }, userPrompt);
 
       const parsed = extractJson(result.text);

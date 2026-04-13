@@ -12,7 +12,7 @@
 import { streamText } from "ai";
 import type { LanguageModel, ToolSet } from "ai";
 import { withRetry } from "../utils/api-retry.js";
-import { buildResponsesProviderOptions } from "../utils/generate-via-stream.js";
+import { buildResponsesProviderOptions, type ProviderCallOptions } from "../utils/generate-via-stream.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -33,6 +33,7 @@ export type AgentLoopOptions = {
   maxSteps: number;
   maxOutputTokens?: number; // passed through to streamText when set
   maxInputTokens?: number;  // reserved for P2 compression, not used yet
+  providerCallOptions?: ProviderCallOptions;
   onStep?: (step: StepInfo) => void;
 };
 
@@ -145,6 +146,7 @@ function buildStreamParams(
   messages: Message[],
   tools: ToolSet,
   maxOutputTokens?: number,
+  providerCallOptions?: ProviderCallOptions,
 ): Record<string, unknown> {
   const params: Record<string, unknown> = {
     model,
@@ -155,7 +157,7 @@ function buildStreamParams(
   };
 
   // Apply Responses API options when the model supports them
-  const responsesOpts = buildResponsesProviderOptions(model);
+  const responsesOpts = buildResponsesProviderOptions(model, providerCallOptions);
   if (responsesOpts) {
     const openaiOpts = responsesOpts.providerOptions.openai as Record<
       string,
@@ -243,7 +245,7 @@ export async function runAgentLoop(
   options: AgentLoopOptions,
   initialPrompt: string,
 ): Promise<AgentLoopResult> {
-  const { model, system, tools, maxSteps, maxOutputTokens, onStep } = options;
+  const { model, system, tools, maxSteps, maxOutputTokens, providerCallOptions, onStep } = options;
 
   const messages: Message[] = [{ role: "user", content: initialPrompt }];
   const steps: StepInfo[] = [];
@@ -256,7 +258,7 @@ export async function runAgentLoop(
   let lastText = "";
 
   for (let stepIndex = 0; stepIndex < maxSteps; stepIndex++) {
-    const params = buildStreamParams(model, system, messages, tools, maxOutputTokens);
+    const params = buildStreamParams(model, system, messages, tools, maxOutputTokens, providerCallOptions);
 
     // withRetry wraps the entire stream lifecycle: creation + all awaits.
     // This ensures SSE timeouts and transient errors during reading are retried.
@@ -325,7 +327,7 @@ export async function* runAgentLoopStream(
   options: AgentLoopOptions,
   initialPrompt: string,
 ): AsyncGenerator<AgentLoopEvent> {
-  const { model, system, tools, maxSteps, maxOutputTokens, onStep } = options;
+  const { model, system, tools, maxSteps, maxOutputTokens, providerCallOptions, onStep } = options;
 
   const messages: Message[] = [{ role: "user", content: initialPrompt }];
   const steps: StepInfo[] = [];
@@ -338,7 +340,7 @@ export async function* runAgentLoopStream(
   let lastText = "";
 
   for (let stepIndex = 0; stepIndex < maxSteps; stepIndex++) {
-    const params = buildStreamParams(model, system, messages, tools, maxOutputTokens);
+    const params = buildStreamParams(model, system, messages, tools, maxOutputTokens, providerCallOptions);
 
     // Design note on streaming retry scope:
     // withRetry wraps stream CREATION only. Mid-stream failures (SSE timeout,

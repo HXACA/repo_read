@@ -8,7 +8,7 @@ import { classifyRoute, type AskRoute } from "./route-classifier.js";
 import { AskSessionManager } from "./ask-session.js";
 import { ResearchService } from "../research/research-service.js";
 import { runAgentLoopStream } from "../agent/agent-loop.js";
-import { setCacheKey, setModelOptions } from "../utils/generate-via-stream.js";
+import { setSessionId } from "../utils/generate-via-stream.js";
 import type { LabeledFinding } from "../types/research.js";
 
 export type AskStreamOptions = {
@@ -118,9 +118,8 @@ export class AskStreamService {
 
     this.sessionManager.addUserTurn(session.id, question);
 
-    // Set cache/routing state so Responses API calls get promptCacheKey + session_id header
-    setCacheKey(`ask-${session.id}`);
-    setModelOptions({ reasoning: null, serviceTier: null });
+    // Set session ID for Responses API session_id header
+    setSessionId(`ask-${session.id}`);
 
     try {
       if (route === "research") {
@@ -189,6 +188,7 @@ export class AskStreamService {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ToolSet cast for AI SDK type compatibility
         tools: toolSet as any,
         maxSteps: budget,
+        providerCallOptions: { cacheKey: `ask-${sessionId}` },
       },
       userPrompt,
     )) {

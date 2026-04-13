@@ -28,7 +28,7 @@ export type {
 } from "./generation/index.js";
 export { PathPolicy, validateBashCommand } from "./policy/index.js";
 export { setDebugDir } from "./utils/debug-fetch.js";
-export { setModelOptions, buildResponsesProviderOptions } from "./utils/generate-via-stream.js";
+export { setSessionId, buildResponsesProviderOptions } from "./utils/generate-via-stream.js";
 export type { BashValidationResult } from "./policy/index.js";
 export {
   readFile, grepSearch, findFiles,

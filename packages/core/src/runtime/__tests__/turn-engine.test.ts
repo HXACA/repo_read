@@ -58,9 +58,8 @@ describe("TurnEngineAdapter", () => {
     it("delegates to invokeTurn with correct options and normalizes text", async () => {
       const loopResult = makeAgentLoopResult({ text: "normalized text" });
       const invokeTurn = vi.fn().mockResolvedValue(loopResult);
-      const mockSetModelOptions = vi.fn();
 
-      const adapter = new TurnEngineAdapter({ invokeTurn, setModelOptions: mockSetModelOptions });
+      const adapter = new TurnEngineAdapter({ invokeTurn });
       const request = makeRequest();
       const result = await adapter.run(request);
 
@@ -73,7 +72,7 @@ describe("TurnEngineAdapter", () => {
         totalUsage: { inputTokens: 111, outputTokens: 222, reasoningTokens: 33, cachedTokens: 44 },
       });
       const invokeTurn = vi.fn().mockResolvedValue(loopResult);
-      const adapter = new TurnEngineAdapter({ invokeTurn, setModelOptions: vi.fn() });
+      const adapter = new TurnEngineAdapter({ invokeTurn });
 
       const result = await adapter.run(makeRequest());
 
@@ -92,7 +91,7 @@ describe("TurnEngineAdapter", () => {
       ];
       const loopResult = makeAgentLoopResult({ steps });
       const invokeTurn = vi.fn().mockResolvedValue(loopResult);
-      const adapter = new TurnEngineAdapter({ invokeTurn, setModelOptions: vi.fn() });
+      const adapter = new TurnEngineAdapter({ invokeTurn });
 
       const result = await adapter.run(makeRequest());
 
@@ -102,7 +101,7 @@ describe("TurnEngineAdapter", () => {
     it("returns 'unknown' finishReason when steps array is empty", async () => {
       const loopResult = makeAgentLoopResult({ steps: [] });
       const invokeTurn = vi.fn().mockResolvedValue(loopResult);
-      const adapter = new TurnEngineAdapter({ invokeTurn, setModelOptions: vi.fn() });
+      const adapter = new TurnEngineAdapter({ invokeTurn });
 
       const result = await adapter.run(makeRequest());
 
@@ -114,7 +113,7 @@ describe("TurnEngineAdapter", () => {
       const messages = [{ role: "user" as const, content: "hello" }];
       const loopResult = makeAgentLoopResult({ steps, messages });
       const invokeTurn = vi.fn().mockResolvedValue(loopResult);
-      const adapter = new TurnEngineAdapter({ invokeTurn, setModelOptions: vi.fn() });
+      const adapter = new TurnEngineAdapter({ invokeTurn });
 
       const result = await adapter.run(makeRequest());
 
@@ -126,7 +125,7 @@ describe("TurnEngineAdapter", () => {
   describe("run() — invokeTurn call shape", () => {
     it("passes model, system, tools, maxSteps to invokeTurn", async () => {
       const invokeTurn = vi.fn().mockResolvedValue(makeAgentLoopResult());
-      const adapter = new TurnEngineAdapter({ invokeTurn, setModelOptions: vi.fn() });
+      const adapter = new TurnEngineAdapter({ invokeTurn });
 
       const model = { id: "test-model" } as unknown as LanguageModel;
       const tools = { myTool: {} } as unknown as ToolSet;
@@ -156,7 +155,7 @@ describe("TurnEngineAdapter", () => {
 
     it("passes maxOutputTokens when set in policy", async () => {
       const invokeTurn = vi.fn().mockResolvedValue(makeAgentLoopResult());
-      const adapter = new TurnEngineAdapter({ invokeTurn, setModelOptions: vi.fn() });
+      const adapter = new TurnEngineAdapter({ invokeTurn });
 
       const request = makeRequest({
         policy: {
@@ -176,7 +175,7 @@ describe("TurnEngineAdapter", () => {
 
     it("omits maxOutputTokens when not set in policy", async () => {
       const invokeTurn = vi.fn().mockResolvedValue(makeAgentLoopResult());
-      const adapter = new TurnEngineAdapter({ invokeTurn, setModelOptions: vi.fn() });
+      const adapter = new TurnEngineAdapter({ invokeTurn });
 
       await adapter.run(makeRequest()); // policy has no maxOutputTokens
 
@@ -186,7 +185,7 @@ describe("TurnEngineAdapter", () => {
 
     it("passes onStep callback through to invokeTurn", async () => {
       const invokeTurn = vi.fn().mockResolvedValue(makeAgentLoopResult());
-      const adapter = new TurnEngineAdapter({ invokeTurn, setModelOptions: vi.fn() });
+      const adapter = new TurnEngineAdapter({ invokeTurn });
       const onStep = vi.fn();
 
       await adapter.run(makeRequest({ onStep }));
@@ -197,7 +196,7 @@ describe("TurnEngineAdapter", () => {
 
     it("passes undefined onStep when not provided", async () => {
       const invokeTurn = vi.fn().mockResolvedValue(makeAgentLoopResult());
-      const adapter = new TurnEngineAdapter({ invokeTurn, setModelOptions: vi.fn() });
+      const adapter = new TurnEngineAdapter({ invokeTurn });
 
       const request = makeRequest();
       delete request.onStep;
@@ -208,21 +207,20 @@ describe("TurnEngineAdapter", () => {
     });
   });
 
-  describe("run() — providerOptions / setModelOptions", () => {
-    it("does not call setModelOptions when no providerOptions set", async () => {
+  describe("run() — providerCallOptions pass-through", () => {
+    it("passes providerCallOptions as undefined when no providerOptions in policy", async () => {
       const invokeTurn = vi.fn().mockResolvedValue(makeAgentLoopResult());
-      const mockSetModelOptions = vi.fn();
-      const adapter = new TurnEngineAdapter({ invokeTurn, setModelOptions: mockSetModelOptions });
+      const adapter = new TurnEngineAdapter({ invokeTurn });
 
       await adapter.run(makeRequest()); // no providerOptions in policy
 
-      expect(mockSetModelOptions).not.toHaveBeenCalled();
+      const [calledOptions] = invokeTurn.mock.calls[0] as [Record<string, unknown>, unknown];
+      expect(calledOptions.providerCallOptions).toBeUndefined();
     });
 
-    it("does not call setModelOptions when providerOptions has neither reasoning nor serviceTier", async () => {
+    it("passes providerCallOptions with cacheKey only", async () => {
       const invokeTurn = vi.fn().mockResolvedValue(makeAgentLoopResult());
-      const mockSetModelOptions = vi.fn();
-      const adapter = new TurnEngineAdapter({ invokeTurn, setModelOptions: mockSetModelOptions });
+      const adapter = new TurnEngineAdapter({ invokeTurn });
 
       const request = makeRequest({
         policy: {
@@ -236,13 +234,13 @@ describe("TurnEngineAdapter", () => {
 
       await adapter.run(request);
 
-      expect(mockSetModelOptions).not.toHaveBeenCalled();
+      const [calledOptions] = invokeTurn.mock.calls[0] as [Record<string, unknown>, unknown];
+      expect(calledOptions.providerCallOptions).toEqual({ cacheKey: "only-cache-key" });
     });
 
-    it("calls setModelOptions when reasoning is provided", async () => {
+    it("passes providerCallOptions with reasoning", async () => {
       const invokeTurn = vi.fn().mockResolvedValue(makeAgentLoopResult());
-      const mockSetModelOptions = vi.fn();
-      const adapter = new TurnEngineAdapter({ invokeTurn, setModelOptions: mockSetModelOptions });
+      const adapter = new TurnEngineAdapter({ invokeTurn });
 
       const request = makeRequest({
         policy: {
@@ -258,17 +256,15 @@ describe("TurnEngineAdapter", () => {
 
       await adapter.run(request);
 
-      expect(mockSetModelOptions).toHaveBeenCalledOnce();
-      expect(mockSetModelOptions).toHaveBeenCalledWith({
+      const [calledOptions] = invokeTurn.mock.calls[0] as [Record<string, unknown>, unknown];
+      expect(calledOptions.providerCallOptions).toEqual({
         reasoning: { effort: "high", summary: "auto" },
-        serviceTier: null,
       });
     });
 
-    it("calls setModelOptions when serviceTier is provided", async () => {
+    it("passes providerCallOptions with serviceTier", async () => {
       const invokeTurn = vi.fn().mockResolvedValue(makeAgentLoopResult());
-      const mockSetModelOptions = vi.fn();
-      const adapter = new TurnEngineAdapter({ invokeTurn, setModelOptions: mockSetModelOptions });
+      const adapter = new TurnEngineAdapter({ invokeTurn });
 
       const request = makeRequest({
         policy: {
@@ -282,17 +278,13 @@ describe("TurnEngineAdapter", () => {
 
       await adapter.run(request);
 
-      expect(mockSetModelOptions).toHaveBeenCalledOnce();
-      expect(mockSetModelOptions).toHaveBeenCalledWith({
-        reasoning: null,
-        serviceTier: "flex",
-      });
+      const [calledOptions] = invokeTurn.mock.calls[0] as [Record<string, unknown>, unknown];
+      expect(calledOptions.providerCallOptions).toEqual({ serviceTier: "flex" });
     });
 
-    it("calls setModelOptions with both reasoning and serviceTier when both provided", async () => {
+    it("passes providerCallOptions with all fields when both reasoning and serviceTier provided", async () => {
       const invokeTurn = vi.fn().mockResolvedValue(makeAgentLoopResult());
-      const mockSetModelOptions = vi.fn();
-      const adapter = new TurnEngineAdapter({ invokeTurn, setModelOptions: mockSetModelOptions });
+      const adapter = new TurnEngineAdapter({ invokeTurn });
 
       const request = makeRequest({
         policy: {
@@ -301,6 +293,7 @@ describe("TurnEngineAdapter", () => {
           overflow: { strategy: "none" },
           toolBatch: { strategy: "sequential" },
           providerOptions: {
+            cacheKey: "test-key",
             reasoning: { effort: "medium", summary: "detailed" },
             serviceTier: "fast",
           },
@@ -309,7 +302,9 @@ describe("TurnEngineAdapter", () => {
 
       await adapter.run(request);
 
-      expect(mockSetModelOptions).toHaveBeenCalledWith({
+      const [calledOptions] = invokeTurn.mock.calls[0] as [Record<string, unknown>, unknown];
+      expect(calledOptions.providerCallOptions).toEqual({
+        cacheKey: "test-key",
         reasoning: { effort: "medium", summary: "detailed" },
         serviceTier: "fast",
       });
