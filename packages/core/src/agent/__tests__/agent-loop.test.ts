@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   runAgentLoop,
   runAgentLoopStream,
@@ -23,8 +23,12 @@ let mockResponses: Array<{
   fullStreamEvents?: Array<Record<string, unknown>>;
 }> = [];
 
+// Capture streamText call args for assertion
+let lastStreamTextArgs: Record<string, unknown> | undefined;
+
 vi.mock("ai", () => ({
-  streamText: () => {
+  streamText: (args: Record<string, unknown>) => {
+    lastStreamTextArgs = args;
     const response = mockResponses.shift()!;
     // Build fullStream from text-delta events or custom events
     // AI SDK 6 uses `delta` (not `text`) for text-delta/reasoning-delta
@@ -56,10 +60,13 @@ vi.mock("ai", () => ({
   },
 }));
 
-// Mock buildResponsesProviderOptions to return null (no Responses API)
+// Mock buildResponsesProviderOptions — default null (non-Responses), overrideable per test
 vi.mock("../../utils/generate-via-stream.js", () => ({
-  buildResponsesProviderOptions: () => null,
+  buildResponsesProviderOptions: vi.fn(() => null),
 }));
+
+import { buildResponsesProviderOptions } from "../../utils/generate-via-stream.js";
+const mockBuildResponses = vi.mocked(buildResponsesProviderOptions);
 
 // Mock withRetry to just call the function (no actual retries in tests)
 vi.mock("../../utils/api-retry.js", () => ({
@@ -438,5 +445,59 @@ describe("runAgentLoopStream", () => {
     const done = events.find((e) => e.type === "done") as any;
     expect(done.result.steps).toHaveLength(2);
     expect(done.result.totalUsage.inputTokens).toBe(160);
+  });
+});
+
+describe("session_id header injection", () => {
+  beforeEach(() => {
+    lastStreamTextArgs = undefined;
+  });
+
+  afterEach(() => {
+    mockBuildResponses.mockReturnValue(null);
+  });
+
+  it("injects session_id header when model is openai.responses and cacheKey is set", async () => {
+    mockBuildResponses.mockReturnValue({
+      providerOptions: { openai: { store: false, promptCacheKey: "job-1" } },
+      stripSystem: false,
+      stripMaxOutputTokens: false,
+    });
+
+    mockResponses = [{ text: "ok", finishReason: "stop", usage: makeUsage(10, 5), toolCalls: [] }];
+
+    await runAgentLoop(
+      { ...makeOptions(), providerCallOptions: { cacheKey: "job-1" } },
+      "test",
+    );
+
+    expect(lastStreamTextArgs?.headers).toEqual({ session_id: "job-1" });
+  });
+
+  it("does NOT inject session_id header for non-Responses models even with cacheKey", async () => {
+    mockBuildResponses.mockReturnValue(null);
+
+    mockResponses = [{ text: "ok", finishReason: "stop", usage: makeUsage(10, 5), toolCalls: [] }];
+
+    await runAgentLoop(
+      { ...makeOptions(), providerCallOptions: { cacheKey: "job-1" } },
+      "test",
+    );
+
+    expect(lastStreamTextArgs?.headers).toBeUndefined();
+  });
+
+  it("does NOT inject session_id header when cacheKey is not set", async () => {
+    mockBuildResponses.mockReturnValue({
+      providerOptions: { openai: { store: false } },
+      stripSystem: false,
+      stripMaxOutputTokens: false,
+    });
+
+    mockResponses = [{ text: "ok", finishReason: "stop", usage: makeUsage(10, 5), toolCalls: [] }];
+
+    await runAgentLoop(makeOptions(), "test");
+
+    expect(lastStreamTextArgs?.headers).toBeUndefined();
   });
 });
