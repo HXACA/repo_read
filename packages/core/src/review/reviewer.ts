@@ -36,6 +36,7 @@ export type FreshReviewerOptions = {
    * - `lenient` only gates on hard blockers that actively mislead
    */
   strictness?: ReviewerStrictness;
+  allowBash?: boolean;
   onStep?: (step: import("../agent/agent-loop.js").StepInfo) => void;
 };
 
@@ -45,6 +46,7 @@ export class FreshReviewer {
   private readonly maxSteps: number;
   private readonly verifyMinCitations: number;
   private readonly strictness: ReviewerStrictness;
+  private readonly allowBash: boolean;
   private readonly onStep?: (step: import("../agent/agent-loop.js").StepInfo) => void;
 
   constructor(options: FreshReviewerOptions) {
@@ -53,6 +55,7 @@ export class FreshReviewer {
     this.maxSteps = options.maxSteps ?? 10;
     this.verifyMinCitations = options.verifyMinCitations ?? 0;
     this.strictness = options.strictness ?? "normal";
+    this.allowBash = options.allowBash ?? true;
     this.onStep = options.onStep;
   }
 
@@ -62,7 +65,7 @@ export class FreshReviewer {
       this.strictness,
     );
     const userPrompt = buildReviewerUserPrompt(briefing);
-    const tools = createCatalogTools(this.repoRoot);
+    const tools = createCatalogTools(this.repoRoot, { allowBash: this.allowBash });
 
     try {
       const result = await runAgentLoop({

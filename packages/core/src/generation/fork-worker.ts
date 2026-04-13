@@ -17,6 +17,7 @@ export type ForkWorkerOptions = {
   model: LanguageModel;
   repoRoot: string;
   maxSteps?: number;
+  allowBash?: boolean;
   onStep?: (step: import("../agent/agent-loop.js").StepInfo) => void;
 };
 
@@ -24,19 +25,21 @@ export class ForkWorker {
   private readonly model: LanguageModel;
   private readonly repoRoot: string;
   private readonly maxSteps: number;
+  private readonly allowBash: boolean;
   private readonly onStep?: (step: import("../agent/agent-loop.js").StepInfo) => void;
 
   constructor(options: ForkWorkerOptions) {
     this.model = options.model;
     this.repoRoot = options.repoRoot;
     this.maxSteps = options.maxSteps ?? 8;
+    this.allowBash = options.allowBash ?? true;
     this.onStep = options.onStep;
   }
 
   async execute(input: ForkWorkerInput): Promise<ForkWorkerResponse> {
     const systemPrompt = buildForkWorkerSystemPrompt();
     const userPrompt = buildForkWorkerUserPrompt(input);
-    const tools = createCatalogTools(this.repoRoot);
+    const tools = createCatalogTools(this.repoRoot, { allowBash: this.allowBash });
 
     try {
       const result = await runAgentLoop({

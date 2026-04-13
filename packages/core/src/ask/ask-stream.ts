@@ -23,6 +23,7 @@ export type AskStreamOptions = {
    * previous hardcoded behavior).
    */
   qualityProfile?: QualityProfile;
+  allowBash?: boolean;
 };
 
 export type AskStreamEvent =
@@ -45,6 +46,7 @@ export class AskStreamService {
   private readonly language: string;
   private readonly sessionManager: AskSessionManager;
   private readonly qualityProfile?: QualityProfile;
+  private readonly allowBash: boolean;
 
   constructor(options: AskStreamOptions) {
     this.model = options.model;
@@ -53,6 +55,7 @@ export class AskStreamService {
     this.language = options.language ?? "zh";
     this.sessionManager = new AskSessionManager(options.storage);
     this.qualityProfile = options.qualityProfile;
+    this.allowBash = options.allowBash ?? true;
   }
 
   async *ask(
@@ -175,7 +178,7 @@ export class AskStreamService {
     const budget = isPageFirst ? 2 : profileAskBudget;
     const toolSet: ToolSet = isPageFirst
       ? ({} as ToolSet)
-      : (createCatalogTools(this.repoRoot) as unknown as ToolSet);
+      : (createCatalogTools(this.repoRoot, { allowBash: this.allowBash }) as unknown as ToolSet);
 
     let fullText = "";
     const citations: CitationRecord[] = [];

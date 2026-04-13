@@ -224,6 +224,7 @@ export class GenerationPipeline {
         maxSteps: qp.reviewerMaxSteps,
         verifyMinCitations: qp.reviewerVerifyMinCitations,
         strictness: qp.reviewerStrictness,
+        allowBash,
         onStep: (step) => this.usageTracker.add("reviewer", (this.reviewerModel as any).modelId ?? "unknown", step),
       });
       const coordinator =
@@ -234,6 +235,7 @@ export class GenerationPipeline {
               repoRoot: this.repoRoot,
               concurrency: qp.forkWorkerConcurrency,
               workerMaxSteps: qp.workerMaxSteps,
+              allowBash,
               onWorkerStep: (step) => this.usageTracker.add("worker", (this.workerModel as any).modelId ?? "unknown", step),
             })
           : null;

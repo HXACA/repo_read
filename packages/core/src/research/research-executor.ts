@@ -13,11 +13,8 @@ export type SubQuestionResult = {
 export type ResearchExecutorOptions = {
   model: LanguageModel;
   repoRoot: string;
-  /**
-   * Upper bound on tool-call steps per sub-question investigation. Defaults
-   * to 15 to allow deeper drill-down than ask but less than drafter.
-   */
   maxSteps?: number;
+  allowBash?: boolean;
 };
 
 export class ResearchExecutor {
@@ -28,7 +25,7 @@ export class ResearchExecutor {
   }
 
   async investigate(question: string): Promise<SubQuestionResult> {
-    const tools = createCatalogTools(this.options.repoRoot);
+    const tools = createCatalogTools(this.options.repoRoot, { allowBash: this.options.allowBash });
 
     const result = await runAgentLoop({
       model: this.options.model,

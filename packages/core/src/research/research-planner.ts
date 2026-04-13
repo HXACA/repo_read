@@ -11,13 +11,8 @@ export type ResearchPlan = {
 export type ResearchPlannerOptions = {
   model: LanguageModel;
   repoRoot: string;
-  /**
-   * Upper bound on tool-call steps for the planner's single LLM call.
-   * The planner is lightweight (it only needs enough calls to understand
-   * the high-level structure), so this is capped well below executor.
-   * Defaults to 6.
-   */
   maxSteps?: number;
+  allowBash?: boolean;
 };
 
 export class ResearchPlanner {
@@ -28,7 +23,7 @@ export class ResearchPlanner {
   }
 
   async plan(topic: string, context?: string): Promise<ResearchPlan> {
-    const tools = createCatalogTools(this.options.repoRoot);
+    const tools = createCatalogTools(this.options.repoRoot, { allowBash: this.options.allowBash });
 
     const result = await runAgentLoop({
       model: this.options.model,

@@ -15,6 +15,7 @@ export type AskOptions = {
   storage: StorageAdapter;
   repoRoot: string;
   qualityProfile?: QualityProfile;
+  allowBash?: boolean;
 };
 
 export type AskResult = {
@@ -30,12 +31,14 @@ export class AskService {
   private readonly repoRoot: string;
   private readonly sessionManager: AskSessionManager;
   private readonly qualityProfile?: QualityProfile;
+  private readonly allowBash: boolean;
 
   constructor(options: AskOptions) {
     this.model = options.model;
     this.storage = options.storage;
     this.repoRoot = options.repoRoot;
     this.sessionManager = new AskSessionManager(options.storage);
+    this.allowBash = options.allowBash ?? true;
     this.qualityProfile = options.qualityProfile;
   }
 
@@ -98,7 +101,7 @@ export class AskService {
     const userPrompt = this.buildUserPrompt(question, pageContent, wiki, session);
 
     // Call LLM
-    const tools = createCatalogTools(this.repoRoot);
+    const tools = createCatalogTools(this.repoRoot, { allowBash: this.allowBash });
 
     const askBudget = this.qualityProfile?.askMaxSteps ?? 10;
 
