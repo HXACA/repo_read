@@ -1,6 +1,5 @@
 import * as fs from "node:fs/promises";
 import type { LanguageModel, ToolSet } from "ai";
-import { setSessionId } from "../utils/generate-via-stream.js";
 import type { StorageAdapter } from "../storage/storage-adapter.js";
 import type { WikiJson, PageMeta, CitationRecord } from "../types/generation.js";
 import type { QualityProfile } from "../config/quality-profile.js";
@@ -112,9 +111,6 @@ export class AskService {
 
     const askBudget = this.qualityProfile?.askMaxSteps ?? 10;
 
-    // Phase 5 cleanup target: replace module-level sessionId with request-scoped context
-    setSessionId(`ask-${session.id}`);
-
     try {
       const result = await this.turnEngine.run({
         purpose: "ask",
@@ -138,8 +134,6 @@ export class AskService {
       const errorAnswer = `I encountered an error while answering: ${(err as Error).message}`;
       this.sessionManager.addAssistantTurn(session.id, errorAnswer, []);
       return { answer: errorAnswer, citations: [], route, sessionId: session.id };
-    } finally {
-      setSessionId(null);
     }
   }
 

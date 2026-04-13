@@ -28,7 +28,7 @@ export type {
 } from "./generation/index.js";
 export { PathPolicy, validateBashCommand } from "./policy/index.js";
 export { setDebugDir } from "./utils/debug-fetch.js";
-// setSessionId and buildResponsesProviderOptions are internal — not re-exported
+// buildResponsesProviderOptions is internal — not re-exported
 export type { BashValidationResult } from "./policy/index.js";
 export {
   readFile, grepSearch, findFiles,

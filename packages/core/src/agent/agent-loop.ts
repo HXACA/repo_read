@@ -177,6 +177,12 @@ function buildStreamParams(
     params.providerOptions = { openai: openaiOpts };
   }
 
+  // Inject session_id as a per-call header (request-scoped, no global state).
+  // cacheKey is already request-scoped — passed through TurnRequest → AgentLoopOptions.
+  if (providerCallOptions?.cacheKey) {
+    params.headers = { session_id: providerCallOptions.cacheKey };
+  }
+
   return params;
 }
 

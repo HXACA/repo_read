@@ -6,30 +6,12 @@
  * `ProviderCallOptions` (cacheKey, reasoning, serviceTier) through the
  * request-scoped `providerCallOptions` field on `AgentLoopOptions`.
  *
- * The only remaining module-level state is `sessionId`, used exclusively
- * by model-factory to inject the `session_id` HTTP header. It will be
- * removed in Phase 3.
+ * The `session_id` HTTP header is now injected per-call via streamText's
+ * `headers` parameter in agent-loop.ts — no global state needed.
  */
 
 import type { LanguageModel } from "ai";
 import type { ProviderCallOptions } from "../runtime/turn-types.js";
-
-// ── Session-id header state (Phase 3 will remove) ──────────────────────────
-
-let sessionId: string | null = null;
-
-/** Set the session ID injected into OpenAI fetch headers. Call once per job. */
-export function setSessionId(id: string | null): void {
-  sessionId = id;
-}
-
-/** Get the current session ID (used by model-factory for session_id header). */
-export function getSessionId(): string | null {
-  return sessionId;
-}
-
-// ── Provider call options (pure) ────────────────────────────────────────────
-// ProviderCallOptions is now canonically defined in runtime/turn-types.ts
 
 /**
  * Build Responses API provider options for a given model.

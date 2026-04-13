@@ -7,7 +7,6 @@ import { createCatalogTools } from "../catalog/catalog-tools.js";
 import { classifyRoute, type AskRoute } from "./route-classifier.js";
 import { AskSessionManager } from "./ask-session.js";
 import { ResearchService } from "../research/research-service.js";
-import { setSessionId } from "../utils/generate-via-stream.js";
 import type { LabeledFinding } from "../types/research.js";
 import { PromptAssembler } from "../prompt/assembler.js";
 import { TurnEngineAdapter } from "../runtime/turn-engine.js";
@@ -121,9 +120,6 @@ export class AskStreamService {
 
     this.sessionManager.addUserTurn(session.id, question);
 
-    // Phase 5 cleanup target: replace module-level sessionId with request-scoped context
-    setSessionId(`ask-${session.id}`);
-
     try {
       if (route === "research") {
         yield* this.runResearchRoute(
@@ -145,8 +141,6 @@ export class AskStreamService {
       );
     } catch (err) {
       yield { type: "error", message: (err as Error).message };
-    } finally {
-      setSessionId(null);
     }
   }
 

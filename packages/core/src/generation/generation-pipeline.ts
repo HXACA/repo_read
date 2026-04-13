@@ -24,7 +24,6 @@ import { ArtifactStore } from "../artifacts/artifact-store.js";
 import type { PageRef } from "../artifacts/types.js";
 import { computeComplexity } from "./complexity-scorer.js";
 import { adjustParams, type AdjustedParams } from "./param-adjuster.js";
-import { setSessionId } from "../utils/generate-via-stream.js";
 import type { ProviderCallOptions } from "../runtime/turn-types.js";
 import { getModelOptionsForRole, type ModelOptions } from "../providers/model-factory.js";
 import { UsageTracker } from "../utils/usage-tracker.js";
@@ -137,7 +136,6 @@ export class GenerationPipeline {
         // === RESUME PATH ===
         // Skip catalog. Reuse existing wiki.json and meta files.
         wiki = options.resumeWith.wiki;
-        setSessionId(jobId);
         // The job may already be in "page_drafting" (killed mid-run) or
         // "failed" (clean failure). Only transition if not already there.
         if (job.status !== "page_drafting") {
@@ -148,7 +146,6 @@ export class GenerationPipeline {
         // === CATALOGING ===
         job = await this.jobManager.transition(slug, jobId, "cataloging");
         await emitter.jobStarted();
-        setSessionId(jobId);
 
         const catalogPlanner = new CatalogPlanner({
           model: this.catalogModel,
@@ -777,9 +774,6 @@ export class GenerationPipeline {
       return { success: true, job, usageTracker: this.usageTracker };
     } catch (err) {
       return this.failJob(job, emitter, (err as Error).message);
-    } finally {
-      // Phase 5 cleanup target: replace module-level sessionId with request-scoped context
-      setSessionId(null);
     }
   }
 
