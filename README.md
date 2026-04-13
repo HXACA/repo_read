@@ -25,15 +25,18 @@ cat > ~/.reporead/config.json << 'EOF'
   "providers": [
     {
       "provider": "anthropic",
+      "npm": "@ai-sdk/anthropic",
       "secretRef": "ANTHROPIC_API_KEY",
       "apiKey": "sk-ant-...",
       "enabled": true
     }
   ],
   "roles": {
-    "main.author":    { "model": "claude-sonnet-4-6",        "fallback_models": [] },
-    "fork.worker":    { "model": "claude-haiku-4-5-20251001","fallback_models": [] },
-    "fresh.reviewer": { "model": "claude-sonnet-4-6",        "fallback_models": [] }
+    "catalog":  { "model": "anthropic/claude-sonnet-4-6",         "fallback_models": [] },
+    "outline":  { "model": "anthropic/claude-sonnet-4-6",         "fallback_models": [] },
+    "drafter":  { "model": "anthropic/claude-sonnet-4-6",         "fallback_models": [] },
+    "worker":   { "model": "anthropic/claude-haiku-4-5-20251001", "fallback_models": [] },
+    "reviewer": { "model": "anthropic/claude-sonnet-4-6",         "fallback_models": [] }
   }
 }
 EOF

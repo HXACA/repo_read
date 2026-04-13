@@ -62,18 +62,42 @@ async function loadGlobalConfig(): Promise<Partial<UserEditableConfig>> {
   }
 }
 
+/** Migrate old 3-role format to 5-role format. */
+function migrateRoles(roles: Record<string, unknown>): UserEditableConfig["roles"] | null {
+  // Already 5-role format
+  if (roles.catalog && roles.drafter && roles.reviewer) {
+    return roles as UserEditableConfig["roles"];
+  }
+  // Old 3-role format: main.author → catalog+drafter, fork.worker → worker+outline, fresh.reviewer → reviewer
+  const oldAuthor = (roles as Record<string, { model?: string }>)["main.author"];
+  const oldWorker = (roles as Record<string, { model?: string }>)["fork.worker"];
+  const oldReviewer = (roles as Record<string, { model?: string }>)["fresh.reviewer"];
+  if (!oldAuthor && !oldWorker && !oldReviewer) return null;
+
+  const authorModel = oldAuthor?.model ?? "anthropic/claude-sonnet-4-6";
+  const workerModel = oldWorker?.model ?? authorModel;
+  const reviewerModel = oldReviewer?.model ?? authorModel;
+  return {
+    catalog: { model: authorModel, fallback_models: [] },
+    outline: { model: workerModel, fallback_models: [] },
+    drafter: { model: authorModel, fallback_models: [] },
+    worker: { model: workerModel, fallback_models: [] },
+    reviewer: { model: reviewerModel, fallback_models: [] },
+  };
+}
+
 async function createDefaultConfig(
   slug: string,
   repoRoot: string,
 ): Promise<UserEditableConfig> {
   const global = await loadGlobalConfig();
+  const roles = global.roles ? migrateRoles(global.roles as Record<string, unknown>) : null;
   return {
     ...FALLBACK_CONFIG,
     projectSlug: slug,
     repoRoot,
-    // Global config overrides
     ...(global.providers ? { providers: global.providers } : {}),
-    ...(global.roles ? { roles: global.roles } : {}),
+    ...(roles ? { roles } : {}),
     ...(global.language ? { language: global.language } : {}),
     ...(global.preset ? { preset: global.preset } : {}),
   };
