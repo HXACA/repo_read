@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { LanguageModel } from "ai";
-import { generateViaStream as generateText } from "../utils/generate-via-stream.js";
+import { runAgentLoop } from "../agent/agent-loop.js";
 import type { StorageAdapter } from "../storage/storage-adapter.js";
 import type { CitationRecord } from "../types/generation.js";
 import type { LabeledFinding, ResearchNote } from "../types/research.js";
@@ -139,11 +139,15 @@ Schema:
     const userPrompt = this.buildSynthesisPrompt(plan, subResults);
 
     try {
-      const result = await generateText({
-        model: this.model,
-        system: systemPrompt,
-        prompt: userPrompt,
-      });
+      const result = await runAgentLoop(
+        {
+          model: this.model,
+          system: systemPrompt,
+          tools: {} as any,
+          maxSteps: 1,
+        },
+        userPrompt,
+      );
 
       const parsed = extractJson(result.text);
       if (parsed) {

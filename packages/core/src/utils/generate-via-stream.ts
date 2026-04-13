@@ -1,73 +1,74 @@
 /**
- * Streaming-compatible wrapper around AI SDK's text generation.
+ * Provider options management for OpenAI Responses API models.
  *
- * Uses `streamText` internally to support API endpoints that require
- * `stream: true` (e.g. OpenAI Responses API proxies). Returns the same
- * shape as `generateText` for drop-in compatibility.
+ * Holds global job-scoped state (cache key, model options) and exposes
+ * helpers consumed by the generation pipeline and agent loop:
  *
- * For OpenAI Responses API models:
- * - Sets `store: false` to send full history (no item_reference)
- * - Sets `promptCacheKey` for server-side prompt prefix caching
+ * - `setCacheKey` / `getCacheKey` — prompt-cache routing key, set once per job
+ * - `setModelOptions` — reasoning effort + service tier for subsequent calls
+ * - `buildResponsesProviderOptions` — constructs the `providerOptions` block
+ *   for models whose provider is `openai.responses`
  */
 
-import { streamText } from "ai";
-
-type StreamTextParams = Parameters<typeof streamText>[0];
-
-export type GenerateViaStreamResult = {
-  text: string;
-  finishReason: string;
-  usage: Record<string, unknown>;
-  toolCalls: unknown[];
-  toolResults: unknown[];
-  steps: unknown[];
-};
+import type { LanguageModel } from "ai";
 
 let cacheKey: string | null = null;
+let currentModelOptions: {
+  reasoning: { effort: string; summary: string } | null;
+  serviceTier: string | null;
+} = { reasoning: null, serviceTier: null };
 
-/** Set a cache key for prompt caching. Call once per job with jobId or jobId-pageSlug. */
+/** Set a cache key for prompt caching. Call once per job with jobId. */
 export function setCacheKey(key: string | null): void {
   cacheKey = key;
 }
 
-export async function generateViaStream(
-  params: StreamTextParams,
-): Promise<GenerateViaStreamResult> {
-  const isOpenAIResponses = (params.model as any)?.provider === "openai.responses";
+/** Get the current cache key (used by model-factory for session_id header). */
+export function getCacheKey(): string | null {
+  return cacheKey;
+}
+
+/** Set model options (reasoning, serviceTier) for subsequent calls. */
+export function setModelOptions(options: {
+  reasoning: { effort: string; summary: string } | null;
+  serviceTier: string | null;
+}): void {
+  currentModelOptions = options;
+}
+
+/**
+ * Build Responses API provider options for a given model.
+ * Reusable by the agent loop and any direct streamText calls.
+ * Returns null if the model is not an OpenAI Responses model.
+ */
+export function buildResponsesProviderOptions(model: LanguageModel): {
+  providerOptions: Record<string, unknown>;
+  stripSystem: boolean;
+  stripMaxOutputTokens: boolean;
+} | null {
+  const isOpenAIResponses = (model as any)?.provider === "openai.responses";
+  if (!isOpenAIResponses) return null;
 
   const openaiOptions: Record<string, unknown> = {};
-  if (isOpenAIResponses) {
-    // store=false: send full history, no item_reference (proxy-compatible)
-    openaiOptions.store = false;
-    // promptCacheKey: server caches the instructions prefix across multi-step requests
-    if (cacheKey) openaiOptions.promptCacheKey = cacheKey;
-    // Move system prompt to instructions field — Responses API caches instructions
-    // content server-side (tied to promptCacheKey). Without this, system prompt goes
-    // into the input array as a developer message and isn't cached.
-    const system = (params as any).system;
-    if (typeof system === "string" && system) {
-      openaiOptions.instructions = system;
-    }
+  // store=false: send full history, no item_reference (proxy-compatible)
+  openaiOptions.store = false;
+  // promptCacheKey: improves routing stickiness so requests hit the same
+  // engine and reuse cached KV state (same pattern as Codex's conversation_id)
+  if (cacheKey) openaiOptions.promptCacheKey = cacheKey;
+  // Enable reasoning (thinking) when configured for the model
+  if (currentModelOptions.reasoning) {
+    openaiOptions.reasoningEffort = currentModelOptions.reasoning.effort;
+    openaiOptions.reasoningSummary = currentModelOptions.reasoning.summary;
+  }
+  // Service tier: "fast" → "priority" (like Codex), "flex" → "flex"
+  if (currentModelOptions.serviceTier) {
+    openaiOptions.serviceTier =
+      currentModelOptions.serviceTier === "fast" ? "priority" : currentModelOptions.serviceTier;
   }
 
-  const needsProviderOptions = isOpenAIResponses;
-  const stream = streamText(needsProviderOptions ? {
-    ...params,
-    providerOptions: {
-      ...((params as any).providerOptions ?? {}),
-      openai: {
-        ...((params as any).providerOptions?.openai ?? {}),
-        ...openaiOptions,
-      },
-    },
-  } : params);
-
-  const text = await stream.text;
-  const finishReason = (await stream.finishReason) ?? "stop";
-  const usage = (await stream.usage) ?? {};
-  const toolCalls = (await stream.toolCalls) ?? [];
-  const toolResults = (await stream.toolResults) ?? [];
-  const steps = (await stream.steps) ?? [];
-
-  return { text, finishReason, usage, toolCalls, toolResults, steps };
+  return {
+    providerOptions: { openai: openaiOptions },
+    stripSystem: true, // caller should move system to instructions
+    stripMaxOutputTokens: true,
+  };
 }

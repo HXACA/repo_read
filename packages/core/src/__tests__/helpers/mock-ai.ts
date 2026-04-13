@@ -2,10 +2,10 @@
  * Shared AI SDK mock for tests.
  *
  * Provides both `generateText` (for tests that assert on it directly)
- * and `streamText` (used by `generateViaStream` wrapper). The `streamText`
+ * and `streamText` (used by `runAgentLoop` internally). The `streamText`
  * mock delegates to `generateText` so existing test setups that configure
  * `generateText.mockResolvedValue(...)` automatically work with the
- * streaming wrapper too.
+ * agent loop too.
  */
 import { vi } from "vitest";
 

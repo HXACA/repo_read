@@ -1,7 +1,6 @@
 import * as fs from "node:fs/promises";
-import { stepCountIs } from "ai";
 import type { LanguageModel, ToolSet } from "ai";
-import { generateViaStream as generateText } from "../utils/generate-via-stream.js";
+import { runAgentLoop } from "../agent/agent-loop.js";
 import type { StorageAdapter } from "../storage/storage-adapter.js";
 import type { WikiJson, PageMeta, CitationRecord } from "../types/generation.js";
 import type { QualityProfile } from "../config/quality-profile.js";
@@ -103,13 +102,15 @@ export class AskService {
     const askBudget = this.qualityProfile?.askMaxSteps ?? 10;
 
     try {
-      const result = await generateText({
-        model: this.model,
-        system: systemPrompt,
-        prompt: userPrompt,
-        tools: tools as unknown as ToolSet,
-        stopWhen: stepCountIs(askBudget),
-      });
+      const result = await runAgentLoop(
+        {
+          model: this.model,
+          system: systemPrompt,
+          tools: tools as unknown as ToolSet,
+          maxSteps: askBudget,
+        },
+        userPrompt,
+      );
 
       const { answer, citations } = this.parseAnswer(result.text);
 

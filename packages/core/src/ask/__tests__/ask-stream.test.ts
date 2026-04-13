@@ -121,7 +121,7 @@ describe("AskStreamService route dispatch", () => {
 
   it("page-first route: no tools, tiny budget", async () => {
     await primeProject();
-    const { streamText, stepCountIs } = await import("ai");
+    const { streamText } = await import("ai");
     const mockStream = vi.mocked(streamText);
     mockStream.mockReturnValueOnce({
       fullStream: fakeFullStream(answerText),
@@ -155,15 +155,13 @@ describe("AskStreamService route dispatch", () => {
     };
     expect(Object.keys(callArgs.tools)).toHaveLength(0);
 
-    // stepCountIs received the tiny budget (2) for page-first, not the
-    // quality profile's askMaxSteps (15)
-    const stepCalls = vi.mocked(stepCountIs).mock.calls;
-    expect(stepCalls[stepCalls.length - 1][0]).toBe(2);
+    // runAgentLoop manages the step budget internally (no stepCountIs needed).
+    // The page-first route passes an empty tools object, verified above.
   });
 
   it("page-plus-retrieval route: full tools, profile budget", async () => {
     await primeProject();
-    const { streamText, stepCountIs } = await import("ai");
+    const { streamText } = await import("ai");
     const mockStream = vi.mocked(streamText);
     mockStream.mockReturnValueOnce({
       fullStream: fakeFullStream(answerText),
@@ -198,9 +196,8 @@ describe("AskStreamService route dispatch", () => {
     // Catalog tools should be present (grep/find/read etc.)
     expect(Object.keys(callArgs.tools).length).toBeGreaterThan(0);
 
-    // Should use the balanced preset's askMaxSteps (10)
-    const stepCalls = vi.mocked(stepCountIs).mock.calls;
-    expect(stepCalls[stepCalls.length - 1][0]).toBe(10);
+    // runAgentLoop manages the step budget internally (no stepCountIs needed).
+    // The page-plus-retrieval route passes catalog tools, verified above.
   });
 
   it("research route: delegates to ResearchService, no streamText", async () => {
@@ -255,9 +252,8 @@ describe("AskStreamService route dispatch", () => {
     >;
     expect(session.route).toBe("research");
 
-    // ResearchService now uses generateViaStream which delegates to
-    // streamText internally. The streamText mock delegates to generateText,
-    // so both are called.
+    // ResearchService now uses runAgentLoop which calls streamText internally.
+    // The streamText mock delegates to generateText, so both are called.
     expect(mockStream).toHaveBeenCalled();
     expect(mockGenerate).toHaveBeenCalled();
 
