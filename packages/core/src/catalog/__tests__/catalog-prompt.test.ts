@@ -23,13 +23,13 @@ const mockProfile: RepoProfile = {
 describe("buildCatalogSystemPrompt", () => {
   it("includes role definition", () => {
     const prompt = buildCatalogSystemPrompt();
-    expect(prompt).toContain("technical architect");
-    expect(prompt).toContain("reading order");
+    expect(prompt).toContain("expert software engineer");
+    expect(prompt).toContain("reading_order");
   });
 
   it("includes output format instructions", () => {
     const prompt = buildCatalogSystemPrompt();
-    expect(prompt).toContain("wiki.json");
+    expect(prompt).toContain("covered_files");
     expect(prompt).toContain("reading_order");
   });
 
