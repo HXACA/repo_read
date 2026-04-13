@@ -35,9 +35,11 @@ export type EvidencePlannerOptions = {
   providerCallOptions?: ProviderCallOptions;
 };
 
+import type { UsageInput } from "../utils/usage-tracker.js";
+
 export type EvidencePlanResult =
-  | { success: true; plan: EvidencePlan }
-  | { success: false; error: string };
+  | { success: true; plan: EvidencePlan; metrics?: { llmCalls: number; usage: UsageInput } }
+  | { success: false; error: string; metrics?: { llmCalls: number; usage: UsageInput } };
 
 const LANGUAGE_NAMES: Record<string, string> = {
   zh: "简体中文",
@@ -119,11 +121,14 @@ export class EvidencePlanner {
         },
       });
 
+      const metrics = { llmCalls: 1, usage: result.usage };
+
       const parsed = extractJson(result.text);
       if (!parsed || !Array.isArray(parsed.tasks)) {
         return {
           success: false,
           error: "Planner output missing tasks array",
+          metrics,
         };
       }
 
@@ -139,10 +144,10 @@ export class EvidencePlanner {
         effectiveTaskCount,
       );
       if (!validation.ok) {
-        return { success: false, error: validation.reason };
+        return { success: false, error: validation.reason, metrics };
       }
 
-      return { success: true, plan: { tasks } };
+      return { success: true, plan: { tasks }, metrics };
     } catch (err) {
       return {
         success: false,

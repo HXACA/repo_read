@@ -46,6 +46,7 @@ export type ThroughputReport = {
     durationMs: number;
     usage: UsageBucket;
   };
+  reviewEscalationRate: number;
 };
 
 export type PageThroughputMetrics = {
@@ -100,6 +101,14 @@ export function addUsage(target: UsageBucket, source: UsageBucket): void {
   target.reasoningTokens += source.reasoningTokens;
   target.cachedTokens += source.cachedTokens;
   target.requests += source.requests;
+}
+
+/** Like addUsage but accepts UsageInput (no `requests` field). */
+export function addUsageInput(target: UsageInput, source: UsageInput): void {
+  target.inputTokens += source.inputTokens;
+  target.outputTokens += source.outputTokens;
+  target.reasoningTokens += source.reasoningTokens;
+  target.cachedTokens += source.cachedTokens;
 }
 
 // ---------------------------------------------------------------------------
@@ -255,6 +264,9 @@ export class ThroughputReportBuilder {
       }
     }
 
+    const escalatedCount = this.pageRecords.filter(p => p.escalatedToDeepLane).length;
+    const reviewEscalationRate = this.pageRecords.length > 0 ? escalatedCount / this.pageRecords.length : 0;
+
     return {
       catalog: this.catalog,
       pages: this.pageRecords,
@@ -263,6 +275,7 @@ export class ThroughputReportBuilder {
         durationMs: opts.totalLatencyMs,
         usage: totalUsage,
       },
+      reviewEscalationRate,
     };
   }
 }

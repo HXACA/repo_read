@@ -25,6 +25,7 @@ import {
   ThroughputReportBuilder,
   zeroPhaseMetric,
   zeroUsage as zeroThroughputUsage,
+  addUsageInput,
   type PhaseMetric,
   type PageThroughputRecord,
 } from "./throughput-metrics.js";
@@ -265,6 +266,10 @@ export class GenerationPipeline {
         });
 
         if (!pageResult.success) {
+          await this.artifactStore.saveThroughputMetrics(
+            { projectSlug: slug, jobId },
+            throughput.finish({ totalLatencyMs: Date.now() - pipelineStartedAt }),
+          ).catch(() => {}); // best-effort, never block failure path
           return this.failJob(job, emitter, pageResult.error!);
         }
 
@@ -299,6 +304,10 @@ export class GenerationPipeline {
       ).catch(() => {});
       return { success: true, job, usageTracker: this.usageTracker };
     } catch (err) {
+      await this.artifactStore.saveThroughputMetrics(
+        { projectSlug: slug, jobId },
+        throughput.finish({ totalLatencyMs: Date.now() - pipelineStartedAt }),
+      ).catch(() => {}); // best-effort, never block failure path
       return this.failJob(job, emitter, (err as Error).message);
     }
   }
@@ -405,6 +414,7 @@ export class GenerationPipeline {
       signals: runtimeSignals,
     });
     let lane = lanePlan.lane;
+    const initialLane = lane;
     let pageParams = lanePlan.params;
 
     if (process.env.REPOREAD_DEBUG) {
@@ -456,8 +466,8 @@ export class GenerationPipeline {
     // Throughput phase metrics — accumulated across revision attempts
     let evidenceMetric: PhaseMetric = zeroPhaseMetric();
     let outlineMetric: PhaseMetric = zeroPhaseMetric();
-    let draftMetric: PhaseMetric = zeroPhaseMetric();
-    let reviewMetric: PhaseMetric = zeroPhaseMetric();
+    const draftMetric: PhaseMetric = zeroPhaseMetric();
+    const reviewMetric: PhaseMetric = zeroPhaseMetric();
 
     while (true) {
       reviewUnverified = false;
@@ -549,11 +559,9 @@ export class GenerationPipeline {
           pageRef,
           { ledger: evidenceResult.ledger, findings: evidenceResult.findings, openQuestions: evidenceResult.openQuestions, failedTaskIds: evidenceResult.failedTaskIds },
         );
-        evidenceMetric = {
-          durationMs: Date.now() - evidenceStartedAt,
-          llmCalls: evidenceResult.metrics.llmCalls,
-          usage: evidenceResult.metrics.usage,
-        };
+        evidenceMetric.durationMs += Date.now() - evidenceStartedAt;
+        evidenceMetric.llmCalls += evidenceResult.metrics.llmCalls;
+        addUsageInput(evidenceMetric.usage, evidenceResult.metrics.usage);
       }
 
       // === OUTLINE PLANNING ===
@@ -571,11 +579,9 @@ export class GenerationPipeline {
           findings: evidenceResult.findings,
         });
         outline = outlineResult.outline;
-        outlineMetric = {
-          durationMs: Date.now() - outlineStartedAt,
-          llmCalls: outlineResult.metrics.llmCalls,
-          usage: outlineResult.metrics.usage,
-        };
+        outlineMetric.durationMs += Date.now() - outlineStartedAt;
+        outlineMetric.llmCalls += outlineResult.metrics.llmCalls;
+        addUsageInput(outlineMetric.usage, outlineResult.metrics.usage);
         if (outline) {
           await this.artifactStore.saveOutline(pageRef, outline);
         }
@@ -643,11 +649,9 @@ export class GenerationPipeline {
         coveredFiles: page.covered_files,
         language: this.config.language,
       });
-      draftMetric = {
-        durationMs: Date.now() - draftStartedAt,
-        llmCalls: draftResult.metrics?.llmCalls ?? 0,
-        usage: draftResult.metrics?.usage ?? { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 },
-      };
+      draftMetric.durationMs += Date.now() - draftStartedAt;
+      draftMetric.llmCalls += draftResult.metrics?.llmCalls ?? 0;
+      addUsageInput(draftMetric.usage, draftResult.metrics?.usage ?? { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 });
 
       if (
         !draftResult.success ||
@@ -741,11 +745,9 @@ export class GenerationPipeline {
           error: `Review threw: ${(reviewErr as Error).message}`,
         };
       }
-      reviewMetric = {
-        durationMs: Date.now() - reviewStartedAt,
-        llmCalls: reviewResult.metrics?.llmCalls ?? 0,
-        usage: reviewResult.metrics?.usage ?? { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 },
-      };
+      reviewMetric.durationMs += Date.now() - reviewStartedAt;
+      reviewMetric.llmCalls += reviewResult.metrics?.llmCalls ?? 0;
+      addUsageInput(reviewMetric.usage, reviewResult.metrics?.usage ?? { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 });
 
       if (!reviewResult.success || !reviewResult.conclusion) {
         // Synthesize an unverified pass so the page can proceed.
@@ -911,7 +913,7 @@ export class GenerationPipeline {
       lane,
       totalLatencyMs: Date.now() - pageStartedAt,
       revisionAttempts: attempt,
-      escalatedToDeepLane: lane === "deep",
+      escalatedToDeepLane: lane === "deep" && initialLane !== "deep",
       phases: {
         evidence: evidenceMetric,
         outline: outlineMetric,

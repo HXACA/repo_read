@@ -10,7 +10,7 @@ import {
   type EvidencePlanInput,
   type EvidenceTask,
 } from "./evidence-planner.js";
-import { zeroUsage, addUsage } from "./throughput-metrics.js";
+import { zeroUsage, addUsage, addUsageInput } from "./throughput-metrics.js";
 import type { ProviderCallOptions } from "../runtime/turn-types.js";
 
 export type EvidenceCoordinatorOptions = {
@@ -155,10 +155,13 @@ export class EvidenceCoordinator {
     // Aggregate metrics from planner + workers
     const aggregatedUsage = zeroUsage();
     let totalLlmCalls = 0;
-    // The planner uses 1 LLM call when it succeeds and the plan has >1 tasks
-    // (single-task plans skip the LLM). When the planner fails, fallback is
-    // deterministic so llmCalls stays 0.
-    if (planResult.success && plan.tasks.length > 1) {
+    // Include planner's own metrics when available (tracks actual LLM usage).
+    // Falls back to the legacy heuristic (1 call when plan has >1 tasks) for
+    // planners that don't yet return metrics.
+    if (planResult.metrics) {
+      addUsageInput(aggregatedUsage, planResult.metrics.usage);
+      totalLlmCalls += planResult.metrics.llmCalls;
+    } else if (planResult.success && plan.tasks.length > 1) {
       totalLlmCalls += 1;
     }
     for (const r of results) {
