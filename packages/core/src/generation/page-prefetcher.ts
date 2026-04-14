@@ -11,6 +11,8 @@
  * - ❌ Does NOT trigger any page lifecycle event
  */
 
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import type { LanguageModel } from "ai";
 import type { WikiJson } from "../types/generation.js";
 import type { UsageInput } from "../utils/usage-tracker.js";
@@ -100,8 +102,16 @@ export function startPrefetch(
     pageSlug: page.slug,
   };
 
+  const debugLog = (msg: string) => {
+    if (process.env.REPOREAD_DEBUG) {
+      const line = `[prefetch] page=${page.slug} ${msg}\n`;
+      fs.appendFile(path.join(ctx.repoRoot, ".reporead", "pipeline-debug.log"), line).catch(() => {});
+    }
+  };
+
   slot.promise = (async () => {
     try {
+      debugLog("started");
       // Lightweight evidence coordinator: concurrency=1, taskCount=1
       const coordinator = new EvidenceCoordinator({
         plannerModel: ctx.drafterModel,
@@ -145,6 +155,7 @@ export function startPrefetch(
         durationMs: Date.now() - evidenceStart,
         usage: { ...evidenceResult.metrics.usage },
       };
+      debugLog(`evidence done llmCalls=${evidenceResult.metrics.llmCalls} durationMs=${slot.phases.evidence.durationMs}`);
 
       // Phase 2: Outline — failure here is non-fatal (partial readiness)
       const outlineStart = Date.now();
@@ -173,13 +184,16 @@ export function startPrefetch(
             usage: { ...outlineResult.metrics.usage },
           };
         }
-      } catch {
+      } catch (outlineErr) {
+        debugLog(`outline failed: ${(outlineErr as Error).message}`);
         // Outline failed — artifactsReady.outline stays false, non-fatal
       }
 
       slot.status = "done";
+      debugLog(`done evidence=${slot.artifactsReady.evidence} outline=${slot.artifactsReady.outline}`);
     } catch (err) {
       slot.status = "failed";
+      debugLog(`failed: ${(err as Error).message}`);
       slot.error = (err as Error).message;
     }
   })();

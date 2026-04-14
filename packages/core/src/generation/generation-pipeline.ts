@@ -548,6 +548,13 @@ export class GenerationPipeline {
       reviewUnverified = false;
 
       // === RESUME: load existing evidence + outline from disk ===
+      // Track whether prefetch artifacts were actually consumed by THIS workflow
+      // (disk load succeeded AND we inherited prefetch metrics). This is used to
+      // compute an accurate prefetch.hit — not slot.artifactsReady which only
+      // tracks whether the prefetcher *wrote* successfully.
+      let prefetchHitEvidence = false;
+      let prefetchHitOutline = false;
+
       if (attempt === 0 && !evidenceResult) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- reading JSON blob of unknown structure
         const existing = await this.artifactStore.loadEvidence<any>(pageRef);
@@ -563,6 +570,7 @@ export class GenerationPipeline {
           // Disk loaded successfully. Use prefetch metrics if this was prefetched in THIS job.
           if (prefetchSlot?.artifactsReady.evidence && prefetchSlot.phases.evidence) {
             evidenceMetric = prefetchSlot.phases.evidence;
+            prefetchHitEvidence = true;
           } else {
             evidenceMetric = { llmCalls: 0, durationMs: 0, usage: { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 }, reused: true };
           }
@@ -570,6 +578,7 @@ export class GenerationPipeline {
           if (existingOutline) {
             if (prefetchSlot?.artifactsReady.outline && prefetchSlot.phases.outline) {
               outlineMetric = prefetchSlot.phases.outline;
+              prefetchHitOutline = true;
             } else {
               outlineMetric = { llmCalls: 0, durationMs: 0, usage: { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 }, reused: true };
             }
@@ -756,7 +765,7 @@ export class GenerationPipeline {
             evidenceMetric, outlineMetric, draftMetric, reviewMetric, zeroPhaseMetric(),
             currentVerificationLevel,
             prefetchSlot ? {
-              hit: prefetchSlot.artifactsReady.evidence || prefetchSlot.artifactsReady.outline,
+              hit: prefetchHitEvidence || prefetchHitOutline,
               waitMs: prefetchWaitMs,
               phases: { ...prefetchSlot.phases },
             } : undefined,
