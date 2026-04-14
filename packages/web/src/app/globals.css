@@ -73,6 +73,7 @@ body {
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-display), Georgia, "Times New Roman", serif;
   letter-spacing: -0.01em;
+  scroll-margin-top: 5rem;
 }
 
 code, pre, kbd, samp {

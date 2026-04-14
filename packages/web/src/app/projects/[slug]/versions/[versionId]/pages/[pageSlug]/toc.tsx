@@ -60,7 +60,16 @@ function parseHeadings(markdown: string): Heading[] {
     const match = line.match(/^(#{1,4})\s+(.+?)\s*$/);
     if (match) {
       const level = match[1].length;
-      const text = match[2].replace(/[*_`]/g, "").trim();
+      // Convert citation markers to their display text to match what the
+      // renderer's textOf() extracts after preprocessCitations → ReactMarkdown.
+      // [cite:kind:target:locator] → "target:locator" (the link text shown in rendered HTML)
+      // [cite:kind:target] → "target"
+      const text = match[2]
+        .replace(/\[cite:\w+:([^\]:]+)(?::([^\]]*))?\]/g, (_m, target, loc) =>
+          loc ? `${target}:${loc}` : target)
+        .replace(/[*_`]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
       const id = makeId(text);
       // But only display h2/h3 in the TOC sidebar.
       if (level >= 2 && level <= 3) {
@@ -220,7 +229,9 @@ export function TableOfContents({
                     e.preventDefault();
                     const el = document.getElementById(h.id);
                     if (el) {
-                      el.scrollIntoView({ behavior: "smooth", block: "start" });
+                      // Offset scroll to account for any sticky headers
+                      const y = el.getBoundingClientRect().top + window.scrollY - 80;
+                      window.scrollTo({ top: y, behavior: "smooth" });
                       history.replaceState(null, "", `#${h.id}`);
                     }
                   }}
