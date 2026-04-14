@@ -589,4 +589,43 @@ describe("Anthropic prompt caching", () => {
     expect(providerOpts?.openai).toBeDefined();
     expect(providerOpts?.anthropic).toBeUndefined();
   });
+
+  it("overrides maxOutputTokens to 16384 for non-Claude models on Anthropic provider", async () => {
+    mockResponses = [{ text: "ok", finishReason: "stop", usage: makeUsage(10, 5), toolCalls: [] }];
+
+    await runAgentLoop(
+      makeOptions({ model: { provider: "anthropic", modelId: "qwen3.6-plus" } as any }),
+      "test",
+    );
+
+    // Non-Claude model on Anthropic → SDK defaults to 4096, we override to 16384
+    expect(lastStreamTextArgs?.maxOutputTokens).toBe(16384);
+  });
+
+  it("does NOT override maxOutputTokens for known Claude models", async () => {
+    mockResponses = [{ text: "ok", finishReason: "stop", usage: makeUsage(10, 5), toolCalls: [] }];
+
+    await runAgentLoop(
+      makeOptions({ model: { provider: "anthropic", modelId: "claude-sonnet-4-6" } as any }),
+      "test",
+    );
+
+    // Claude model → SDK knows the right max_tokens, don't override
+    expect(lastStreamTextArgs?.maxOutputTokens).toBeUndefined();
+  });
+
+  it("does NOT override when caller explicitly sets maxOutputTokens", async () => {
+    mockResponses = [{ text: "ok", finishReason: "stop", usage: makeUsage(10, 5), toolCalls: [] }];
+
+    await runAgentLoop(
+      makeOptions({
+        model: { provider: "anthropic", modelId: "qwen3.6-plus" } as any,
+        maxOutputTokens: 8192,
+      }),
+      "test",
+    );
+
+    // Caller set 8192 explicitly → respect it, don't override to 16384
+    expect(lastStreamTextArgs?.maxOutputTokens).toBe(8192);
+  });
 });

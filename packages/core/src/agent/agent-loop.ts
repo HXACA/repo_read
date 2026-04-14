@@ -206,6 +206,16 @@ function buildStreamParams(
       ...params.providerOptions as Record<string, unknown> | undefined,
       anthropic: { cacheControl: { type: "ephemeral" } },
     };
+    // @ai-sdk/anthropic defaults to 4096 max_tokens for unknown model IDs
+    // (non-Claude models routed through Anthropic-compatible proxies).
+    // Override with 16384 so non-Claude models don't get truncated.
+    if (!maxOutputTokens) {
+      const modelId = (model as unknown as { modelId?: string })?.modelId ?? "";
+      const isKnownClaude = /claude-/.test(modelId);
+      if (!isKnownClaude) {
+        params.maxOutputTokens = 16384;
+      }
+    }
   }
 
   return params;
