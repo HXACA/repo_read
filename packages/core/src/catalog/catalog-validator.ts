@@ -49,7 +49,12 @@ export function validateCatalog(wiki: WikiJson): ValidationReport {
       warnings.push(`${prefix} (${page.slug}): empty covered_files — page may lack evidence basis`);
     }
 
-    // Book schema: kind validation (warning, not error)
+    // Book schema: kind/readerGoal/section are warnings (not errors) in v1.
+    // Rationale: 4-kind is a new schema — LLM compliance rate is unverified.
+    // Fatal errors here would block pipeline on first deployment. Plan is:
+    //   v1: warnings only → run real repos → measure compliance
+    //   v2: promote stable rules to errors once compliance > 90%
+    // See docs/superpowers/plans/2026-04-14-book-first-acceptance-notes.md
     if (!page.kind) {
       warnings.push(`${prefix} (${page.slug}): missing kind — should be guide/explanation/reference/appendix`);
     } else if (!isPageKind(page.kind)) {

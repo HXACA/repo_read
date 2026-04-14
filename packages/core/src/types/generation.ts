@@ -50,7 +50,9 @@ export type WikiJson = {
     kind?: PageKind;
     /** One-sentence reader goal for this page. */
     readerGoal?: string;
-    /** Slugs of prerequisite pages. */
+    /** Slugs of prerequisite pages.
+     *  v1: stored but not yet consumed by validator, drafter, or publish order.
+     *  Reserved for B3 Editorial Pass (dependency-based reordering). */
     prerequisites?: string[];
     /** Narrative role within the book flow. */
     narrativeRole?: string;
