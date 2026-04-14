@@ -223,25 +223,23 @@ describe("CLI E2E: init -> generate -> doctor", () => {
     //     - 1 worker evidence call
     //     - 1 outline planner call
     //     - 1 drafter call
-    //     - 1 reviewer call
-    // Total: 1 + 2*4 = 9
+    //     (no reviewer call: budget preset + low complexity → fast lane → L0 deterministic only)
+    // Total: 1 + 2*3 = 7
     mockGen
       // 1. Catalog
       .mockResolvedValueOnce({ text: JSON.stringify(wikiJson) } as never)
-      // 2-5. Page "overview": worker, outline, draft, review
+      // 2-4. Page "overview": worker, outline, draft
       .mockResolvedValueOnce({ text: workerOutput("README.md") } as never)
       .mockResolvedValueOnce({ text: outlineOutput("README.md") } as never)
       .mockResolvedValueOnce({
         text: draftMd("overview", "Overview", "README.md"),
       } as never)
-      .mockResolvedValueOnce({ text: passReview } as never)
-      // 6-9. Page "core": worker, outline, draft, review
+      // 5-7. Page "core": worker, outline, draft
       .mockResolvedValueOnce({ text: workerOutput("src/index.ts") } as never)
       .mockResolvedValueOnce({ text: outlineOutput("src/index.ts") } as never)
       .mockResolvedValueOnce({
         text: draftMd("core", "Core", "src/index.ts"),
-      } as never)
-      .mockResolvedValueOnce({ text: passReview } as never);
+      } as never);
 
     // ===================== GENERATE =====================
     // Reset exitCode in case prior test pollution
@@ -250,7 +248,7 @@ describe("CLI E2E: init -> generate -> doctor", () => {
 
     // Verify success
     expect(process.exitCode).toBeUndefined();
-    expect(mockGen).toHaveBeenCalledTimes(9);
+    expect(mockGen).toHaveBeenCalledTimes(7);
 
     // ===================== VERIFY OUTPUT =====================
     const versionsDir = path.join(

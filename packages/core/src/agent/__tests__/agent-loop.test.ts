@@ -138,6 +138,35 @@ describe("extractUsage", () => {
     });
   });
 
+  it("extracts AI SDK v6 LanguageModelUsage format", () => {
+    const result = extractUsage({
+      inputTokens: 500,
+      outputTokens: 200,
+      inputTokenDetails: { cacheReadTokens: 400, cacheWriteTokens: 100 },
+      outputTokenDetails: { reasoningTokens: 50, textTokens: 150 },
+    });
+    expect(result).toEqual({
+      inputTokens: 500,
+      outputTokens: 200,
+      reasoningTokens: 50,
+      cachedTokens: 400,
+    });
+  });
+
+  it("extracts Anthropic raw format (cache_read_input_tokens)", () => {
+    const result = extractUsage({
+      input_tokens: 300,
+      output_tokens: 100,
+      cache_read_input_tokens: 250,
+    });
+    expect(result).toEqual({
+      inputTokens: 300,
+      outputTokens: 100,
+      reasoningTokens: 0,
+      cachedTokens: 250,
+    });
+  });
+
   it("defaults to 0 when fields are missing", () => {
     const result = extractUsage({});
     expect(result).toEqual({
@@ -499,5 +528,65 @@ describe("session_id header injection", () => {
     await runAgentLoop(makeOptions(), "test");
 
     expect(lastStreamTextArgs?.headers).toBeUndefined();
+  });
+});
+
+describe("Anthropic prompt caching", () => {
+  beforeEach(() => {
+    lastStreamTextArgs = undefined;
+    mockBuildResponses.mockReturnValue(null);
+  });
+
+  it("injects cacheControl for Anthropic provider", async () => {
+    mockResponses = [{ text: "ok", finishReason: "stop", usage: makeUsage(10, 5), toolCalls: [] }];
+
+    await runAgentLoop(
+      makeOptions({ model: { provider: "anthropic", modelId: "claude-sonnet-4-6" } as any }),
+      "test",
+    );
+
+    const providerOpts = lastStreamTextArgs?.providerOptions as Record<string, unknown> | undefined;
+    expect(providerOpts?.anthropic).toEqual({ cacheControl: { type: "ephemeral" } });
+  });
+
+  it("injects cacheControl for anthropic.messages provider prefix", async () => {
+    mockResponses = [{ text: "ok", finishReason: "stop", usage: makeUsage(10, 5), toolCalls: [] }];
+
+    await runAgentLoop(
+      makeOptions({ model: { provider: "anthropic.messages", modelId: "claude-sonnet-4-6" } as any }),
+      "test",
+    );
+
+    const providerOpts = lastStreamTextArgs?.providerOptions as Record<string, unknown> | undefined;
+    expect(providerOpts?.anthropic).toEqual({ cacheControl: { type: "ephemeral" } });
+  });
+
+  it("does NOT inject cacheControl for non-Anthropic providers", async () => {
+    mockResponses = [{ text: "ok", finishReason: "stop", usage: makeUsage(10, 5), toolCalls: [] }];
+
+    await runAgentLoop(makeOptions(), "test"); // default model has provider: "test"
+
+    const providerOpts = lastStreamTextArgs?.providerOptions as Record<string, unknown> | undefined;
+    expect(providerOpts?.anthropic).toBeUndefined();
+  });
+
+  it("does NOT inject cacheControl when model is OpenAI Responses (uses promptCacheKey instead)", async () => {
+    mockBuildResponses.mockReturnValue({
+      providerOptions: { openai: { store: false, promptCacheKey: "job-1" } },
+      stripSystem: false,
+      stripMaxOutputTokens: false,
+    });
+
+    mockResponses = [{ text: "ok", finishReason: "stop", usage: makeUsage(10, 5), toolCalls: [] }];
+
+    await runAgentLoop(
+      { ...makeOptions(), providerCallOptions: { cacheKey: "job-1" } },
+      "test",
+    );
+
+    const providerOpts = lastStreamTextArgs?.providerOptions as Record<string, unknown> | undefined;
+    // Should have openai options but NOT anthropic cacheControl
+    expect(providerOpts?.openai).toBeDefined();
+    expect(providerOpts?.anthropic).toBeUndefined();
   });
 });

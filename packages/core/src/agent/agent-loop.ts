@@ -91,30 +91,42 @@ export function extractUsage(usage: Record<string, unknown>): {
 } {
   // camelCase path (AI SDK standard)
   const inputTokens =
+    (usage.inputTokens as number | undefined) ??
     (usage.promptTokens as number | undefined) ??
     (usage.input_tokens as number | undefined) ??
     0;
 
   const outputTokens =
+    (usage.outputTokens as number | undefined) ??
     (usage.completionTokens as number | undefined) ??
     (usage.output_tokens as number | undefined) ??
     0;
 
-  // Reasoning tokens — nested inside output_tokens_details or providerMetadata
+  // AI SDK v6 LanguageModelUsage: outputTokenDetails.reasoningTokens
+  const outputTokenDetails = usage.outputTokenDetails as
+    | Record<string, unknown>
+    | undefined;
+  // Fallback: OpenAI raw format (output_tokens_details.reasoning_tokens)
   const outputDetails = usage.output_tokens_details as
     | Record<string, unknown>
     | undefined;
   const reasoningTokens =
+    (outputTokenDetails?.reasoningTokens as number | undefined) ??
     (outputDetails?.reasoning_tokens as number | undefined) ??
     0;
 
-  // Cached tokens — nested inside input_tokens_details or providerMetadata
+  // AI SDK v6 LanguageModelUsage: inputTokenDetails.cacheReadTokens
+  const inputTokenDetails = usage.inputTokenDetails as
+    | Record<string, unknown>
+    | undefined;
+  // Fallback: OpenAI raw (input_tokens_details.cached_tokens), Anthropic raw (cache_read_input_tokens)
   const inputDetails = usage.input_tokens_details as
     | Record<string, unknown>
     | undefined;
   const cachedTokens =
+    (inputTokenDetails?.cacheReadTokens as number | undefined) ??
     (inputDetails?.cached_tokens as number | undefined) ??
-    (usage.cache_read_input_tokens as number | undefined) ?? // Anthropic format
+    (usage.cache_read_input_tokens as number | undefined) ??
     0;
 
   return { inputTokens, outputTokens, reasoningTokens, cachedTokens };
@@ -182,6 +194,18 @@ function buildStreamParams(
     if (providerCallOptions?.cacheKey) {
       params.headers = { session_id: providerCallOptions.cacheKey };
     }
+  }
+
+  // Anthropic automatic prompt caching — SDK places the cache breakpoint on the
+  // last cacheable block automatically. This caches tools → system → early messages
+  // so that drafter retries, reviewer runs on the same page, etc. reuse the prefix.
+  // Cache reads cost 10% of base input; writes cost 25% more. Min 2048-4096 tokens.
+  const isAnthropic = (model as unknown as { provider?: string })?.provider?.startsWith("anthropic");
+  if (isAnthropic && !responsesOpts) {
+    params.providerOptions = {
+      ...params.providerOptions as Record<string, unknown> | undefined,
+      anthropic: { cacheControl: { type: "ephemeral" } },
+    };
   }
 
   return params;
