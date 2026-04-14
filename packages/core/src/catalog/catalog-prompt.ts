@@ -48,11 +48,25 @@ Identify the primary audience and tailor the depth:
 ### Step 4: Synthesize & Structure the Output (The "How to Present")
 Compile findings into the final catalog with these rules:
 
-## Coverage Rules — CRITICAL
+## Primary Goal — Reader Journey First, Coverage Second
 
-1. **Comprehensive coverage**: Every non-trivial source file must appear in at least one page's \`covered_files\`. Aim for **>80% coverage** of all source files. Do NOT skip modules just because they seem less important.
-2. **Thorough exploration**: Use \`dir_structure\` on EVERY major directory. Use \`find\` to discover all source files. Count them. Then verify your pages cover them all.
-3. **No shallow pages**: Each page should cover 5-30 files that are genuinely related. If a page only has 2-3 files, merge it. If it has 40+, split it.
+Your DUAL goal when designing the catalog:
+1. **Form a complete reader journey** (first priority): Pages should tell a coherent story — from onboarding to deep understanding to reference material. A new reader should be able to follow the reading order and progressively build expertise.
+2. **Achieve sufficient code coverage** (second priority): Every non-trivial source file should still appear in at least one page's \`covered_files\`. Aim for >80% coverage, but never sacrifice narrative coherence just to hit a coverage number.
+
+## Page Kinds — The 4-Kind Book System
+
+Every page MUST have a \`kind\` field set to one of these four values:
+
+- **\`guide\`**: Entry points, overviews, quick starts, onboarding — for readers new to the project. These pages welcome the reader and provide orientation.
+- **\`explanation\`**: Architecture, mechanisms, design decisions, key interactions — the main reading flow. These pages form the bulk of the narrative and build deep understanding.
+- **\`reference\`**: High-density structured info — configs, APIs, tool listings, parameter tables. These pages are looked up, not read cover-to-cover.
+- **\`appendix\`**: Long-tail content — regression matrices, edge cases, compatibility, migration notes. These pages capture everything else that matters.
+
+## Coverage Rules
+
+1. **Thorough exploration**: Use \`dir_structure\` on EVERY major directory. Use \`find\` to discover all source files. Count them. Then verify your pages cover them all.
+2. **No shallow pages**: Each page should cover 5-30 files that are genuinely related. If a page only has 2-3 files, merge it. If it has 40+, split it.
 
 ## Output Format
 
@@ -65,8 +79,11 @@ Output a JSON object with this exact structure:
     {
       "slug": "kebab-case-url-friendly-name",
       "title": "Human-readable page title",
+      "kind": "guide | explanation | reference | appendix",
+      "readerGoal": "What the reader should be able to do or understand after reading this page",
       "rationale": "Why this page exists and what the reader will learn",
       "covered_files": ["src/file1.ts", "src/file2.ts", "...all relevant files..."],
+      "prerequisites": ["slug-of-prerequisite-page"],
       "section": "Section name",
       "group": "Optional sub-group within section",
       "level": "beginner | intermediate | advanced"
@@ -75,17 +92,35 @@ Output a JSON object with this exact structure:
 }
 \`\`\`
 
+### Required Fields per Page
+
+- \`slug\`: kebab-case, URL-friendly, unique
+- \`title\`: Human-readable page title
+- \`kind\`: One of \`guide\`, \`explanation\`, \`reference\`, \`appendix\` (REQUIRED)
+- \`readerGoal\`: One sentence describing what the reader gains from this page (REQUIRED)
+- \`rationale\`: Why this page exists
+- \`covered_files\`: Array of source files this page covers
+- \`section\`: Section name for grouping
+- \`level\`: beginner / intermediate / advanced
+
+### Optional Fields per Page
+
+- \`prerequisites\`: Array of slugs this page depends on (pages the reader should read first)
+- \`group\`: Sub-group within a section
+
 ## Structural Rules
 
 1. **Reading order matters**: Page N should build on knowledge from pages 1..N-1.
-2. **First page**: Must be a project overview (what it is, why it exists, quick start).
-3. **Sections**: Group pages into logical sections. Use as many sections as needed — don't artificially compress.
-4. **Groups** (optional): Within a section, cluster tightly related pages.
-5. **Level**: Tag each page as beginner/intermediate/advanced to indicate difficulty.
-6. **Slug format**: kebab-case, URL-friendly, unique.
-7. **No catch-all pages**: No "Other Details" or "Miscellaneous" pages.
-8. **Abstract, don't mirror**: Do not use directory names as page titles. Create meaningful topic titles.
-9. Output ONLY the JSON object. No markdown fences, no explanation before or after.`;
+2. **First page MUST be \`guide\` kind**: It must be a project overview (what it is, why it exists, quick start) that welcomes the reader.
+3. **Kind diversity**: The catalog must contain at least 1 \`guide\`, 1 \`explanation\`, and 1 \`reference\` or \`appendix\`.
+4. **Reference/appendix placement**: \`reference\` and \`appendix\` pages should appear in the latter portion of the reading order (not at the beginning).
+5. **Sections**: Group pages into logical sections. Use as many sections as needed — don't artificially compress.
+6. **Groups** (optional): Within a section, cluster tightly related pages.
+7. **Level**: Tag each page as beginner/intermediate/advanced to indicate difficulty.
+8. **Slug format**: kebab-case, URL-friendly, unique.
+9. **No catch-all pages**: No "Other Details" or "Miscellaneous" pages.
+10. **Abstract, don't mirror**: Do not use directory names as page titles. Create meaningful topic titles.
+11. Output ONLY the JSON object. No markdown fences, no explanation before or after.`;
 }
 
 export function buildCatalogUserPrompt(profile: RepoProfile, language: string): string {
@@ -122,6 +157,8 @@ Write ALL page titles, summaries, rationales, section names, and group names in 
 3. Use \`read\` to examine key files (entry points, configs, core modules).
 4. Use \`grep\` or \`bash\` for additional insights (finding patterns, counting, etc.).
 5. Before each tool call, think about what you observed and what you need next.
-6. **You MUST cover at least 80% of the ${profile.sourceFileCount} source files across all pages.** Verify this before outputting.
-7. Output ONLY the JSON object.`;
+6. **Design a reader journey first**: Start with a \`guide\` page, build understanding through \`explanation\` pages, and place \`reference\`/\`appendix\` pages toward the end.
+7. **Every page MUST have**: \`kind\` (guide/explanation/reference/appendix) and \`readerGoal\` (one sentence). Use \`prerequisites\` to declare page dependencies.
+8. **Cover at least 80% of the ${profile.sourceFileCount} source files** across all pages. Verify this before outputting.
+9. Output ONLY the JSON object.`;
 }

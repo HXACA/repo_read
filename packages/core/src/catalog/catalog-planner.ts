@@ -63,7 +63,7 @@ export class CatalogPlanner {
       try {
         let userPrompt = buildCatalogUserPrompt(profile, this.language);
         if (attempt > 0 && lastError) {
-          userPrompt += `\n\n## Previous Attempt Failed (attempt ${attempt}/${this.maxRetries})\n\nError: ${lastError}\n\nPlease fix the issue and output a valid JSON object with "summary" and "reading_order" fields. Output ONLY the JSON object.`;
+          userPrompt += `\n\n## Previous Attempt Failed (attempt ${attempt}/${this.maxRetries})\n\nError: ${lastError}\n\nPlease fix the issue and output a valid JSON object with "summary" and "reading_order" fields. Each page in reading_order MUST include:\n- "kind": one of "guide", "explanation", "reference", "appendix"\n- "readerGoal": one sentence describing what the reader gains\n- "prerequisites": array of slugs this page depends on (can be empty [])\n\nOutput ONLY the JSON object.`;
         }
 
         const assembled = this.promptAssembler.assemble({ role: "catalog", language: this.language, systemPrompt, userPrompt });
