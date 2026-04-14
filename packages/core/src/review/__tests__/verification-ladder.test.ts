@@ -379,7 +379,7 @@ describe("VerificationLadder", () => {
         factual_risks: ["Section X claims 10ms latency without citation"],
         missing_evidence: ["No evidence for caching behavior"],
         scope_violations: ["Brief mention of deployment"],
-        suggested_revisions: [],
+        suggested_revisions: ["Consider adding a caching example"],
       },
       metrics: { llmCalls: 1, usage: { inputTokens: 200, outputTokens: 80, reasoningTokens: 0, cachedTokens: 0 } },
     });
@@ -417,6 +417,9 @@ describe("VerificationLadder", () => {
     expect(result.conclusion!.factual_risks).toContain("Function signature mismatch at line 42");
     expect(result.conclusion!.missing_evidence).toContain("No evidence for caching behavior");
     expect(result.conclusion!.scope_violations).toContain("Brief mention of deployment");
+    // L1 suggested_revisions also merged
+    expect(result.conclusion!.suggested_revisions).toContain("Consider adding a caching example");
+    expect(result.conclusion!.suggested_revisions).toContain("Fix line 42 signature");
   });
 
   it("accumulates metrics across levels", async () => {

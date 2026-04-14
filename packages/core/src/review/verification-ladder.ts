@@ -190,10 +190,11 @@ export class VerificationLadder {
         factual_risks: mergedFactualRisks,
         missing_evidence: mergedMissingEvidence,
         scope_violations: mergedScopeViolations,
-        suggested_revisions: [
+        suggested_revisions: dedup([
           ...l0Result.warnings.map((w) => `[L0] ${w}`),
+          ...l1Conclusion.suggested_revisions,
           ...l2Conclusion.suggested_revisions,
-        ],
+        ]),
       },
       metrics: totalMetrics,
       levelReached: "L2",
