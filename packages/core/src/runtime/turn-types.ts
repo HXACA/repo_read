@@ -2,7 +2,7 @@ import type { LanguageModel, ToolSet } from "ai";
 import type { Message, StepInfo } from "../agent/agent-loop.js";
 
 export type TurnPurpose =
-  | "catalog" | "outline" | "draft" | "worker" | "review"
+  | "catalog" | "outline" | "draft" | "worker" | "review" | "review-l1"
   | "ask" | "research-plan" | "research-exec" | "research-synthesize"
   | "evidence-plan";
 
