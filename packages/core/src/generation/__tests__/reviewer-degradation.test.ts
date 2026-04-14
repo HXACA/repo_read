@@ -197,7 +197,7 @@ describe("Reviewer degradation", () => {
       mockResponse(JSON.stringify(wikiJson)),
     );
 
-    // Page "overview": worker, outline, draft, L1-review (throws), L2-review (throws)
+    // Page "overview": worker, outline, draft, L1-review (fails), L2-review (fails) → synthesized pass
     mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("overview")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("overview")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("overview", "Overview", "README.md")));
@@ -207,11 +207,17 @@ describe("Reviewer degradation", () => {
     mockGenerateText.mockRejectedValueOnce(new Error("LLM API rate limit"));
 
     // Page "core": worker, outline, draft, L1-review, L2-review (normal)
+    // Prefetch fires after overview's review (during validation), so core
+    // evidence+outline may already be on disk. These mocks cover the case
+    // where the prefetch hasn't finished or failed.
     mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("core")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("core")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("core", "Core")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(passReview)); // L1
     mockGenerateText.mockResolvedValueOnce(mockResponse(passReview)); // L2
+
+    // Default fallback for any extra calls from background prefetch.
+    mockGenerateText.mockResolvedValue(mockResponse(workerOutput("prefetch-fallback")));
 
     const pipeline = new GenerationPipeline({
       storage,
@@ -281,6 +287,9 @@ describe("Reviewer degradation", () => {
     mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("core", "Core")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(passReview)); // L1
     mockGenerateText.mockResolvedValueOnce(mockResponse(passReview)); // L2
+
+    // Default fallback for any extra calls from background prefetch.
+    mockGenerateText.mockResolvedValue(mockResponse(workerOutput("prefetch-fallback")));
 
     const pipeline = new GenerationPipeline({
       storage,

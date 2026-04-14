@@ -36,6 +36,7 @@ import { selectExecutionLane } from "./execution-lane.js";
 import type { ProviderCallOptions } from "../runtime/turn-types.js";
 import { getModelOptionsForRole, type ModelOptions } from "../providers/model-factory.js";
 import { UsageTracker } from "../utils/usage-tracker.js";
+import { startPrefetch, type PrefetchSlot } from "./page-prefetcher.js";
 
 export type GenerationPipelineOptions = {
   storage: StorageAdapter;
@@ -140,6 +141,7 @@ export class GenerationPipeline {
 
     const pipelineStartedAt = Date.now();
     const throughput = new ThroughputReportBuilder();
+    const prefetchRef: { current: PrefetchSlot | null } = { current: null };
 
     try {
       // === CATALOG PHASE ===
@@ -242,6 +244,8 @@ export class GenerationPipeline {
         onStep: (step) => this.usageTracker.add("outline", (this.outlineModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
       });
 
+      const prefetchedSlugs = new Set<string>();
+
       for (let i = 0; i < wiki.reading_order.length; i++) {
         const page = wiki.reading_order[i];
 
@@ -249,6 +253,17 @@ export class GenerationPipeline {
         // re-running their draft/review/validate loops.
         if (skipSlugs.has(page.slug)) {
           continue;
+        }
+
+        // Await prefetch if it matches this page
+        let prefetchSlot: PrefetchSlot | null = null;
+        let prefetchWaitMs = 0;
+        if (prefetchRef.current?.pageSlug === page.slug) {
+          const waitStart = Date.now();
+          await prefetchRef.current.promise.catch(() => {});
+          prefetchWaitMs = Date.now() - waitStart;
+          prefetchSlot = prefetchRef.current;
+          prefetchRef.current = null;
         }
 
         const pageResult = await this.runPageWorkflow({
@@ -269,9 +284,23 @@ export class GenerationPipeline {
           coordinator,
           outlinePlanner,
           drafterProviderOpts,
+          prefetchSlot,
+          prefetchWaitMs,
+          skipSlugs,
+          prefetchedSlugs,
+          workerProviderOpts,
+          outlineProviderOpts,
+          setActivePrefetch: (slot) => { prefetchRef.current = slot; },
         });
 
         if (!pageResult.success) {
+          // Drain any outstanding prefetch so its work is captured
+          if (prefetchRef.current) {
+            await prefetchRef.current.promise.catch(() => {});
+            if (prefetchRef.current.phases.evidence || prefetchRef.current.phases.outline) {
+              throughput.setOrphanedPrefetch({ phases: { ...prefetchRef.current.phases } });
+            }
+          }
           // Include the failed page's partial metrics in the report
           if (pageResult.pageMetrics) {
             throughput.addPage(pageResult.pageMetrics);
@@ -294,6 +323,15 @@ export class GenerationPipeline {
         }
       }
 
+      // Drain any remaining unused prefetch
+      if (prefetchRef.current) {
+        await prefetchRef.current.promise.catch(() => {});
+        if (prefetchRef.current.phases.evidence || prefetchRef.current.phases.outline) {
+          throughput.setOrphanedPrefetch({ phases: { ...prefetchRef.current.phases } });
+        }
+        prefetchRef.current = null;
+      }
+
       // === PUBLISH ===
       job = await this.jobManager.transition(slug, jobId, "publishing");
 
@@ -314,6 +352,13 @@ export class GenerationPipeline {
       ).catch(() => {});
       return { success: true, job, usageTracker: this.usageTracker };
     } catch (err) {
+      // Drain any outstanding prefetch so its work is captured
+      if (prefetchRef.current) {
+        await prefetchRef.current.promise.catch(() => {});
+        if (prefetchRef.current.phases.evidence || prefetchRef.current.phases.outline) {
+          throughput.setOrphanedPrefetch({ phases: { ...prefetchRef.current.phases } });
+        }
+      }
       await this.artifactStore.saveThroughputMetrics(
         { projectSlug: slug, jobId },
         throughput.finish({ totalLatencyMs: Date.now() - pipelineStartedAt }),
@@ -414,11 +459,20 @@ export class GenerationPipeline {
     coordinator: EvidenceCoordinator | null;
     outlinePlanner: OutlinePlanner;
     drafterProviderOpts: ProviderCallOptions;
+    prefetchSlot: PrefetchSlot | null;
+    prefetchWaitMs: number;
+    skipSlugs: Set<string>;
+    prefetchedSlugs: Set<string>;
+    workerProviderOpts: ProviderCallOptions;
+    outlineProviderOpts: ProviderCallOptions;
+    setActivePrefetch: (slot: PrefetchSlot | null) => void;
   }): Promise<{ success: boolean; job: GenerationJob; error?: string; pageMetrics?: PageThroughputRecord }> {
     const {
       page, pageIndex: i, wiki, slug, jobId, versionId, emitter,
       publishedSummaries, knownPages, qp, allowBash, drafter, ladder,
       coordinator, outlinePlanner, drafterProviderOpts,
+      prefetchSlot, prefetchWaitMs, skipSlugs, prefetchedSlugs,
+      workerProviderOpts, outlineProviderOpts,
     } = ctx;
     let { job } = ctx;
 
@@ -505,10 +559,20 @@ export class GenerationPipeline {
           // Skip to drafting
           await emitter.pageEvidencePlanned(page.slug, evidenceResult.plan?.tasks?.length ?? 0, false);
           await emitter.pageEvidenceCollected(page.slug, evidenceResult.ledger.length, 0, 0);
-          // Mark as reused for throughput tracking
-          evidenceMetric = { llmCalls: 0, durationMs: 0, usage: { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 }, reused: true };
+
+          // Disk loaded successfully. Use prefetch metrics if this was prefetched in THIS job.
+          if (prefetchSlot?.artifactsReady.evidence && prefetchSlot.phases.evidence) {
+            evidenceMetric = prefetchSlot.phases.evidence;
+          } else {
+            evidenceMetric = { llmCalls: 0, durationMs: 0, usage: { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 }, reused: true };
+          }
+
           if (existingOutline) {
-            outlineMetric = { llmCalls: 0, durationMs: 0, usage: { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 }, reused: true };
+            if (prefetchSlot?.artifactsReady.outline && prefetchSlot.phases.outline) {
+              outlineMetric = prefetchSlot.phases.outline;
+            } else {
+              outlineMetric = { llmCalls: 0, durationMs: 0, usage: { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 }, reused: true };
+            }
           }
         }
       }
@@ -691,6 +755,11 @@ export class GenerationPipeline {
             page.slug, lane, initialLane, attempt, pageStartedAt,
             evidenceMetric, outlineMetric, draftMetric, reviewMetric, zeroPhaseMetric(),
             currentVerificationLevel,
+            prefetchSlot ? {
+              hit: prefetchSlot.artifactsReady.evidence || prefetchSlot.artifactsReady.outline,
+              waitMs: prefetchWaitMs,
+              phases: { ...prefetchSlot.phases },
+            } : undefined,
           ),
         };
       }
@@ -867,6 +936,35 @@ export class GenerationPipeline {
     await this.artifactStore.saveCitations(versionedRef, finalDraft.metadata!.citations);
     await this.artifactStore.saveReview(pageRef, finalReview.conclusion);
 
+    // Start prefetching the next page's evidence+outline while we validate
+    // and persist the current page. The prefetch runs in the background and
+    // will be awaited at the start of the next page's iteration.
+    const nextIdx = i + 1;
+    if (nextIdx < wiki.reading_order.length) {
+      const nextPage = wiki.reading_order[nextIdx];
+      if (!prefetchedSlugs.has(nextPage.slug) && !skipSlugs.has(nextPage.slug)) {
+        prefetchedSlugs.add(nextPage.slug);
+        ctx.setActivePrefetch(startPrefetch(nextPage, {
+          wiki,
+          pageIndex: nextIdx,
+          slug,
+          jobId,
+          language: this.config.language,
+          publishedSummaries: [...publishedSummaries],
+          artifactStore: this.artifactStore,
+          workerModel: this.workerModel,
+          drafterModel: this.drafterModel,
+          outlineModel: this.outlineModel,
+          workerProviderOpts,
+          outlineProviderOpts,
+          repoRoot: this.repoRoot,
+          allowBash,
+          onWorkerStep: (step) => this.usageTracker.add("worker", (this.workerModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
+          onOutlineStep: (step) => this.usageTracker.add("outline", (this.outlineModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
+        }));
+      }
+    }
+
     // --- VALIDATE ---
     job = await this.jobManager.transition(slug, jobId, "validating");
 
@@ -978,6 +1076,11 @@ export class GenerationPipeline {
         validate: validateMetric,
       },
       usage: pageUsage,
+      prefetch: prefetchSlot ? {
+        hit: prefetchSlot.artifactsReady.evidence || prefetchSlot.artifactsReady.outline,
+        waitMs: prefetchWaitMs,
+        phases: { ...prefetchSlot.phases },
+      } : undefined,
     };
 
     return { success: true, job, pageMetrics };
@@ -992,6 +1095,11 @@ export class GenerationPipeline {
           page.slug, lane, initialLane, attempt, pageStartedAt,
           evidenceMetric, outlineMetric, draftMetric, reviewMetric, zeroPhaseMetric(),
           currentVerificationLevel,
+          prefetchSlot ? {
+            hit: prefetchSlot.artifactsReady.evidence || prefetchSlot.artifactsReady.outline,
+            waitMs: prefetchWaitMs,
+            phases: { ...prefetchSlot.phases },
+          } : undefined,
         ),
       };
     }
@@ -1014,6 +1122,7 @@ export class GenerationPipeline {
     reviewMetric: PhaseMetric,
     validateMetric: PhaseMetric,
     verificationLevel?: VerificationLevel,
+    prefetch?: PageThroughputRecord["prefetch"],
   ): PageThroughputRecord {
     const pageUsage = zeroThroughputUsage();
     for (const pm of [evidenceMetric, outlineMetric, draftMetric, reviewMetric, validateMetric]) {
@@ -1032,6 +1141,7 @@ export class GenerationPipeline {
       verificationLevel,
       phases: { evidence: evidenceMetric, outline: outlineMetric, draft: draftMetric, review: reviewMetric, validate: validateMetric },
       usage: pageUsage,
+      prefetch,
     };
   }
 

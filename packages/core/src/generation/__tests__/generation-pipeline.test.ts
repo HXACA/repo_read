@@ -406,9 +406,15 @@ describe("GenerationPipeline", () => {
 
     // --- core: worker, outline, draft (L0 review — no LLM call) ---
     // Budget preset + 1 file → fast lane, score ≤ 4 → L0 (deterministic only)
+    // Note: prefetch fired after overview's review completed, so core's
+    // evidence+outline may already be on disk. These mocks cover the case
+    // where the prefetch hasn't finished yet or failed.
     mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("core")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("core")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("core", "Core")));
+
+    // Default fallback for any extra calls from the background prefetch.
+    mockGenerateText.mockResolvedValue(mockResponse(workerOutput("prefetch-fallback")));
 
     const pipeline = new GenerationPipeline({
       storage,
@@ -428,7 +434,11 @@ describe("GenerationPipeline", () => {
 
     expect(result.success).toBe(true);
     expect(result.job.status).toBe("completed");
-    expect(mockGenerateText).toHaveBeenCalledTimes(10);
+    // 10 base calls. The prefetch fires after review (during validation),
+    // so its calls run concurrently with validation/persistence and may
+    // add up to 2 extra calls. Core evidence/outline may come from disk.
+    expect(mockGenerateText.mock.calls.length).toBeGreaterThanOrEqual(10);
+    expect(mockGenerateText.mock.calls.length).toBeLessThanOrEqual(12);
 
     // Event stream should show:
     //  - 3× page.drafting (overview attempt 0 + overview attempt 1 + core)
