@@ -1,6 +1,8 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { StorageAdapter } from "../storage/storage-adapter.js";
+import type { EvidenceCacheKey } from "../generation/evidence-cache.js";
+import { serializeEvidenceCacheKey } from "../generation/evidence-cache.js";
 import type { AskSessionRef, JobRef, PageRef, ResearchNoteRef, VersionedPageRef } from "./types.js";
 
 export class ArtifactStore {
@@ -153,6 +155,21 @@ export class ArtifactStore {
     return this.storage.writeJson(
       this.storage.paths.researchNoteJson(ref.projectSlug, ref.versionId, ref.noteId),
       data,
+    );
+  }
+
+  // --- Evidence Cache (repo-level, not job-scoped) ---
+
+  async loadEvidenceCache<T>(key: EvidenceCacheKey): Promise<T | null> {
+    return this.storage.readJson<T>(
+      this.storage.paths.evidenceCacheJson(serializeEvidenceCacheKey(key)),
+    );
+  }
+
+  async saveEvidenceCache<T>(key: EvidenceCacheKey, value: T): Promise<void> {
+    return this.storage.writeJson(
+      this.storage.paths.evidenceCacheJson(serializeEvidenceCacheKey(key)),
+      value,
     );
   }
 }

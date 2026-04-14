@@ -109,6 +109,11 @@ export class StoragePaths {
     return path.join(this.askDir(slug), `${sessionId}.json`);
   }
 
+  /** Repo-level evidence cache entry (not job-scoped). */
+  evidenceCacheJson(serializedKey: string): string {
+    return path.join(this.root, "cache", "evidence", `${serializedKey}.json`);
+  }
+
   evidenceJson(slug: string, jobId: string, pageSlug: string): string {
     return path.join(this.jobDir(slug, jobId), "evidence", `${pageSlug}.json`);
   }
