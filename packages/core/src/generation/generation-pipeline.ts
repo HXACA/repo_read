@@ -290,6 +290,7 @@ export class GenerationPipeline {
           prefetchedSlugs,
           workerProviderOpts,
           outlineProviderOpts,
+          reviewerProviderOpts,
           setActivePrefetch: (slot) => { prefetchRef.current = slot; },
         });
 
@@ -468,6 +469,7 @@ export class GenerationPipeline {
     prefetchedSlugs: Set<string>;
     workerProviderOpts: ProviderCallOptions;
     outlineProviderOpts: ProviderCallOptions;
+    reviewerProviderOpts: ProviderCallOptions;
     setActivePrefetch: (slot: PrefetchSlot | null) => void;
   }): Promise<{ success: boolean; job: GenerationJob; error?: string; pageMetrics?: PageThroughputRecord }> {
     const {
@@ -475,7 +477,7 @@ export class GenerationPipeline {
       publishedSummaries, knownPages, qp, allowBash, drafter, ladder,
       coordinator, outlinePlanner, drafterProviderOpts,
       prefetchSlot, prefetchWaitMs, skipSlugs, prefetchedSlugs,
-      workerProviderOpts, outlineProviderOpts,
+      workerProviderOpts, outlineProviderOpts, reviewerProviderOpts,
     } = ctx;
     let { job } = ctx;
 
@@ -604,8 +606,24 @@ export class GenerationPipeline {
 
       if (shouldCollectEvidence) {
         evidenceJustCollected = true;
+        // Use per-page coordinator when policy has adjusted worker params
+        const needsCustomCoordinator =
+          policy.workerMaxSteps !== qp.workerMaxSteps ||
+          policy.forkWorkerConcurrency !== qp.forkWorkerConcurrency;
+        const activeCoordinator = needsCustomCoordinator
+          ? new EvidenceCoordinator({
+              plannerModel: this.drafterModel,
+              workerModel: this.workerModel,
+              repoRoot: this.repoRoot,
+              concurrency: policy.forkWorkerConcurrency,
+              workerMaxSteps: policy.workerMaxSteps,
+              allowBash,
+              providerCallOptions: workerProviderOpts,
+              onWorkerStep: (step) => this.usageTracker.add("worker", (this.workerModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
+            })
+          : coordinator!;
         const evidenceStartedAt = Date.now();
-        evidenceResult = await coordinator!.collect({
+        evidenceResult = await activeCoordinator.collect({
           pageTitle: page.title,
           pageRationale: page.rationale,
           pageOrder: i + 1,
@@ -897,6 +915,24 @@ export class GenerationPipeline {
         }
       }
 
+      // Use a per-page ladder when policy has adjusted reviewer params
+      const needsCustomLadder =
+        policy.reviewerMaxSteps !== qp.reviewerMaxSteps ||
+        policy.reviewerVerifyMinCitations !== qp.reviewerVerifyMinCitations ||
+        policy.reviewerStrictness !== qp.reviewerStrictness;
+      const activeLadder = needsCustomLadder
+        ? new VerificationLadder({
+            reviewerModel: this.reviewerModel,
+            repoRoot: this.repoRoot,
+            l2MaxSteps: policy.reviewerMaxSteps,
+            l2VerifyMinCitations: policy.reviewerVerifyMinCitations,
+            strictness: policy.reviewerStrictness,
+            allowBash,
+            providerCallOptions: reviewerProviderOpts,
+            onStep: (step) => this.usageTracker.add("reviewer", (this.reviewerModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
+          })
+        : ladder;
+
       const reviewStartedAt = Date.now();
       try {
         const verificationLevel = selectVerificationLevel({
@@ -906,7 +942,7 @@ export class GenerationPipeline {
           revisionAttempt: attempt,
         });
 
-        const ladderResult = await ladder.verify({
+        const ladderResult = await activeLadder.verify({
           level: verificationLevel,
           briefing,
           draftContent: draftResult.markdown!,
