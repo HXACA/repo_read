@@ -76,7 +76,7 @@ export function PageReaderClient({
 
   return (
     <div
-      className="mx-auto flex justify-center gap-6 px-4 py-8 sm:px-6 sm:py-10 lg:gap-8"
+      className="mx-auto flex justify-center gap-8 px-6 py-10 sm:px-8 sm:py-12 lg:gap-12"
       style={{ maxWidth: "1600px" }}
     >
       <ChapterNav
@@ -94,7 +94,7 @@ export function PageReaderClient({
       >
         {/* Breadcrumb */}
         <nav
-          className="mb-6 flex items-center gap-2 text-sm"
+          className="mb-8 flex items-center gap-2 text-sm"
           style={{ color: "var(--rr-text-muted)" }}
         >
           <Link
@@ -120,7 +120,7 @@ export function PageReaderClient({
 
         {/* Page position indicator */}
         {meta && (
-          <div className="mb-8 flex flex-wrap items-center gap-3">
+          <div className="mb-10 flex flex-wrap items-center gap-3">
             <span
               className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium"
               style={{
