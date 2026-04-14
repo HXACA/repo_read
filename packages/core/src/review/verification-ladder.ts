@@ -34,6 +34,11 @@ export type LadderResult = ReviewResult & {
   levelReached: VerificationLevel;
 };
 
+/** Deduplicate string arrays while preserving order. */
+function dedup(arr: string[]): string[] {
+  return [...new Set(arr)];
+}
+
 export class VerificationLadder {
   private readonly l1: L1SemanticReviewer;
   private readonly l2: FreshReviewer;
@@ -102,6 +107,18 @@ export class VerificationLadder {
       totalMetrics.usage.cachedTokens += l1Result.metrics.usage.cachedTokens;
     }
 
+    // L1 failure handling:
+    // - level=L1: propagate failure so pipeline's unverified-pass degradation kicks in
+    // - level=L2: continue to L2 (authoritative reviewer) regardless of L1 outcome
+    if (!l1Result.success && level === "L1") {
+      return {
+        success: false,
+        error: l1Result.error ?? "L1 semantic review failed",
+        metrics: totalMetrics,
+        levelReached: "L1",
+      };
+    }
+
     const l1Conclusion: ReviewConclusion = l1Result.conclusion ?? {
       verdict: "pass" as const,
       blockers: [],
@@ -143,6 +160,23 @@ export class VerificationLadder {
     }
 
     const l2Conclusion: ReviewConclusion = l2Result.conclusion ?? l1Conclusion;
+
+    // Merge L1 non-blocker findings into L2 conclusion so they don't disappear.
+    // L2 is authoritative for verdict/blockers, but L1 may have caught semantic
+    // issues (low citation density, scope drift hints) that L2 didn't repeat.
+    const mergedFactualRisks = dedup([
+      ...l1Conclusion.factual_risks,
+      ...l2Conclusion.factual_risks,
+    ]);
+    const mergedMissingEvidence = dedup([
+      ...l1Conclusion.missing_evidence,
+      ...l2Conclusion.missing_evidence,
+    ]);
+    const mergedScopeViolations = dedup([
+      ...l1Conclusion.scope_violations,
+      ...l2Conclusion.scope_violations,
+    ]);
+
     const finalBlockers = [...l0Blockers, ...l2Conclusion.blockers];
     const finalVerdict =
       finalBlockers.length > 0 ? "revise" : l2Conclusion.verdict;
@@ -153,6 +187,9 @@ export class VerificationLadder {
         ...l2Conclusion,
         verdict: finalVerdict,
         blockers: finalBlockers,
+        factual_risks: mergedFactualRisks,
+        missing_evidence: mergedMissingEvidence,
+        scope_violations: mergedScopeViolations,
         suggested_revisions: [
           ...l0Result.warnings.map((w) => `[L0] ${w}`),
           ...l2Conclusion.suggested_revisions,

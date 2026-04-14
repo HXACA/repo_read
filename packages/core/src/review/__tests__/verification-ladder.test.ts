@@ -339,6 +339,86 @@ describe("VerificationLadder", () => {
     expect(mockL2Review).not.toHaveBeenCalled();
   });
 
+  it("L1 failure at level=L1: propagates failure for pipeline degradation", async () => {
+    mockValidatePage.mockReturnValue(passL0);
+    mockL1Review.mockResolvedValue({
+      success: false,
+      error: "L1 review failed: API error",
+    });
+    const ladder = new VerificationLadder({
+      reviewerModel: {} as never,
+      repoRoot: "/tmp/repo",
+    });
+    const result = await ladder.verify({
+      level: "L1",
+      briefing,
+      draftContent: "# Title\nContent",
+      validationInput: {
+        markdown: "# Title\nContent",
+        citations: [],
+        knownFiles: [],
+        knownPages: [],
+        pageSlug: "test",
+      },
+    });
+    // Must propagate failure so pipeline synthesizes unverified pass
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("L1");
+    expect(result.conclusion).toBeUndefined();
+    expect(result.levelReached).toBe("L1");
+    expect(mockL2Review).not.toHaveBeenCalled();
+  });
+
+  it("L2: merges L1 non-blocker findings into L2 conclusion", async () => {
+    mockValidatePage.mockReturnValue(passL0);
+    mockL1Review.mockResolvedValue({
+      success: true,
+      conclusion: {
+        verdict: "pass",
+        blockers: [],
+        factual_risks: ["Section X claims 10ms latency without citation"],
+        missing_evidence: ["No evidence for caching behavior"],
+        scope_violations: ["Brief mention of deployment"],
+        suggested_revisions: [],
+      },
+      metrics: { llmCalls: 1, usage: { inputTokens: 200, outputTokens: 80, reasoningTokens: 0, cachedTokens: 0 } },
+    });
+    mockL2Review.mockResolvedValue({
+      success: true,
+      conclusion: {
+        verdict: "pass",
+        blockers: [],
+        factual_risks: ["Function signature mismatch at line 42"],
+        missing_evidence: [],
+        scope_violations: [],
+        suggested_revisions: ["Fix line 42 signature"],
+      },
+      metrics: { llmCalls: 1, usage: { inputTokens: 500, outputTokens: 200, reasoningTokens: 0, cachedTokens: 0 } },
+    });
+    const ladder = new VerificationLadder({
+      reviewerModel: {} as never,
+      repoRoot: "/tmp/repo",
+    });
+    const result = await ladder.verify({
+      level: "L2",
+      briefing,
+      draftContent: "# Title\nContent",
+      validationInput: {
+        markdown: "# Title\nContent",
+        citations: [],
+        knownFiles: [],
+        knownPages: [],
+        pageSlug: "test",
+      },
+    });
+    expect(result.conclusion!.verdict).toBe("pass");
+    // L1 findings merged into L2 conclusion
+    expect(result.conclusion!.factual_risks).toContain("Section X claims 10ms latency without citation");
+    expect(result.conclusion!.factual_risks).toContain("Function signature mismatch at line 42");
+    expect(result.conclusion!.missing_evidence).toContain("No evidence for caching behavior");
+    expect(result.conclusion!.scope_violations).toContain("Brief mention of deployment");
+  });
+
   it("accumulates metrics across levels", async () => {
     mockValidatePage.mockReturnValue(passL0);
     mockL1Review.mockResolvedValue(passL1);
