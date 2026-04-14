@@ -90,6 +90,7 @@ function buildProviderOpts(roleOptions: ModelOptions, cacheKey: string): Provide
     cacheKey,
     reasoning: roleOptions.reasoning,
     serviceTier: roleOptions.serviceTier,
+    promptCache: roleOptions.promptCache,
   };
 }
 

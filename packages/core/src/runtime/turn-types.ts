@@ -10,6 +10,8 @@ export type ProviderCallOptions = {
   cacheKey?: string;
   reasoning?: { effort: string; summary: string } | null;
   serviceTier?: string | null;
+  /** Enable Anthropic-style prompt caching (cache_control on content blocks). */
+  promptCache?: boolean;
 };
 
 /**

@@ -537,7 +537,27 @@ describe("Anthropic prompt caching", () => {
     mockBuildResponses.mockReturnValue(null);
   });
 
-  it("injects cacheControl for Anthropic provider", async () => {
+  it("injects cache_control on system block when promptCache=true", async () => {
+    mockResponses = [{ text: "ok", finishReason: "stop", usage: makeUsage(10, 5), toolCalls: [] }];
+
+    await runAgentLoop(
+      makeOptions({
+        model: { provider: "anthropic", modelId: "claude-sonnet-4-6" } as any,
+        providerCallOptions: { promptCache: true },
+      }),
+      "test",
+    );
+
+    // system should be converted to SystemModelMessage with cache_control
+    const sys = lastStreamTextArgs?.system as Record<string, unknown>;
+    expect(sys.role).toBe("system");
+    expect(sys.content).toBe("You are a test assistant.");
+    expect(sys.providerOptions).toEqual({
+      anthropic: { cacheControl: { type: "ephemeral" } },
+    });
+  });
+
+  it("does NOT inject cache_control when promptCache is not set", async () => {
     mockResponses = [{ text: "ok", finishReason: "stop", usage: makeUsage(10, 5), toolCalls: [] }];
 
     await runAgentLoop(
@@ -545,49 +565,19 @@ describe("Anthropic prompt caching", () => {
       "test",
     );
 
-    const providerOpts = lastStreamTextArgs?.providerOptions as Record<string, unknown> | undefined;
-    expect(providerOpts?.anthropic).toEqual({ cacheControl: { type: "ephemeral" } });
+    // system stays as plain string
+    expect(typeof lastStreamTextArgs?.system).toBe("string");
   });
 
-  it("injects cacheControl for anthropic.messages provider prefix", async () => {
+  it("does NOT inject cache_control for non-Anthropic providers even with promptCache=true", async () => {
     mockResponses = [{ text: "ok", finishReason: "stop", usage: makeUsage(10, 5), toolCalls: [] }];
 
     await runAgentLoop(
-      makeOptions({ model: { provider: "anthropic.messages", modelId: "claude-sonnet-4-6" } as any }),
+      makeOptions({ providerCallOptions: { promptCache: true } }), // default model: provider "test"
       "test",
     );
 
-    const providerOpts = lastStreamTextArgs?.providerOptions as Record<string, unknown> | undefined;
-    expect(providerOpts?.anthropic).toEqual({ cacheControl: { type: "ephemeral" } });
-  });
-
-  it("does NOT inject cacheControl for non-Anthropic providers", async () => {
-    mockResponses = [{ text: "ok", finishReason: "stop", usage: makeUsage(10, 5), toolCalls: [] }];
-
-    await runAgentLoop(makeOptions(), "test"); // default model has provider: "test"
-
-    const providerOpts = lastStreamTextArgs?.providerOptions as Record<string, unknown> | undefined;
-    expect(providerOpts?.anthropic).toBeUndefined();
-  });
-
-  it("does NOT inject cacheControl when model is OpenAI Responses (uses promptCacheKey instead)", async () => {
-    mockBuildResponses.mockReturnValue({
-      providerOptions: { openai: { store: false, promptCacheKey: "job-1" } },
-      stripSystem: false,
-      stripMaxOutputTokens: false,
-    });
-
-    mockResponses = [{ text: "ok", finishReason: "stop", usage: makeUsage(10, 5), toolCalls: [] }];
-
-    await runAgentLoop(
-      { ...makeOptions(), providerCallOptions: { cacheKey: "job-1" } },
-      "test",
-    );
-
-    const providerOpts = lastStreamTextArgs?.providerOptions as Record<string, unknown> | undefined;
-    // Should have openai options but NOT anthropic cacheControl
-    expect(providerOpts?.openai).toBeDefined();
-    expect(providerOpts?.anthropic).toBeUndefined();
+    expect(typeof lastStreamTextArgs?.system).toBe("string");
   });
 
   it("overrides maxOutputTokens to 16384 for non-Claude models on Anthropic provider", async () => {

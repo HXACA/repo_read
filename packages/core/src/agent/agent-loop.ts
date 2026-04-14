@@ -196,16 +196,25 @@ function buildStreamParams(
     }
   }
 
-  // Anthropic automatic prompt caching — SDK places the cache breakpoint on the
-  // last cacheable block automatically. This caches tools → system → early messages
-  // so that drafter retries, reviewer runs on the same page, etc. reuse the prefix.
+  // Anthropic prompt caching — explicit per-block cache_control injection.
+  // Only enabled when the model config sets promptCache: true, because not all
+  // models behind Anthropic-compatible proxies support cache_control.
+  // Injects cache_control on the system prompt block via SystemModelMessage format.
   // Cache reads cost 10% of base input; writes cost 25% more. Min 2048-4096 tokens.
   const isAnthropic = (model as unknown as { provider?: string })?.provider?.startsWith("anthropic");
   if (isAnthropic && !responsesOpts) {
-    params.providerOptions = {
-      ...params.providerOptions as Record<string, unknown> | undefined,
-      anthropic: { cacheControl: { type: "ephemeral" } },
-    };
+    if (providerCallOptions?.promptCache) {
+      // Convert system from plain string to SystemModelMessage with cache_control
+      // on the content block. The SDK passes this through to the Anthropic API as:
+      // "system": [{ "type": "text", "text": "...", "cache_control": {"type": "ephemeral"} }]
+      params.system = {
+        role: "system",
+        content: system,
+        providerOptions: {
+          anthropic: { cacheControl: { type: "ephemeral" } },
+        },
+      };
+    }
     // @ai-sdk/anthropic defaults to 4096 max_tokens for unknown model IDs
     // (non-Claude models routed through Anthropic-compatible proxies).
     // Override with 16384 so non-Claude models don't get truncated.

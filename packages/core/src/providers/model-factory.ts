@@ -47,6 +47,7 @@ export function createModelForRole(
 export type ModelOptions = {
   reasoning: { effort: string; summary: string } | null;
   serviceTier: string | null;
+  promptCache: boolean;
 };
 
 /** Look up model options (reasoning, serviceTier) for a role.
@@ -71,6 +72,7 @@ export function getModelOptionsForRole(
   return {
     reasoning: effort ? { effort, summary: summary ?? "auto" } : null,
     serviceTier: tier ?? null,
+    promptCache: modelConfig?.promptCache ?? false,
   };
 }
 
