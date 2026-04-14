@@ -809,8 +809,18 @@ export class GenerationPipeline {
         const hasLowDensity = sections.slice(1).some(
           (section) => (section.match(/\[cite:/g) || []).length === 0,
         );
-        if (hasLowDensity) {
+        if (hasLowDensity && !runtimeSignals.lowCitationDensity) {
           runtimeSignals.lowCitationDensity = true;
+          // Re-select lane so policy picks up the new signal BEFORE
+          // needsCustomLadder/needsCustomCoordinator evaluate it.
+          lanePlan = selectExecutionLane({
+            preset: this.config.preset,
+            base: qp,
+            complexity,
+            signals: runtimeSignals,
+          });
+          lane = lanePlan.lane;
+          policy = lanePlan.policy;
         }
       }
 
