@@ -81,6 +81,21 @@ const outlineOutput = () =>
 const draftOutput = (title: string) =>
   `# ${title}\n\nContent for the page.\n\n[cite:file:README.md:1-10]`;
 
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+const catalogWiki = (slugs: Array<{ slug: string; title: string; file: string }>) =>
+  JSON.stringify({
+    summary: "Test project",
+    reading_order: slugs.map(({ slug, title, file }) => ({
+      slug,
+      title,
+      rationale: `Cover ${slug}`,
+      covered_files: [file],
+    })),
+  });
+
 describe("GenerationPipeline observability", () => {
   let tmpDir: string;
   let storage: StorageAdapter;
@@ -210,5 +225,122 @@ describe("GenerationPipeline observability", () => {
     expect(metrics.totals.llmCalls).toBe(9);
     // Total input: catalog(100) + 2 pages x 175 = 450
     expect(metrics.totals.usage.inputTokens).toBe(450);
+  });
+
+  it("failed page includes partial metrics in throughput.json", async () => {
+    const { generateText } = await import("ai");
+    const mockGenerateText = vi.mocked(generateText);
+
+    // Call 1: Catalog — 2 pages (min required by validateCatalog)
+    mockGenerateText.mockResolvedValueOnce({
+      text: catalogWiki([
+        { slug: "overview", title: "Overview", file: "README.md" },
+        { slug: "core", title: "Core", file: "src/index.ts" },
+      ]),
+      usage: { promptTokens: 100, completionTokens: 50 },
+    } as never);
+
+    // Page "overview":
+    // Call 2: worker/evidence (succeeds)
+    mockGenerateText.mockResolvedValueOnce({
+      text: workerOutput("overview"),
+      usage: { promptTokens: 30, completionTokens: 20 },
+    } as never);
+
+    // Call 3: outline (succeeds)
+    mockGenerateText.mockResolvedValueOnce({
+      text: outlineOutput(),
+      usage: { promptTokens: 25, completionTokens: 15 },
+    } as never);
+
+    // Call 4: draft — non-retryable auth error so withRetry re-throws immediately,
+    // PageDrafter.draft() catches and returns { success: false }, pipeline records
+    // partial metrics and fails the job without processing the second page.
+    const draftError = Object.assign(new Error("Draft LLM auth failure"), { statusCode: 401 });
+    mockGenerateText.mockRejectedValueOnce(draftError);
+
+    const pipeline = new GenerationPipeline({
+      storage,
+      jobManager,
+      config,
+      catalogModel: {} as never,
+      outlineModel: {} as never,
+      drafterModel: {} as never,
+      workerModel: {} as never,
+      reviewerModel: {} as never,
+      repoRoot: tmpDir,
+      commitHash: "abc123",
+    });
+
+    const job = await jobManager.create("proj", tmpDir, config);
+    const result = await pipeline.run(job);
+
+    // Pipeline fails because the page draft failed
+    expect(result.success).toBe(false);
+
+    // throughput.json must exist even on failure
+    const throughputPath = path.join(storage.paths.jobDir("proj", job.id), "throughput.json");
+    const raw = await fs.readFile(throughputPath, "utf-8").catch(() => null);
+    expect(raw).not.toBeNull();
+
+    const metrics = JSON.parse(raw!);
+
+    // Catalog ran — 1 LLM call
+    expect(metrics.catalog.llmCalls).toBe(1);
+
+    // The failed page must be present in the report
+    expect(metrics.pages).toHaveLength(1);
+    expect(metrics.pages[0].pageSlug).toBe("overview");
+
+    // Evidence and outline phases had real LLM calls before the draft failed
+    expect(metrics.pages[0].phases.evidence.llmCalls).toBeGreaterThan(0);
+    expect(metrics.pages[0].phases.outline.llmCalls).toBeGreaterThan(0);
+  });
+
+  it("catalog failure still records catalog cost in throughput.json", async () => {
+    const { generateText } = await import("ai");
+    const mockGenerateText = vi.mocked(generateText);
+
+    // The catalog planner retries maxRetries (default 3) times.
+    // Each attempt: generateText returns invalid JSON → parseWikiJson throws →
+    // cost is accumulated before the throw, so totalMetrics.llmCalls grows.
+    // After all retries exhausted, plan() returns { success: false, metrics }.
+    // runCatalogPhase then throws, the finally block records catalog metrics,
+    // and the outer catch saves throughput.json.
+    const invalidJson = "this is not valid json at all";
+
+    mockGenerateText.mockResolvedValue({
+      text: invalidJson,
+      usage: { promptTokens: 40, completionTokens: 10 },
+    } as never);
+
+    const pipeline = new GenerationPipeline({
+      storage,
+      jobManager,
+      config,
+      catalogModel: {} as never,
+      outlineModel: {} as never,
+      drafterModel: {} as never,
+      workerModel: {} as never,
+      reviewerModel: {} as never,
+      repoRoot: tmpDir,
+      commitHash: "abc123",
+    });
+
+    const job = await jobManager.create("proj", tmpDir, config);
+    const result = await pipeline.run(job);
+
+    // Pipeline must fail due to catalog failure
+    expect(result.success).toBe(false);
+
+    // throughput.json must still exist
+    const throughputPath = path.join(storage.paths.jobDir("proj", job.id), "throughput.json");
+    const raw = await fs.readFile(throughputPath, "utf-8").catch(() => null);
+    expect(raw).not.toBeNull();
+
+    const metrics = JSON.parse(raw!);
+
+    // Catalog phase ran multiple LLM calls (one per retry attempt)
+    expect(metrics.catalog.llmCalls).toBeGreaterThan(0);
   });
 });

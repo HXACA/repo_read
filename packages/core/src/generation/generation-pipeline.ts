@@ -143,20 +143,21 @@ export class GenerationPipeline {
     try {
       // === CATALOG PHASE ===
       const catalogStartedAt = Date.now();
-      let catalogResult;
-      try {
-        catalogResult = await this.runCatalogPhase(job, emitter, options);
-      } finally {
-        // Always record catalog cost, even if it fails partway through
-        throughput.setCatalog({
-          durationMs: Date.now() - catalogStartedAt,
-          llmCalls: catalogResult?.metrics?.llmCalls ?? 0,
-          usage: catalogResult?.metrics?.usage ?? { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 },
-          reused: isResume,
-        });
+      // runCatalogPhase always returns (never throws) so that metrics are
+      // available even on failure — the caller checks `result.error` below.
+      const catalogPhaseResult = await this.runCatalogPhase(job, emitter, options);
+      // Always record catalog cost, even when cataloging failed
+      throughput.setCatalog({
+        durationMs: Date.now() - catalogStartedAt,
+        llmCalls: catalogPhaseResult.metrics?.llmCalls ?? 0,
+        usage: catalogPhaseResult.metrics?.usage ?? { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 },
+        reused: isResume,
+      });
+      if (catalogPhaseResult.error || !catalogPhaseResult.wiki) {
+        throw new Error(catalogPhaseResult.error ?? "Catalog planning failed");
       }
-      job = catalogResult.job;
-      const wiki = catalogResult.wiki;
+      job = catalogPhaseResult.job;
+      const wiki = catalogPhaseResult.wiki;
 
       job.summary.totalPages = wiki.reading_order.length;
       if (!isResume) {
@@ -328,7 +329,7 @@ export class GenerationPipeline {
     job: GenerationJob,
     emitter: JobEventEmitter,
     options: PipelineRunOptions,
-  ): Promise<{ job: GenerationJob; wiki: WikiJson; metrics?: { llmCalls: number; usage: import("../utils/usage-tracker.js").UsageInput } }> {
+  ): Promise<{ job: GenerationJob; wiki: WikiJson | null; error?: string; metrics?: { llmCalls: number; usage: import("../utils/usage-tracker.js").UsageInput } }> {
     const slug = job.projectSlug;
     const jobId = job.id;
     const versionId = job.versionId;
@@ -363,15 +364,24 @@ export class GenerationPipeline {
 
     const catalogResult = await catalogPlanner.plan(profileResult);
     if (!catalogResult.success || !catalogResult.wiki) {
-      throw new Error(catalogResult.error ?? "Catalog planning failed");
+      // Return normally (with metrics) so the caller can record cost before failing
+      return {
+        job,
+        wiki: null,
+        error: catalogResult.error ?? "Catalog planning failed",
+        metrics: catalogResult.metrics,
+      };
     }
 
     const wiki = catalogResult.wiki;
     const catalogValidation = validateCatalog(wiki);
     if (!catalogValidation.passed) {
-      throw new Error(
-        `Catalog validation failed: ${catalogValidation.errors.join("; ")}`,
-      );
+      return {
+        job,
+        wiki: null,
+        error: `Catalog validation failed: ${catalogValidation.errors.join("; ")}`,
+        metrics: catalogResult.metrics,
+      };
     }
 
     await persistCatalog(this.artifactStore, slug, jobId, versionId, wiki);

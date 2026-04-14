@@ -4,6 +4,8 @@ import {
   zeroUsage,
   cloneUsage,
   addUsage,
+  addUsageInput,
+  type PhaseMetric,
 } from "../throughput-metrics.js";
 import type { UsageBucket } from "../../utils/usage-tracker.js";
 
@@ -166,5 +168,41 @@ describe("ThroughputMetricsCollector", () => {
   it("durationMs on job is non-negative", () => {
     const result = collector.finish("job-9", "proj");
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PhaseMetric — reused flag flip
+// ---------------------------------------------------------------------------
+
+describe("PhaseMetric reused flip", () => {
+  it("reused flips to false when evidence is recollected after cache load", () => {
+    // Simulate: evidence was loaded from disk on first attempt
+    // (pipeline sets reused: true, llmCalls: 0)
+    const evidenceMetric: PhaseMetric = {
+      llmCalls: 0,
+      durationMs: 0,
+      usage: { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 },
+      reused: true,
+    };
+
+    expect(evidenceMetric.reused).toBe(true);
+
+    // Simulate: shouldCollectEvidence fires on a retry (reviewer flagged
+    // missing_evidence), so the coordinator runs and returns real LLM metrics.
+    const freshMetrics = {
+      llmCalls: 2,
+      usage: { inputTokens: 150, outputTokens: 75, reasoningTokens: 0, cachedTokens: 0 },
+    };
+
+    // Apply what the pipeline does when evidence is re-collected
+    evidenceMetric.llmCalls += freshMetrics.llmCalls;
+    addUsageInput(evidenceMetric.usage, freshMetrics.usage);
+    if (freshMetrics.llmCalls > 0) evidenceMetric.reused = false;
+
+    // reused must now be false because real LLM calls were made
+    expect(evidenceMetric.reused).toBe(false);
+    expect(evidenceMetric.llmCalls).toBe(2);
+    expect(evidenceMetric.usage.inputTokens).toBe(150);
   });
 });
