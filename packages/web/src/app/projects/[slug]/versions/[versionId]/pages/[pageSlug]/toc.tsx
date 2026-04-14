@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
+import { cleanContent } from "./markdown-renderer";
 
 type Heading = {
   level: number;
@@ -83,7 +84,7 @@ export function TableOfContents({
   collapsed: boolean;
   onToggle: () => void;
 }) {
-  const headings = useMemo(() => parseHeadings(content), [content]);
+  const headings = useMemo(() => parseHeadings(cleanContent(content)), [content]);
   const [activeId, setActiveId] = useState<string>("");
 
   // Track which heading is currently in view via IntersectionObserver

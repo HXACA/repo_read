@@ -44,7 +44,7 @@ function makeHeadingIdFactory(): (text: string) => string {
  *   3. Clean content starting with # heading (no-op)
  *   4. Trailing ```json { "summary": ... } block (often truncated)
  */
-function cleanContent(raw: string): string {
+export function cleanContent(raw: string): string {
   let text = raw;
 
   // Find the first top-level heading (# or ##)
