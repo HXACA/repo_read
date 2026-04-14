@@ -553,7 +553,7 @@ describe("Anthropic prompt caching", () => {
     });
   });
 
-  it("injects cache_control on last user message for Anthropic provider", async () => {
+  it("injects cache_control on first user message for Anthropic provider", async () => {
     mockResponses = [{ text: "ok", finishReason: "stop", usage: makeUsage(10, 5), toolCalls: [] }];
 
     await runAgentLoop(

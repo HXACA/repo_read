@@ -218,13 +218,15 @@ function buildStreamParams(
       providerOptions: cacheMarker,
     };
 
-    // Breakpoint 2: last user message — stable for same-page retries.
-    // The user message typically contains evidence + outline + revision context.
-    // On retries, only the revision feedback changes (appended), so the prefix
-    // (system + tools + early messages) stays identical → cache hit.
+    // Breakpoint 2: first user message — the initial prompt is stable across
+    // all steps of the agent loop. Later tool-call/tool-result pairs accumulate
+    // after it, but the prefix (system + tools + first user message) stays
+    // identical → cache hit on every subsequent step.
+    // Using the *last* user message would miss every time in agent loops because
+    // messages grow with each step.
     if (messages.length > 0) {
       const tagged = [...messages];
-      for (let i = tagged.length - 1; i >= 0; i--) {
+      for (let i = 0; i < tagged.length; i++) {
         if (tagged[i].role === "user") {
           const msg = tagged[i] as { role: "user"; content: string };
           tagged[i] = {
