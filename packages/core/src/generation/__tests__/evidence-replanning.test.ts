@@ -8,6 +8,12 @@ import { JobStateManager } from "../job-state.js";
 import type { ResolvedConfig } from "../../types/config.js";
 import { getQualityProfile } from "../../config/quality-profile.js";
 
+// Force L1 verification so exactly 1 reviewer LLM call fires per review —
+// without this, budget-preset + 1-file pages land on L0 (deterministic only).
+vi.mock("../../review/verification-level.js", () => ({
+  selectVerificationLevel: () => "L1" as const,
+}));
+
 vi.mock("ai", () => {
   const generateText = vi.fn();
   return {
@@ -101,17 +107,17 @@ const wikiJson = {
   ],
 };
 
-const draftOutput = (slug: string, title: string) =>
+const draftOutput = (slug: string, title: string, file = "src/index.ts") =>
   `# ${title}
 
 Content for ${slug} page with enough detail to pass structure validation checks and meet minimum length requirements for the page.
 
-[cite:file:src/index.ts:1-10]
+[cite:file:${file}:1-10]
 
 \`\`\`json
 {
   "summary": "Summary of ${slug}",
-  "citations": [{ "kind": "file", "target": "src/index.ts", "locator": "1-10", "note": "Main entry" }],
+  "citations": [{ "kind": "file", "target": "${file}", "locator": "1-10", "note": "Main entry" }],
   "related_pages": []
 }
 \`\`\``;
@@ -216,13 +222,13 @@ describe("Evidence re-collection on factual risks", () => {
     // Page "overview" — attempt 0: worker, outline, draft, review (revise)
     mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("overview")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("overview")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("overview", "Overview")));
+    mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("overview", "Overview", "README.md")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(reviseWithFactualRisks));
 
     // Page "overview" — attempt 1: worker (re-collect), outline (re-plan), draft, review (pass)
     mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("overview")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("overview")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("overview", "Overview")));
+    mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("overview", "Overview", "README.md")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(passReview));
 
     // Page "core": worker, outline, draft, review

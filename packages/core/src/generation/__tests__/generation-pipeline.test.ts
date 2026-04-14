@@ -106,17 +106,17 @@ const wikiJson: WikiJson = {
   ],
 };
 
-const draftOutput = (slug: string, title: string) =>
+const draftOutput = (slug: string, title: string, file = "src/index.ts") =>
   `# ${title}
 
 Content for ${slug} page with enough detail to pass structure validation checks and meet minimum length requirements for the page.
 
-[cite:file:src/index.ts:1-10]
+[cite:file:${file}:1-10]
 
 \`\`\`json
 {
   "summary": "Summary of ${slug}",
-  "citations": [{ "kind": "file", "target": "src/index.ts", "locator": "1-10", "note": "Main entry" }],
+  "citations": [{ "kind": "file", "target": "${file}", "locator": "1-10", "note": "Main entry" }],
   "related_pages": []
 }
 \`\`\``;
@@ -174,7 +174,7 @@ describe("GenerationPipeline", () => {
     storage = new StorageAdapter(tmpDir);
     await storage.initialize();
     jobManager = new JobStateManager(storage);
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   afterEach(async () => {
@@ -191,22 +191,20 @@ describe("GenerationPipeline", () => {
     //     - 1 worker call (coordinator with forkWorkers=1)
     //     - 1 outline planner call
     //     - 1 draft call
-    //     - 1 review call
+    //     - L0 review (deterministic, no LLM call — budget+fast lane, score ≤ 4)
 
     // Call 1: Catalog planner
     mockGenerateText.mockResolvedValueOnce(mockResponse(JSON.stringify(wikiJson)));
 
-    // Page "overview": worker, outline, draft, review
+    // Page "overview": worker, outline, draft (L0 review = no LLM)
     mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("overview")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("overview")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("overview", "Overview")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(passReview));
+    mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("overview", "Overview", "README.md")));
 
-    // Page "core": worker, outline, draft, review
+    // Page "core": worker, outline, draft (L0 review = no LLM)
     mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("core")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("core")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("core", "Core")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(passReview));
 
     const pipeline = new GenerationPipeline({
       storage,
@@ -304,13 +302,13 @@ describe("GenerationPipeline", () => {
     await jobManager.fail("proj", job.id, "simulated network error");
 
     // Phase B: resume — we only mock the LLM calls for the REMAINING
-    // page ("core"): worker + outline + draft + review. Catalog must NOT
-    // be called again, and overview must NOT be re-drafted.
-    vi.clearAllMocks();
+    // page ("core"): worker + outline + draft. Review is L0 (deterministic,
+    // no LLM call) because budget+fast lane with score ≤ 4.
+    // Catalog must NOT be called again, and overview must NOT be re-drafted.
+    vi.resetAllMocks();
     mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("core")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("core")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("core", "Core")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(passReview));
 
     const pipeline = new GenerationPipeline({
       storage,
@@ -334,9 +332,9 @@ describe("GenerationPipeline", () => {
 
     expect(result.success).toBe(true);
     expect(result.job.status).toBe("completed");
-    // The LLM was only called 4 times (worker + outline + draft + review
-    // for "core"), not 9 (catalog + 2× worker/outline/draft/review).
-    expect(mockGenerateText).toHaveBeenCalledTimes(4);
+    // The LLM was only called 3 times (worker + outline + draft for "core";
+    // L0 review is deterministic), not 7+ (catalog + 2× worker/outline/draft).
+    expect(mockGenerateText).toHaveBeenCalledTimes(3);
 
     // Published version must exist AND include both pages (overview was
     // pre-written, core was freshly drafted).
@@ -394,20 +392,23 @@ describe("GenerationPipeline", () => {
 
     mockGenerateText.mockResolvedValueOnce(mockResponse(JSON.stringify(wikiJson)));
 
-    // --- overview: worker, outline, truncated-draft, retry-draft, review ---
+    // --- overview: worker, outline, truncated-draft, retry-draft, L1-review, L2-review ---
+    // After truncation, draftTruncated signal triggers deep lane → L2 verification,
+    // which runs L1 (1 LLM call) then L2 (1 LLM call) = 2 review calls.
     mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("overview")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("overview")));
     mockGenerateText.mockResolvedValueOnce(
       mockResponse("# Overview\n\nContent that got cut off mid-", { finishReason: "length" }),
     );
-    mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("overview", "Overview")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(passReview));
+    mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("overview", "Overview", "README.md")));
+    mockGenerateText.mockResolvedValueOnce(mockResponse(passReview)); // L1 review
+    mockGenerateText.mockResolvedValueOnce(mockResponse(passReview)); // L2 review
 
-    // --- core: worker, outline, draft, review ---
+    // --- core: worker, outline, draft (L0 review — no LLM call) ---
+    // Budget preset + 1 file → fast lane, score ≤ 4 → L0 (deterministic only)
     mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("core")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("core")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("core", "Core")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(passReview));
 
     const pipeline = new GenerationPipeline({
       storage,

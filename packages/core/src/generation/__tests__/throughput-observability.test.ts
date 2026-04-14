@@ -8,6 +8,12 @@ import { JobStateManager } from "../job-state.js";
 import { getQualityProfile } from "../../config/quality-profile.js";
 import type { ResolvedConfig } from "../../types/config.js";
 
+// Force L1 verification so exactly 1 reviewer LLM call fires per page —
+// without this, budget-preset + 1-file pages land on L0 (deterministic only).
+vi.mock("../../review/verification-level.js", () => ({
+  selectVerificationLevel: () => "L1" as const,
+}));
+
 vi.mock("ai", () => {
   const generateText = vi.fn();
   return {
@@ -62,24 +68,24 @@ const passReview = JSON.stringify({
   suggested_revisions: [],
 });
 
-const workerOutput = (slug: string) =>
+const workerOutput = (slug: string, file = "README.md") =>
   JSON.stringify({
     directive: `Collect evidence for ${slug}`,
     findings: [`Finding from ${slug}`],
-    citations: [{ kind: "file", target: "README.md", locator: "1-10", note: "intro" }],
+    citations: [{ kind: "file", target: file, locator: "1-10", note: "intro" }],
     open_questions: [],
   });
 
-const outlineOutput = () =>
+const outlineOutput = (file = "README.md") =>
   JSON.stringify({
     sections: [
-      { heading: "概述", key_points: ["README"], cite_from: [{ target: "README.md", locator: "1-10" }] },
-      { heading: "细节", key_points: ["Details"], cite_from: [{ target: "README.md", locator: "1-10" }] },
+      { heading: "概述", key_points: ["README"], cite_from: [{ target: file, locator: "1-10" }] },
+      { heading: "细节", key_points: ["Details"], cite_from: [{ target: file, locator: "1-10" }] },
     ],
   });
 
-const draftOutput = (title: string) =>
-  `# ${title}\n\nContent for the page.\n\n[cite:file:README.md:1-10]`;
+const draftOutput = (title: string, file = "README.md") =>
+  `# ${title}\n\nContent for the page.\n\n[cite:file:${file}:1-10]`;
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -156,17 +162,17 @@ describe("GenerationPipeline observability", () => {
 
     // Page "core": worker (30/20), outline (25/15), draft (80/40), review (40/20)
     mockGenerateText.mockResolvedValueOnce({
-      text: workerOutput("core"),
+      text: workerOutput("core", "src/index.ts"),
       usage: { promptTokens: 30, completionTokens: 20 },
     } as never);
 
     mockGenerateText.mockResolvedValueOnce({
-      text: outlineOutput(),
+      text: outlineOutput("src/index.ts"),
       usage: { promptTokens: 25, completionTokens: 15 },
     } as never);
 
     mockGenerateText.mockResolvedValueOnce({
-      text: draftOutput("Core"),
+      text: draftOutput("Core", "src/index.ts"),
       usage: { promptTokens: 80, completionTokens: 40 },
       finishReason: "stop",
     } as never);
@@ -193,6 +199,7 @@ describe("GenerationPipeline observability", () => {
     const result = await pipeline.run(job);
 
     if (!result.success) {
+      // debug removed
       throw new Error(`Pipeline failed: ${result.error}`);
     }
     expect(result.success).toBe(true);

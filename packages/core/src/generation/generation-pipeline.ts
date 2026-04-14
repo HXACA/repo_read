@@ -11,7 +11,8 @@ import { JobStateManager } from "./job-state.js";
 import { JobEventEmitter } from "./generation-events.js";
 import { profileRepo } from "../project/repo-profiler.js";
 import { PageDrafter } from "./page-drafter.js";
-import { FreshReviewer } from "../review/reviewer.js";
+import { VerificationLadder, type LadderResult } from "../review/verification-ladder.js";
+import { selectVerificationLevel, type VerificationLevel } from "../review/verification-level.js";
 import { validatePage } from "../validation/page-validator.js";
 import { validateCatalog } from "../catalog/catalog-validator.js";
 import { CatalogPlanner } from "../catalog/catalog-planner.js";
@@ -212,11 +213,11 @@ export class GenerationPipeline {
         providerCallOptions: drafterProviderOpts,
         onStep: (step) => this.usageTracker.add("drafter", (this.drafterModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
       });
-      const reviewer = new FreshReviewer({
-        model: this.reviewerModel,
+      const ladder = new VerificationLadder({
+        reviewerModel: this.reviewerModel,
         repoRoot: this.repoRoot,
-        maxSteps: qp.reviewerMaxSteps,
-        verifyMinCitations: qp.reviewerVerifyMinCitations,
+        l2MaxSteps: qp.reviewerMaxSteps,
+        l2VerifyMinCitations: qp.reviewerVerifyMinCitations,
         strictness: qp.reviewerStrictness,
         allowBash,
         providerCallOptions: reviewerProviderOpts,
@@ -264,7 +265,7 @@ export class GenerationPipeline {
           qp,
           allowBash,
           drafter,
-          reviewer,
+          ladder,
           coordinator,
           outlinePlanner,
           drafterProviderOpts,
@@ -409,14 +410,14 @@ export class GenerationPipeline {
     qp: ResolvedConfig["qualityProfile"];
     allowBash: boolean;
     drafter: PageDrafter;
-    reviewer: FreshReviewer;
+    ladder: VerificationLadder;
     coordinator: EvidenceCoordinator | null;
     outlinePlanner: OutlinePlanner;
     drafterProviderOpts: ProviderCallOptions;
   }): Promise<{ success: boolean; job: GenerationJob; error?: string; pageMetrics?: PageThroughputRecord }> {
     const {
       page, pageIndex: i, wiki, slug, jobId, versionId, emitter,
-      publishedSummaries, knownPages, qp, allowBash, drafter, reviewer,
+      publishedSummaries, knownPages, qp, allowBash, drafter, ladder,
       coordinator, outlinePlanner, drafterProviderOpts,
     } = ctx;
     let { job } = ctx;
@@ -470,8 +471,9 @@ export class GenerationPipeline {
 
     const pageStartedAt = Date.now();
     let draftResult: Awaited<ReturnType<typeof drafter.draft>> | null = null;
-    let reviewResult: Awaited<ReturnType<typeof reviewer.review>> | null =
+    let reviewResult: LadderResult | null =
       null;
+    let currentVerificationLevel: VerificationLevel = "L0";
     let attempt = 0;
     let reviewUnverified = false;
     // Cached across retries — only re-run when reviewer asks for more evidence
@@ -688,6 +690,7 @@ export class GenerationPipeline {
           pageMetrics: this.buildPartialPageMetrics(
             page.slug, lane, initialLane, attempt, pageStartedAt,
             evidenceMetric, outlineMetric, draftMetric, reviewMetric, zeroPhaseMetric(),
+            currentVerificationLevel,
           ),
         };
       }
@@ -724,6 +727,7 @@ export class GenerationPipeline {
             scope_violations: [],
             suggested_revisions: [],
           },
+          levelReached: "L0",
         };
         await emitter.pageReviewed(page.slug, "revise");
         attempt++;
@@ -765,13 +769,36 @@ export class GenerationPipeline {
 
       const reviewStartedAt = Date.now();
       try {
-        reviewResult = await reviewer.review(briefing);
+        const verificationLevel = selectVerificationLevel({
+          lane,
+          complexityScore: complexity.score,
+          signals: runtimeSignals,
+          revisionAttempt: attempt,
+        });
+
+        const ladderResult = await ladder.verify({
+          level: verificationLevel,
+          briefing,
+          draftContent: draftResult.markdown!,
+          validationInput: {
+            markdown: draftResult.markdown!,
+            citations: draftResult.metadata!.citations,
+            knownFiles: page.covered_files,
+            knownPages,
+            pageSlug: page.slug,
+          },
+        });
+        reviewResult = ladderResult;
+        currentVerificationLevel = ladderResult.levelReached;
       } catch (reviewErr) {
         reviewResult = {
           success: false,
           error: `Review threw: ${(reviewErr as Error).message}`,
+          levelReached: currentVerificationLevel,
         };
       }
+      // Both try & catch branches always assign reviewResult; assert non-null for TS.
+      reviewResult = reviewResult!;
       reviewMetric.durationMs += Date.now() - reviewStartedAt;
       reviewMetric.llmCalls += reviewResult.metrics?.llmCalls ?? 0;
       addUsageInput(reviewMetric.usage, reviewResult.metrics?.usage ?? { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 });
@@ -791,6 +818,7 @@ export class GenerationPipeline {
             scope_violations: [],
             suggested_revisions: [],
           },
+          levelReached: currentVerificationLevel,
         };
         reviewUnverified = true;
       }
@@ -941,6 +969,7 @@ export class GenerationPipeline {
       totalLatencyMs: Date.now() - pageStartedAt,
       revisionAttempts: attempt,
       escalatedToDeepLane: lane === "deep" && initialLane !== "deep",
+      verificationLevel: currentVerificationLevel,
       phases: {
         evidence: evidenceMetric,
         outline: outlineMetric,
@@ -962,6 +991,7 @@ export class GenerationPipeline {
         pageMetrics: this.buildPartialPageMetrics(
           page.slug, lane, initialLane, attempt, pageStartedAt,
           evidenceMetric, outlineMetric, draftMetric, reviewMetric, zeroPhaseMetric(),
+          currentVerificationLevel,
         ),
       };
     }
@@ -983,6 +1013,7 @@ export class GenerationPipeline {
     draftMetric: PhaseMetric,
     reviewMetric: PhaseMetric,
     validateMetric: PhaseMetric,
+    verificationLevel?: VerificationLevel,
   ): PageThroughputRecord {
     const pageUsage = zeroThroughputUsage();
     for (const pm of [evidenceMetric, outlineMetric, draftMetric, reviewMetric, validateMetric]) {
@@ -998,6 +1029,7 @@ export class GenerationPipeline {
       totalLatencyMs: Date.now() - pageStartedAt,
       revisionAttempts: attempt,
       escalatedToDeepLane: lane === "deep" && initialLane !== "deep",
+      verificationLevel,
       phases: { evidence: evidenceMetric, outline: outlineMetric, draft: draftMetric, review: reviewMetric, validate: validateMetric },
       usage: pageUsage,
     };

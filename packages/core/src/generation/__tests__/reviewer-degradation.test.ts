@@ -8,6 +8,12 @@ import { JobStateManager } from "../job-state.js";
 import type { ResolvedConfig } from "../../types/config.js";
 import { getQualityProfile } from "../../config/quality-profile.js";
 
+// Force L2 verification so the full reviewer LLM path fires —
+// without this, budget-preset + 1-file pages land on L0 (deterministic only).
+vi.mock("../../review/verification-level.js", () => ({
+  selectVerificationLevel: () => "L2" as const,
+}));
+
 vi.mock("ai", () => {
   const generateText = vi.fn();
   return {
@@ -101,17 +107,17 @@ const wikiJson = {
   ],
 };
 
-const draftOutput = (slug: string, title: string) =>
+const draftOutput = (slug: string, title: string, file = "src/index.ts") =>
   `# ${title}
 
 Content for ${slug} page with enough detail to pass structure validation checks and meet minimum length requirements for the page.
 
-[cite:file:src/index.ts:1-10]
+[cite:file:${file}:1-10]
 
 \`\`\`json
 {
   "summary": "Summary of ${slug}",
-  "citations": [{ "kind": "file", "target": "src/index.ts", "locator": "1-10", "note": "Main entry" }],
+  "citations": [{ "kind": "file", "target": "${file}", "locator": "1-10", "note": "Main entry" }],
   "related_pages": []
 }
 \`\`\``;
@@ -181,28 +187,31 @@ describe("Reviewer degradation", () => {
     const { generateText } = await import("ai");
     const mockGenerateText = vi.mocked(generateText);
 
-    // Call sequence (budget preset, 2 pages):
+    // Call sequence (budget preset, 2 pages, L2 forced):
     //   1. Catalog planner
-    //   Page "overview": worker, outline, draft, review (fails → synthesized)
-    //   Page "core": worker, outline, draft, review (passes normally)
+    //   Page "overview": worker, outline, draft, L1-review (fails), L2-review (fails) → synthesized pass
+    //   Page "core": worker, outline, draft, L1-review (pass), L2-review (pass)
 
     // Call 1: Catalog
     mockGenerateText.mockResolvedValueOnce(
       mockResponse(JSON.stringify(wikiJson)),
     );
 
-    // Page "overview": worker, outline, draft, review (throws → success:false)
+    // Page "overview": worker, outline, draft, L1-review (throws), L2-review (throws)
     mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("overview")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("overview")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("overview", "Overview")));
-    // Reviewer's generateText throws → FreshReviewer.review() catches and returns { success: false }
+    mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("overview", "Overview", "README.md")));
+    // L1 review throws → L1SemanticReviewer catches, returns {success:false}
+    mockGenerateText.mockRejectedValueOnce(new Error("LLM API rate limit"));
+    // L2 review also throws → FreshReviewer catches, returns {success:false}
     mockGenerateText.mockRejectedValueOnce(new Error("LLM API rate limit"));
 
-    // Page "core": worker, outline, draft, review (normal)
+    // Page "core": worker, outline, draft, L1-review, L2-review (normal)
     mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("core")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("core")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("core", "Core")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(passReview));
+    mockGenerateText.mockResolvedValueOnce(mockResponse(passReview)); // L1
+    mockGenerateText.mockResolvedValueOnce(mockResponse(passReview)); // L2
 
     const pipeline = new GenerationPipeline({
       storage,
@@ -249,26 +258,29 @@ describe("Reviewer degradation", () => {
     const mockGenerateText = vi.mocked(generateText);
 
     // Same scenario: reviewer generateText throws for overview,
-    // FreshReviewer.review() catches it and returns { success: false }.
+    // L1SemanticReviewer/FreshReviewer catch it and return { success: false }.
     // The pipeline's own try/catch also handles any unexpected throw.
 
     mockGenerateText.mockResolvedValueOnce(
       mockResponse(JSON.stringify(wikiJson)),
     );
 
-    // Page "overview": worker, outline, draft, review (throws)
+    // Page "overview": worker, outline, draft, L1-review (throws), L2-review (throws)
     mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("overview")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("overview")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("overview", "Overview")));
-    // Reviewer throws — use a non-retryable error (auth) so withRetry doesn't consume extra mock calls
+    mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("overview", "Overview", "README.md")));
+    // L1 review throws — use a non-retryable error (auth) so withRetry doesn't consume extra mock calls
     const authError = Object.assign(new Error("Unauthorized"), { statusCode: 401 });
     mockGenerateText.mockRejectedValueOnce(authError);
+    // L2 review also throws
+    mockGenerateText.mockRejectedValueOnce(Object.assign(new Error("Unauthorized"), { statusCode: 401 }));
 
-    // Page "core": worker, outline, draft, review (normal)
+    // Page "core": worker, outline, draft, L1-review, L2-review (normal)
     mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("core")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("core")));
     mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("core", "Core")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(passReview));
+    mockGenerateText.mockResolvedValueOnce(mockResponse(passReview)); // L1
+    mockGenerateText.mockResolvedValueOnce(mockResponse(passReview)); // L2
 
     const pipeline = new GenerationPipeline({
       storage,

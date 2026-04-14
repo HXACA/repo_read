@@ -6,7 +6,7 @@ import type { ReviewResult } from "../reviewer.js";
 
 const mockL1Review = vi.fn<() => Promise<ReviewResult>>();
 const mockL2Review = vi.fn<() => Promise<ReviewResult>>();
-const mockValidatePage = vi.fn<() => ValidationReport>();
+const mockValidatePage = vi.fn<(input: unknown) => ValidationReport>();
 
 vi.mock("../l1-semantic-reviewer.js", () => ({
   L1SemanticReviewer: vi.fn().mockImplementation(() => ({
@@ -21,7 +21,7 @@ vi.mock("../reviewer.js", () => ({
 }));
 
 vi.mock("../../validation/page-validator.js", () => ({
-  validatePage: (...args: unknown[]) => mockValidatePage(...args),
+  validatePage: (input: unknown) => mockValidatePage(input),
 }));
 
 const briefing: ReviewBriefing = {
