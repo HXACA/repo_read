@@ -488,13 +488,13 @@ export class GenerationPipeline {
     });
     let lane = lanePlan.lane;
     const initialLane = lane;
-    let pageParams = lanePlan.params;
+    let policy = lanePlan.policy;
 
     if (process.env.REPOREAD_DEBUG) {
       // Write to debug log file instead of stderr to avoid Ink rendering conflicts
       const debugMsg = `[pipeline] page=${page.slug} complexity=${complexity.score} ` +
-        `forkWorkers=${pageParams.forkWorkers} drafterMaxSteps=${pageParams.drafterMaxSteps} ` +
-        `maxRevisionAttempts=${pageParams.maxRevisionAttempts} maxOutputTokensBoost=${pageParams.maxOutputTokensBoost}\n`;
+        `forkWorkers=${policy.forkWorkers} drafterMaxSteps=${policy.drafterMaxSteps} ` +
+        `maxRevisionAttempts=${policy.maxRevisionAttempts} maxOutputTokensBoost=${policy.maxOutputTokensBoost}\n`;
       fs.appendFile(path.join(this.repoRoot, ".reporead", "pipeline-debug.log"), debugMsg).catch(() => {});
     }
 
@@ -508,16 +508,16 @@ export class GenerationPipeline {
 
     // Emit params adjusted event if different from baseline
     if (
-      pageParams.forkWorkers !== qp.forkWorkers ||
-      pageParams.drafterMaxSteps !== qp.drafterMaxSteps ||
-      pageParams.maxRevisionAttempts !== qp.maxRevisionAttempts ||
-      pageParams.maxOutputTokensBoost !== 0
+      policy.forkWorkers !== qp.forkWorkers ||
+      policy.drafterMaxSteps !== qp.drafterMaxSteps ||
+      policy.maxRevisionAttempts !== qp.maxRevisionAttempts ||
+      policy.maxOutputTokensBoost !== 0
     ) {
       await emitter.pageParamsAdjusted(page.slug, {
-        forkWorkers: pageParams.forkWorkers,
-        drafterMaxSteps: pageParams.drafterMaxSteps,
-        maxRevisionAttempts: pageParams.maxRevisionAttempts,
-        maxOutputTokensBoost: pageParams.maxOutputTokensBoost,
+        forkWorkers: policy.forkWorkers,
+        drafterMaxSteps: policy.drafterMaxSteps,
+        maxRevisionAttempts: policy.maxRevisionAttempts,
+        maxOutputTokensBoost: policy.maxOutputTokensBoost,
       });
     }
 
@@ -608,7 +608,7 @@ export class GenerationPipeline {
           pageOrder: i + 1,
           coveredFiles: page.covered_files,
           publishedSummaries,
-          taskCount: pageParams.forkWorkers,
+          taskCount: policy.forkWorkers,
           language: this.config.language,
           workerContext: [
             `Project: ${wiki.summary}`,
@@ -726,17 +726,17 @@ export class GenerationPipeline {
       // Use a per-page drafter when complexity scoring has adjusted
       // maxSteps or maxOutputTokens beyond the baseline.
       const needsCustomDrafter =
-        pageParams.drafterMaxSteps !== qp.drafterMaxSteps ||
-        pageParams.maxOutputTokensBoost > 0;
+        policy.drafterMaxSteps !== qp.drafterMaxSteps ||
+        policy.maxOutputTokensBoost > 0;
       const activeDrafter = needsCustomDrafter
         ? new PageDrafter({
             model: this.drafterModel,
             repoRoot: this.repoRoot,
-            maxSteps: pageParams.drafterMaxSteps,
+            maxSteps: policy.drafterMaxSteps,
             allowBash,
             providerCallOptions: drafterProviderOpts,
-            ...(pageParams.maxOutputTokensBoost > 0
-              ? { maxOutputTokens: 16384 + pageParams.maxOutputTokensBoost }
+            ...(policy.maxOutputTokensBoost > 0
+              ? { maxOutputTokens: 16384 + policy.maxOutputTokensBoost }
               : {}),
             onStep: (step) => this.usageTracker.add("drafter", (this.drafterModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
           })
@@ -786,7 +786,7 @@ export class GenerationPipeline {
       // and synthesize a "revise" verdict that tells the drafter to
       // produce a shorter page. This avoids publishing half-written
       // content and re-uses the existing revision loop machinery.
-      if (draftResult.truncated && attempt < pageParams.maxRevisionAttempts) {
+      if (draftResult.truncated && attempt < policy.maxRevisionAttempts) {
         // Accumulate truncation signal and re-select lane
         runtimeSignals.draftTruncated = true;
         lanePlan = selectExecutionLane({
@@ -796,7 +796,7 @@ export class GenerationPipeline {
           signals: runtimeSignals,
         });
         lane = lanePlan.lane;
-        pageParams = lanePlan.params;
+        policy = lanePlan.policy;
         reviewResult = {
           success: true,
           conclusion: {
@@ -952,7 +952,7 @@ export class GenerationPipeline {
           signals: runtimeSignals,
         });
         lane = lanePlan.lane;
-        pageParams = lanePlan.params;
+        policy = lanePlan.policy;
       }
 
       // Decide whether to retry: if the reviewer says "revise" and we
@@ -961,7 +961,7 @@ export class GenerationPipeline {
       // Previously we required non-empty blockers, but that let pages
       // through when the reviewer flagged issues in other fields only.
       const verdict = reviewResult.conclusion!.verdict;
-      const canRetry = attempt < pageParams.maxRevisionAttempts;
+      const canRetry = attempt < policy.maxRevisionAttempts;
 
       if (verdict === "pass" || !canRetry) {
         break;

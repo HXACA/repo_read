@@ -3,10 +3,11 @@ import type { QualityProfile } from "../config/quality-profile.js";
 import type { PageComplexityScore } from "./complexity-scorer.js";
 import { adjustParams, type RuntimeSignals, type AdjustedParams } from "./param-adjuster.js";
 import type { ExecutionLane } from "./throughput-metrics.js";
+import { buildLanePolicy, type LaneExecutionPolicy } from "./escalation-policy.js";
 
 export type ExecutionLanePlan = {
   lane: ExecutionLane;
-  params: AdjustedParams;
+  policy: LaneExecutionPolicy;
 };
 
 export function selectExecutionLane(input: {
@@ -33,7 +34,7 @@ export function selectExecutionLane(input: {
       drafterMaxSteps: params.drafterMaxSteps + 10,
       maxRevisionAttempts: params.maxRevisionAttempts + 1,
     };
-    return { lane: "deep", params: boostedParams };
+    return { lane: "deep", policy: buildLanePolicy("deep", boostedParams) };
   }
 
   // Step 3: fast lane for non-quality preset with simple pages
@@ -43,9 +44,9 @@ export function selectExecutionLane(input: {
       forkWorkers: Math.min(params.forkWorkers, 1),
       maxRevisionAttempts: Math.min(params.maxRevisionAttempts, 1),
     };
-    return { lane: "fast", params: cappedParams };
+    return { lane: "fast", policy: buildLanePolicy("fast", cappedParams) };
   }
 
   // Step 4: standard lane
-  return { lane: "standard", params };
+  return { lane: "standard", policy: buildLanePolicy("standard", params) };
 }

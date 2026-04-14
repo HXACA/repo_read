@@ -25,6 +25,6 @@ describe("selectExecutionLane", () => {
     expect(result.lane).toBe("deep");
     // drafterMaxSteps should be boosted beyond the base-adjusted value
     const baseAdjusted = base.drafterMaxSteps; // score=8 → no complexity boost from adjustParams
-    expect(result.params.drafterMaxSteps).toBeGreaterThan(baseAdjusted);
+    expect(result.policy.drafterMaxSteps).toBeGreaterThan(baseAdjusted);
   });
 });
