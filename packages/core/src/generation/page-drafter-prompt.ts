@@ -22,6 +22,42 @@ function languageName(code: string): string {
   return LANGUAGE_NAMES[code] ?? code;
 }
 
+const KIND_WRITING_RULES: Record<string, string> = {
+  guide: [
+    "## Page Kind: Guide",
+    "- Lead with what this page helps a newcomer understand",
+    "- Provide a cognitive map before diving into details",
+    "- Minimize code examples — focus on orientation and context",
+    "- Acceptable to be overview / quickstart / onboarding style",
+  ].join("\n"),
+  explanation: [
+    "## Page Kind: Explanation",
+    "- Focus on mechanisms, design trade-offs, key interactions",
+    "- This is the main reading flow — explain the \"why\" behind the \"what\"",
+    "- Code examples should illustrate key patterns, not dump entire files",
+  ].join("\n"),
+  reference: [
+    "## Page Kind: Reference",
+    "- High-density structured information",
+    "- Prefer tables, parameter lists, configuration keys",
+    "- Minimal narrative preamble — readers are looking things up, not reading sequentially",
+  ].join("\n"),
+  appendix: [
+    "## Page Kind: Appendix",
+    "- Long-tail content: regression matrices, edge cases, compatibility notes",
+    "- Explicitly note this is supplementary — don't duplicate main-flow explanations",
+    "- OK to be less polished, more exhaustive",
+  ].join("\n"),
+};
+
+function getKindWritingRules(pageKind?: string): string {
+  if (pageKind && KIND_WRITING_RULES[pageKind]) {
+    return KIND_WRITING_RULES[pageKind];
+  }
+  // Fall back to explanation behavior when kind is missing or unknown
+  return KIND_WRITING_RULES["explanation"];
+}
+
 export function buildPageDraftSystemPrompt(): string {
   return `You are "drafter", the primary technical writer for a code-reading wiki.
 
@@ -75,6 +111,26 @@ export function buildPageDraftUserPrompt(
     `- **Output Language:** ${languageName(input.language)} — WRITE ALL NARRATIVE TEXT IN THIS LANGUAGE`,
     `- **Covered Files:** ${input.coveredFiles.join(", ")}`,
   );
+
+  // Kind-aware writing rules
+  sections.push(getKindWritingRules(context.page_kind));
+
+  // Reader goal
+  if (context.reader_goal) {
+    sections.push(`## Reader Goal\nThe reader should be able to: ${context.reader_goal}`);
+  }
+
+  // Navigation context (previous/next pages)
+  if (context.previous_page_slug || context.next_page_slug) {
+    const parts: string[] = [];
+    if (context.previous_page_slug) {
+      parts.push(`follows '${context.previous_page_slug}'`);
+    }
+    if (context.next_page_slug) {
+      parts.push(`precedes '${context.next_page_slug}'`);
+    }
+    sections.push(`## Page Navigation Context\nThis page ${parts.join(" and ")} in the reading order.`);
+  }
 
   if (context.published_index_file) {
     sections.push(

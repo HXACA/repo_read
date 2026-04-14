@@ -692,6 +692,11 @@ export class GenerationPipeline {
         project_summary: wiki.summary,
         full_book_summary: wiki.summary,
         current_page_plan: page.rationale,
+        page_kind: page.kind,
+        reader_goal: page.readerGoal,
+        section_name: page.section,
+        previous_page_slug: i > 0 ? wiki.reading_order[i - 1]?.slug : undefined,
+        next_page_slug: i < wiki.reading_order.length - 1 ? wiki.reading_order[i + 1]?.slug : undefined,
         published_page_summaries: hasFilePointers ? [] : publishedSummaries,
         evidence_ledger: hasFilePointers ? [] : (evidenceResult?.ledger ?? []),
         ...(!hasFilePointers && evidenceResult

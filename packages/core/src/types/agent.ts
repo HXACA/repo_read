@@ -16,6 +16,16 @@ export type MainAuthorContext = {
     target: string;
     note: string;
   }>;
+  /** Page kind from the book plan — controls writing style rules. */
+  page_kind?: string;
+  /** What the reader should be able to do / understand after reading this page. */
+  reader_goal?: string;
+  /** Section name the page belongs to in the book plan. */
+  section_name?: string;
+  /** Slug of the previous page in reading order (for transitions). */
+  previous_page_slug?: string;
+  /** Slug of the next page in reading order (for transitions). */
+  next_page_slug?: string;
   /**
    * Optional bundle of natural-language findings and open questions produced
    * by the EvidenceCoordinator's worker subtasks. The drafter treats
