@@ -25,9 +25,15 @@ export interface GenerateOptions {
   name?: string;
   /** Resume a previously failed/interrupted job by id. */
   resume?: string;
+  /** Placeholder for incremental regeneration (not yet wired up). */
+  incremental?: boolean;
 }
 
 export async function runGenerate(options: GenerateOptions): Promise<void> {
+  if (options.incremental) {
+    console.log("Incremental mode is not yet implemented — proceeding with full generation.");
+  }
+
   const repoRoot = path.resolve(options.dir);
   const storage = new StorageAdapter(repoRoot);
   const projectModel = new ProjectModel(storage);

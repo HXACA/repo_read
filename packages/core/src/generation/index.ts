@@ -33,3 +33,8 @@ export type {
   PipelineResult,
   PipelineRunOptions,
 } from "./generation-pipeline.js";
+export { analyzeDirtyPages } from "./dirty-page-analyzer.js";
+export type {
+  DirtyPageAnalysisInput,
+  DirtyPageAnalysis,
+} from "./dirty-page-analyzer.js";
