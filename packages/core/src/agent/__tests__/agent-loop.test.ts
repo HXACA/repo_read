@@ -557,6 +557,31 @@ describe("Anthropic prompt caching", () => {
     });
   });
 
+  it("injects cache_control on last user message when promptCache=true", async () => {
+    mockResponses = [{ text: "ok", finishReason: "stop", usage: makeUsage(10, 5), toolCalls: [] }];
+
+    await runAgentLoop(
+      makeOptions({
+        model: { provider: "anthropic", modelId: "claude-sonnet-4-6" } as any,
+        providerCallOptions: { promptCache: true },
+      }),
+      "test prompt",
+    );
+
+    // The user message should be converted to structured content with cache_control
+    const msgs = lastStreamTextArgs?.messages as Array<Record<string, unknown>>;
+    const userMsg = msgs.find((m) => m.role === "user");
+    expect(userMsg).toBeDefined();
+    // Content should be array with providerOptions
+    const content = userMsg!.content as Array<Record<string, unknown>>;
+    expect(Array.isArray(content)).toBe(true);
+    expect(content[0].type).toBe("text");
+    expect(content[0].text).toBe("test prompt");
+    expect(content[0].providerOptions).toEqual({
+      anthropic: { cacheControl: { type: "ephemeral" } },
+    });
+  });
+
   it("does NOT inject cache_control when promptCache is not set", async () => {
     mockResponses = [{ text: "ok", finishReason: "stop", usage: makeUsage(10, 5), toolCalls: [] }];
 
