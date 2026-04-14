@@ -89,6 +89,12 @@ export class JobEventEmitter {
     await this.emit("job.failed", { error });
   }
 
+  async catalogWarnings(warnings: string[]): Promise<void> {
+    if (warnings.length > 0) {
+      await this.emit("catalog.warnings", { warnings, count: warnings.length });
+    }
+  }
+
   async pageComplexityScored(pageSlug: string, payload: { score: number; fileCount: number; dirSpread: number; crossLanguage: boolean }): Promise<void> {
     await this.emit("page.complexity_scored", payload, pageSlug);
   }

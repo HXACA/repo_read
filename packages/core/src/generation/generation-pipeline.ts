@@ -430,6 +430,9 @@ export class GenerationPipeline {
       };
     }
 
+    // Emit catalog warnings so they are observable in events.ndjson
+    await emitter.catalogWarnings(catalogValidation.warnings);
+
     await persistCatalog(this.artifactStore, slug, jobId, versionId, wiki);
     await emitter.catalogCompleted(wiki.reading_order.length);
 
@@ -778,6 +781,20 @@ export class GenerationPipeline {
       }
 
       await emitter.pageDrafted(page.slug);
+
+      // === LOW CITATION DENSITY SIGNAL ===
+      // Check if any ## section has zero [cite:...] markers. This drives
+      // lowCitationDensity in runtimeSignals → more aggressive review (L2)
+      // and higher reviewer citation verification requirements.
+      if (draftResult.markdown) {
+        const sections = draftResult.markdown.split(/^## /m);
+        const hasLowDensity = sections.slice(1).some(
+          (section) => (section.match(/\[cite:/g) || []).length === 0,
+        );
+        if (hasLowDensity) {
+          runtimeSignals.lowCitationDensity = true;
+        }
+      }
 
       // === TRUNCATION GUARD ===
       // If the draft hit `finishReason === "length"`, the tail of the
