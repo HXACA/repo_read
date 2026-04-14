@@ -390,31 +390,40 @@ describe("GenerationPipeline", () => {
     //     10. review pass
     // Total = 10. Only ONE reviewer call for "overview".
 
-    mockGenerateText.mockResolvedValueOnce(mockResponse(JSON.stringify(wikiJson)));
+    // Prefetch fires BEFORE review, consuming mock queue entries concurrently.
+    // Use mockImplementation to route reviewer calls (identified by system
+    // prompt) separately from evidence/outline/draft calls, avoiding races.
 
-    // --- overview: worker, outline, truncated-draft, retry-draft, L1-review, L2-review ---
-    // After truncation, draftTruncated signal triggers deep lane → L2 verification,
-    // which runs L1 (1 LLM call) then L2 (1 LLM call) = 2 review calls.
-    mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("overview")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("overview")));
-    mockGenerateText.mockResolvedValueOnce(
+    const nonReviewResponses = [
+      mockResponse(JSON.stringify(wikiJson)),           // 1. Catalog
+      mockResponse(workerOutput("overview")),           // 2. overview worker
+      mockResponse(outlineOutput("overview")),          // 3. overview outline
+      // 4. overview draft (truncated)
       mockResponse("# Overview\n\nContent that got cut off mid-", { finishReason: "length" }),
-    );
-    mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("overview", "Overview", "README.md")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(passReview)); // L1 review
-    mockGenerateText.mockResolvedValueOnce(mockResponse(passReview)); // L2 review
+      // 5. overview retry draft
+      mockResponse(draftOutput("overview", "Overview", "README.md")),
+      mockResponse(workerOutput("core")),               // 6. core worker (or prefetch)
+      mockResponse(outlineOutput("core")),              // 7. core outline (or prefetch)
+      mockResponse(draftOutput("core", "Core")),        // 8. core draft
+    ];
+    let nonReviewIdx = 0;
 
-    // --- core: worker, outline, draft (L0 review — no LLM call) ---
-    // Budget preset + 1 file → fast lane, score ≤ 4 → L0 (deterministic only)
-    // Note: prefetch fired after overview's review completed, so core's
-    // evidence+outline may already be on disk. These mocks cover the case
-    // where the prefetch hasn't finished yet or failed.
-    mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("core")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("core")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("core", "Core")));
+    mockGenerateText.mockImplementation((params: unknown) => {
+      const opts = params as { system?: string } | undefined;
+      const sys = opts?.system ?? "";
+      const isReview = sys.includes("semantic reviewer") || sys.includes("quality reviewer");
 
-    // Default fallback for any extra calls from the background prefetch.
-    mockGenerateText.mockResolvedValue(mockResponse(workerOutput("prefetch-fallback")));
+      if (isReview) {
+        return Promise.resolve(mockResponse(passReview));
+      }
+
+      // Non-review call: consume from ordered response list
+      if (nonReviewIdx < nonReviewResponses.length) {
+        return Promise.resolve(nonReviewResponses[nonReviewIdx++]);
+      }
+      // Fallback for any extra prefetch calls
+      return Promise.resolve(mockResponse(workerOutput("prefetch-fallback")));
+    });
 
     const pipeline = new GenerationPipeline({
       storage,
@@ -434,11 +443,12 @@ describe("GenerationPipeline", () => {
 
     expect(result.success).toBe(true);
     expect(result.job.status).toBe("completed");
-    // 10 base calls. The prefetch fires after review (during validation),
-    // so its calls run concurrently with validation/persistence and may
-    // add up to 2 extra calls. Core evidence/outline may come from disk.
+    // 10 base calls: 1 catalog + 3 overview (worker/outline/truncated-draft)
+    // + 1 retry-draft + 2 review (L1+L2) + 3 core (worker/outline/draft).
+    // Prefetch fires before review, adding up to 2 background calls
+    // (evidence worker + outline for core page).
     expect(mockGenerateText.mock.calls.length).toBeGreaterThanOrEqual(10);
-    expect(mockGenerateText.mock.calls.length).toBeLessThanOrEqual(12);
+    expect(mockGenerateText.mock.calls.length).toBeLessThanOrEqual(14);
 
     // Event stream should show:
     //  - 3× page.drafting (overview attempt 0 + overview attempt 1 + core)

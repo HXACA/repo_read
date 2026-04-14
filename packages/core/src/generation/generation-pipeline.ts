@@ -836,6 +836,37 @@ export class GenerationPipeline {
         } : {}),
       };
 
+      // Start prefetching the next page's evidence+outline BEFORE review.
+      // Review is the longest phase (30s-2min), so overlapping with it
+      // gives the best prefetch window. Guarded by prefetchedSlugs to
+      // ensure each page is prefetched at most once (revision loop may
+      // re-enter this code path).
+      const nextIdx = i + 1;
+      if (nextIdx < wiki.reading_order.length) {
+        const nextPage = wiki.reading_order[nextIdx];
+        if (!prefetchedSlugs.has(nextPage.slug) && !skipSlugs.has(nextPage.slug)) {
+          prefetchedSlugs.add(nextPage.slug);
+          ctx.setActivePrefetch(startPrefetch(nextPage, {
+            wiki,
+            pageIndex: nextIdx,
+            slug,
+            jobId,
+            language: this.config.language,
+            publishedSummaries: [...publishedSummaries],
+            artifactStore: this.artifactStore,
+            workerModel: this.workerModel,
+            drafterModel: this.drafterModel,
+            outlineModel: this.outlineModel,
+            workerProviderOpts,
+            outlineProviderOpts,
+            repoRoot: this.repoRoot,
+            allowBash,
+            onWorkerStep: (step) => this.usageTracker.add("worker", (this.workerModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
+            onOutlineStep: (step) => this.usageTracker.add("outline", (this.outlineModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
+          }));
+        }
+      }
+
       const reviewStartedAt = Date.now();
       try {
         const verificationLevel = selectVerificationLevel({
@@ -935,35 +966,6 @@ export class GenerationPipeline {
     await this.artifactStore.saveDraftMarkdown(versionedRef, finalDraft.markdown!);
     await this.artifactStore.saveCitations(versionedRef, finalDraft.metadata!.citations);
     await this.artifactStore.saveReview(pageRef, finalReview.conclusion);
-
-    // Start prefetching the next page's evidence+outline while we validate
-    // and persist the current page. The prefetch runs in the background and
-    // will be awaited at the start of the next page's iteration.
-    const nextIdx = i + 1;
-    if (nextIdx < wiki.reading_order.length) {
-      const nextPage = wiki.reading_order[nextIdx];
-      if (!prefetchedSlugs.has(nextPage.slug) && !skipSlugs.has(nextPage.slug)) {
-        prefetchedSlugs.add(nextPage.slug);
-        ctx.setActivePrefetch(startPrefetch(nextPage, {
-          wiki,
-          pageIndex: nextIdx,
-          slug,
-          jobId,
-          language: this.config.language,
-          publishedSummaries: [...publishedSummaries],
-          artifactStore: this.artifactStore,
-          workerModel: this.workerModel,
-          drafterModel: this.drafterModel,
-          outlineModel: this.outlineModel,
-          workerProviderOpts,
-          outlineProviderOpts,
-          repoRoot: this.repoRoot,
-          allowBash,
-          onWorkerStep: (step) => this.usageTracker.add("worker", (this.workerModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
-          onOutlineStep: (step) => this.usageTracker.add("outline", (this.outlineModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
-        }));
-      }
-    }
 
     // --- VALIDATE ---
     job = await this.jobManager.transition(slug, jobId, "validating");

@@ -214,28 +214,50 @@ describe("Evidence re-collection on factual risks", () => {
     //     13. review → pass
     // Total = 13
 
-    // 1. Catalog
-    mockGenerateText.mockResolvedValueOnce(
-      mockResponse(JSON.stringify(wikiJson)),
-    );
+    // Prefetch fires BEFORE review, consuming mock queue entries concurrently.
+    // Use mockImplementation to route reviewer calls (identified by system
+    // prompt) separately from evidence/outline/draft calls, avoiding races.
 
-    // Page "overview" — attempt 0: worker, outline, draft, review (revise)
-    mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("overview")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("overview")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("overview", "Overview", "README.md")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(reviseWithFactualRisks));
+    let reviewCallCount = 0;
+    const nonReviewResponses = [
+      mockResponse(JSON.stringify(wikiJson)),           // 1. Catalog
+      mockResponse(workerOutput("overview")),           // 2. overview worker (attempt 0)
+      mockResponse(outlineOutput("overview")),          // 3. overview outline (attempt 0)
+      mockResponse(draftOutput("overview", "Overview", "README.md")), // 4. overview draft (attempt 0)
+      // review (attempt 0) → handled by mockImplementation below
+      mockResponse(workerOutput("overview")),           // 5. overview worker (attempt 1, re-collect)
+      mockResponse(outlineOutput("overview")),          // 6. overview outline (attempt 1, re-plan)
+      mockResponse(draftOutput("overview", "Overview", "README.md")), // 7. overview draft (attempt 1)
+      // review (attempt 1) → handled by mockImplementation below
+      mockResponse(workerOutput("core")),               // 8. core worker (or prefetch)
+      mockResponse(outlineOutput("core")),              // 9. core outline (or prefetch)
+      mockResponse(draftOutput("core", "Core")),        // 10. core draft
+      // review (core) → handled by mockImplementation below
+    ];
+    let nonReviewIdx = 0;
 
-    // Page "overview" — attempt 1: worker (re-collect), outline (re-plan), draft, review (pass)
-    mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("overview")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("overview")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("overview", "Overview", "README.md")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(passReview));
+    mockGenerateText.mockImplementation((params: unknown) => {
+      const opts = params as { system?: string } | undefined;
+      const sys = opts?.system ?? "";
+      const isReview = sys.includes("semantic reviewer") || sys.includes("quality reviewer");
 
-    // Page "core": worker, outline, draft, review
-    mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("core")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("core")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("core", "Core")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(passReview));
+      if (isReview) {
+        reviewCallCount++;
+        if (reviewCallCount === 1) {
+          // First review (overview attempt 0) → revise with factual risks
+          return Promise.resolve(mockResponse(reviseWithFactualRisks));
+        }
+        // All subsequent reviews → pass
+        return Promise.resolve(mockResponse(passReview));
+      }
+
+      // Non-review call: consume from ordered response list
+      if (nonReviewIdx < nonReviewResponses.length) {
+        return Promise.resolve(nonReviewResponses[nonReviewIdx++]);
+      }
+      // Fallback for any extra prefetch calls
+      return Promise.resolve(mockResponse(workerOutput("prefetch-fallback")));
+    });
 
     const pipeline = new GenerationPipeline({
       storage,
@@ -258,8 +280,11 @@ describe("Evidence re-collection on factual risks", () => {
     expect(result.job.summary.totalPages).toBe(2);
     expect(result.job.summary.succeededPages).toBe(2);
 
-    // 13 calls total: 1 catalog + (4+4) overview attempts + 4 core
+    // 13 base calls: 1 catalog + (4+4) overview attempts + 4 core.
     // A run without re-collection would only have 9 calls (no re-worker/re-outline).
-    expect(mockGenerateText).toHaveBeenCalledTimes(13);
+    // Prefetch fires before review, adding up to 2 background calls (worker + outline
+    // for the next page), so total is 13-15.
+    expect(mockGenerateText.mock.calls.length).toBeGreaterThanOrEqual(13);
+    expect(mockGenerateText.mock.calls.length).toBeLessThanOrEqual(16);
   });
 });

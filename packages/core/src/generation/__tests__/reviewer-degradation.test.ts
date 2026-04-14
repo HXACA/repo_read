@@ -191,33 +191,44 @@ describe("Reviewer degradation", () => {
     //   1. Catalog planner
     //   Page "overview": worker, outline, draft, L1-review (fails), L2-review (fails) → synthesized pass
     //   Page "core": worker, outline, draft, L1-review (pass), L2-review (pass)
+    //
+    // Prefetch fires BEFORE review, consuming mock queue entries concurrently
+    // with review calls. To avoid non-deterministic queue depletion, use
+    // mockImplementation that routes reviewer calls (identified by system
+    // prompt) separately from evidence/outline/draft calls.
 
-    // Call 1: Catalog
-    mockGenerateText.mockResolvedValueOnce(
-      mockResponse(JSON.stringify(wikiJson)),
-    );
+    let overviewReviewsDone = 0;
+    const nonReviewResponses = [
+      mockResponse(JSON.stringify(wikiJson)),           // 1. Catalog
+      mockResponse(workerOutput("overview")),           // 2. overview worker
+      mockResponse(outlineOutput("overview")),          // 3. overview outline
+      mockResponse(draftOutput("overview", "Overview", "README.md")), // 4. overview draft
+      mockResponse(workerOutput("core")),               // 5. core worker (or prefetch)
+      mockResponse(outlineOutput("core")),              // 6. core outline (or prefetch)
+      mockResponse(draftOutput("core", "Core")),        // 7. core draft
+    ];
+    let nonReviewIdx = 0;
 
-    // Page "overview": worker, outline, draft, L1-review (fails), L2-review (fails) → synthesized pass
-    mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("overview")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("overview")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("overview", "Overview", "README.md")));
-    // L1 review throws → L1SemanticReviewer catches, returns {success:false}
-    mockGenerateText.mockRejectedValueOnce(new Error("LLM API rate limit"));
-    // L2 review also throws → FreshReviewer catches, returns {success:false}
-    mockGenerateText.mockRejectedValueOnce(new Error("LLM API rate limit"));
+    mockGenerateText.mockImplementation((params: unknown) => {
+      const opts = params as { system?: string } | undefined;
+      const sys = opts?.system ?? "";
+      const isReview = sys.includes("semantic reviewer") || sys.includes("quality reviewer");
 
-    // Page "core": worker, outline, draft, L1-review, L2-review (normal)
-    // Prefetch fires after overview's review (during validation), so core
-    // evidence+outline may already be on disk. These mocks cover the case
-    // where the prefetch hasn't finished or failed.
-    mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("core")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("core")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("core", "Core")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(passReview)); // L1
-    mockGenerateText.mockResolvedValueOnce(mockResponse(passReview)); // L2
+      if (isReview && overviewReviewsDone < 2) {
+        overviewReviewsDone++;
+        return Promise.reject(new Error("LLM API rate limit"));
+      }
+      if (isReview) {
+        return Promise.resolve(mockResponse(passReview));
+      }
 
-    // Default fallback for any extra calls from background prefetch.
-    mockGenerateText.mockResolvedValue(mockResponse(workerOutput("prefetch-fallback")));
+      // Non-review call: consume from ordered response list
+      if (nonReviewIdx < nonReviewResponses.length) {
+        return Promise.resolve(nonReviewResponses[nonReviewIdx++]);
+      }
+      // Fallback for any extra prefetch calls
+      return Promise.resolve(mockResponse(workerOutput("prefetch-fallback")));
+    });
 
     const pipeline = new GenerationPipeline({
       storage,
@@ -263,33 +274,40 @@ describe("Reviewer degradation", () => {
     const { generateText } = await import("ai");
     const mockGenerateText = vi.mocked(generateText);
 
-    // Same scenario: reviewer generateText throws for overview,
-    // L1SemanticReviewer/FreshReviewer catch it and return { success: false }.
-    // The pipeline's own try/catch also handles any unexpected throw.
+    // Same scenario but with non-retryable auth errors for reviewer calls.
+    // Uses mockImplementation to route reviewer calls separately from
+    // evidence/outline/draft calls, avoiding prefetch queue races.
 
-    mockGenerateText.mockResolvedValueOnce(
-      mockResponse(JSON.stringify(wikiJson)),
-    );
+    let overviewReviewsDone = 0;
+    const nonReviewResponses = [
+      mockResponse(JSON.stringify(wikiJson)),           // 1. Catalog
+      mockResponse(workerOutput("overview")),           // 2. overview worker
+      mockResponse(outlineOutput("overview")),          // 3. overview outline
+      mockResponse(draftOutput("overview", "Overview", "README.md")), // 4. overview draft
+      mockResponse(workerOutput("core")),               // 5. core worker (or prefetch)
+      mockResponse(outlineOutput("core")),              // 6. core outline (or prefetch)
+      mockResponse(draftOutput("core", "Core")),        // 7. core draft
+    ];
+    let nonReviewIdx = 0;
 
-    // Page "overview": worker, outline, draft, L1-review (throws), L2-review (throws)
-    mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("overview")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("overview")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("overview", "Overview", "README.md")));
-    // L1 review throws — use a non-retryable error (auth) so withRetry doesn't consume extra mock calls
-    const authError = Object.assign(new Error("Unauthorized"), { statusCode: 401 });
-    mockGenerateText.mockRejectedValueOnce(authError);
-    // L2 review also throws
-    mockGenerateText.mockRejectedValueOnce(Object.assign(new Error("Unauthorized"), { statusCode: 401 }));
+    mockGenerateText.mockImplementation((params: unknown) => {
+      const opts = params as { system?: string } | undefined;
+      const sys = opts?.system ?? "";
+      const isReview = sys.includes("semantic reviewer") || sys.includes("quality reviewer");
 
-    // Page "core": worker, outline, draft, L1-review, L2-review (normal)
-    mockGenerateText.mockResolvedValueOnce(mockResponse(workerOutput("core")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(outlineOutput("core")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(draftOutput("core", "Core")));
-    mockGenerateText.mockResolvedValueOnce(mockResponse(passReview)); // L1
-    mockGenerateText.mockResolvedValueOnce(mockResponse(passReview)); // L2
+      if (isReview && overviewReviewsDone < 2) {
+        overviewReviewsDone++;
+        return Promise.reject(Object.assign(new Error("Unauthorized"), { statusCode: 401 }));
+      }
+      if (isReview) {
+        return Promise.resolve(mockResponse(passReview));
+      }
 
-    // Default fallback for any extra calls from background prefetch.
-    mockGenerateText.mockResolvedValue(mockResponse(workerOutput("prefetch-fallback")));
+      if (nonReviewIdx < nonReviewResponses.length) {
+        return Promise.resolve(nonReviewResponses[nonReviewIdx++]);
+      }
+      return Promise.resolve(mockResponse(workerOutput("prefetch-fallback")));
+    });
 
     const pipeline = new GenerationPipeline({
       storage,
