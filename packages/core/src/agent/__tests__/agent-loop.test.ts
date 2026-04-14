@@ -553,7 +553,7 @@ describe("Anthropic prompt caching", () => {
     });
   });
 
-  it("injects cache_control on first user message for Anthropic provider", async () => {
+  it("injects cache_control on last message for incremental caching", async () => {
     mockResponses = [{ text: "ok", finishReason: "stop", usage: makeUsage(10, 5), toolCalls: [] }];
 
     await runAgentLoop(
@@ -561,13 +561,11 @@ describe("Anthropic prompt caching", () => {
       "test prompt",
     );
 
+    // Only 1 message (user) — it should be tagged as the last message
     const msgs = lastStreamTextArgs?.messages as Array<Record<string, unknown>>;
-    const userMsg = msgs.find((m) => m.role === "user");
-    expect(userMsg).toBeDefined();
-    const content = userMsg!.content as Array<Record<string, unknown>>;
+    expect(msgs).toHaveLength(1);
+    const content = msgs[0].content as Array<Record<string, unknown>>;
     expect(Array.isArray(content)).toBe(true);
-    expect(content[0].type).toBe("text");
-    expect(content[0].text).toBe("test prompt");
     expect(content[0].providerOptions).toEqual({
       anthropic: { cacheControl: { type: "ephemeral" } },
     });

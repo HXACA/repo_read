@@ -218,29 +218,45 @@ function buildStreamParams(
       providerOptions: cacheMarker,
     };
 
-    // Breakpoint 2: first user message — the initial prompt is stable across
-    // all steps of the agent loop. Later tool-call/tool-result pairs accumulate
-    // after it, but the prefix (system + tools + first user message) stays
-    // identical → cache hit on every subsequent step.
-    // Using the *last* user message would miss every time in agent loops because
-    // messages grow with each step.
+    // Breakpoint 2: last message in the conversation — enables incremental
+    // caching via Anthropic's 20-block lookback mechanism.
+    //
+    // In agent loops, each step appends 1-2 new messages (assistant tool_call
+    // + tool result). The breakpoint on the last message triggers lookback,
+    // which finds the previous step's cache entry and only processes the new
+    // messages fresh. This gives near-100% cache hit on the growing prefix.
     if (messages.length > 0) {
       const tagged = [...messages];
-      for (let i = 0; i < tagged.length; i++) {
-        if (tagged[i].role === "user") {
-          const msg = tagged[i] as { role: "user"; content: string };
-          tagged[i] = {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: msg.content,
-                providerOptions: cacheMarker,
-              },
-            ],
+      const lastIdx = tagged.length - 1;
+      const lastMsg = tagged[lastIdx];
+      if (lastMsg.role === "user") {
+        const msg = lastMsg as { role: "user"; content: string };
+        tagged[lastIdx] = {
+          role: "user",
+          content: [{ type: "text", text: msg.content, providerOptions: cacheMarker }],
+        } as unknown as Message;
+      } else if (lastMsg.role === "assistant") {
+        // Assistant message: could be plain text or content parts (tool calls)
+        const msg = lastMsg as { role: "assistant"; content: string | AssistantContentPart[] };
+        if (typeof msg.content === "string") {
+          tagged[lastIdx] = {
+            role: "assistant",
+            content: [{ type: "text", text: msg.content, providerOptions: cacheMarker }],
           } as unknown as Message;
-          break;
+        } else {
+          // Content is already an array of parts — tag the last part
+          const parts = [...msg.content];
+          const lastPart = { ...parts[parts.length - 1], providerOptions: cacheMarker };
+          parts[parts.length - 1] = lastPart as AssistantContentPart;
+          tagged[lastIdx] = { role: "assistant", content: parts };
         }
+      } else if (lastMsg.role === "tool") {
+        // Tool result message — tag the last result part
+        const msg = lastMsg as { role: "tool"; content: ToolResultPart[] };
+        const parts = [...msg.content];
+        const lastPart = { ...parts[parts.length - 1], providerOptions: cacheMarker };
+        parts[parts.length - 1] = lastPart as ToolResultPart;
+        tagged[lastIdx] = { role: "tool", content: parts };
       }
       params.messages = tagged;
     }
