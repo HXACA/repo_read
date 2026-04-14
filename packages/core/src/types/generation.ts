@@ -1,4 +1,5 @@
 import type { ResolvedConfig } from "./config.js";
+import type { PageKind } from "../book/page-kind.js";
 
 export type JobStatus =
   | "queued"
@@ -45,6 +46,16 @@ export type WikiJson = {
     group?: string;
     /** Difficulty level for this page. */
     level?: "beginner" | "intermediate" | "advanced";
+    /** Page archetype from the 4-kind book system. */
+    kind?: PageKind;
+    /** One-sentence reader goal for this page. */
+    readerGoal?: string;
+    /** Slugs of prerequisite pages. */
+    prerequisites?: string[];
+    /** Narrative role within the book flow. */
+    narrativeRole?: string;
+    /** How central this page is to the book. */
+    coveragePriority?: "core" | "supporting" | "appendix";
   }>;
 };
 
@@ -55,6 +66,14 @@ export type PageMeta = {
   title: string;
   order: number;
   sectionId: string;
+  section?: string;
+  group?: string;
+  level?: "beginner" | "intermediate" | "advanced";
+  kind?: PageKind;
+  readerGoal?: string;
+  prerequisites?: string[];
+  narrativeRole?: string;
+  coveragePriority?: "core" | "supporting" | "appendix";
   coveredFiles: string[];
   relatedPages: string[];
   generatedAt: string;
@@ -95,6 +114,10 @@ export type VersionJson = {
     title: string;
     order: number;
     status: PageStatus;
+    section?: string;
+    group?: string;
+    level?: "beginner" | "intermediate" | "advanced";
+    kind?: PageKind;
   }>;
   summary: string;
 };

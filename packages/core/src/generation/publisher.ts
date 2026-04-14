@@ -23,6 +23,10 @@ export class Publisher {
         title: page.title,
         order: idx + 1,
         status: "published" as const,
+        section: page.section,
+        group: page.group,
+        level: page.level,
+        kind: page.kind,
       })),
       summary: wiki.summary,
     };
