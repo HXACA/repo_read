@@ -198,33 +198,43 @@ function buildStreamParams(
 
   // Anthropic prompt caching — explicit per-block cache_control injection.
   // Always enabled for Anthropic protocol models. Backends that don't support
-  // cache_control will ignore the field silently (it's a no-op, not an error).
+  // cache_control will ignore the field silently.
   //
-  // Anthropic caches in order: tools → system → messages.
-  // We place 2 breakpoints (max 4 allowed):
-  //   1. system prompt block (stable across all pages in a job)
-  //   2. last user message block (stable across retries for the same page)
+  // 3 breakpoints following Anthropic's processing order (tools → system → messages):
+  //   1. system: last text block — stable across all pages in a job
+  //   2. tools: last tool definition — stable across all steps in an agent loop
+  //   3. messages: last content block of last message — incremental via 20-block lookback
   //
   // Cache reads cost 10% of base input; writes cost 25% more. Min 2048-4096 tokens.
   const isAnthropic = (model as unknown as { provider?: string })?.provider?.startsWith("anthropic");
   if (isAnthropic && !responsesOpts) {
     const cacheMarker = { anthropic: { cacheControl: { type: "ephemeral" as const } } };
 
-    // Breakpoint 1: system prompt — stable across all pages in a job.
-    // Convert from plain string to SystemModelMessage with cache_control.
+    // BP 1: system prompt — stable across all pages in a job.
     params.system = {
       role: "system",
       content: system,
       providerOptions: cacheMarker,
     };
 
-    // Breakpoint 2: last message in the conversation — enables incremental
-    // caching via Anthropic's 20-block lookback mechanism.
-    //
-    // In agent loops, each step appends 1-2 new messages (assistant tool_call
-    // + tool result). The breakpoint on the last message triggers lookback,
-    // which finds the previous step's cache entry and only processes the new
-    // messages fresh. This gives near-100% cache hit on the growing prefix.
+    // BP 2: last tool definition — stable across all steps in an agent loop.
+    // Tools don't change within a run, so this is always a cache hit after step 1.
+    const toolNames = Object.keys(tools);
+    if (toolNames.length > 0) {
+      const lastToolName = toolNames[toolNames.length - 1];
+      const lastTool = tools[lastToolName];
+      // AI SDK tools pass providerOptions through to the provider.
+      // We shallow-clone the tool and attach the cache marker.
+      params.tools = {
+        ...tools,
+        [lastToolName]: { ...lastTool, providerOptions: cacheMarker },
+      };
+    }
+
+    // BP 3: last content block of last message — incremental caching via
+    // Anthropic's 20-block lookback. Each agent loop step appends 1-2 new
+    // messages; lookback finds the previous step's cache entry so only the
+    // new delta is processed fresh.
     if (messages.length > 0) {
       const tagged = [...messages];
       const lastIdx = tagged.length - 1;
@@ -236,7 +246,6 @@ function buildStreamParams(
           content: [{ type: "text", text: msg.content, providerOptions: cacheMarker }],
         } as unknown as Message;
       } else if (lastMsg.role === "assistant") {
-        // Assistant message: could be plain text or content parts (tool calls)
         const msg = lastMsg as { role: "assistant"; content: string | AssistantContentPart[] };
         if (typeof msg.content === "string") {
           tagged[lastIdx] = {
@@ -244,14 +253,12 @@ function buildStreamParams(
             content: [{ type: "text", text: msg.content, providerOptions: cacheMarker }],
           } as unknown as Message;
         } else {
-          // Content is already an array of parts — tag the last part
           const parts = [...msg.content];
           const lastPart = { ...parts[parts.length - 1], providerOptions: cacheMarker };
           parts[parts.length - 1] = lastPart as AssistantContentPart;
           tagged[lastIdx] = { role: "assistant", content: parts };
         }
       } else if (lastMsg.role === "tool") {
-        // Tool result message — tag the last result part
         const msg = lastMsg as { role: "tool"; content: ToolResultPart[] };
         const parts = [...msg.content];
         const lastPart = { ...parts[parts.length - 1], providerOptions: cacheMarker };
