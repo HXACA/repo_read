@@ -28,6 +28,9 @@ export function PageReaderClient({
   total,
   current,
   allPages,
+  section,
+  kind,
+  level,
 }: {
   slug: string;
   versionId: string;
@@ -39,6 +42,9 @@ export function PageReaderClient({
   total: number;
   current: number;
   allPages: PageItem[];
+  section?: string;
+  kind?: string;
+  level?: string;
 }) {
   const { locale } = useSettings();
   // Read localStorage synchronously in initializer to avoid flash of
@@ -113,6 +119,14 @@ export function PageReaderClient({
             {slug}
           </Link>
           <span>/</span>
+          {section && (
+            <>
+              <span style={{ color: "var(--rr-text-secondary)" }}>
+                {section}
+              </span>
+              <span>/</span>
+            </>
+          )}
           <span style={{ color: "var(--rr-text-secondary)" }}>
             {meta?.title ?? pageSlug}
           </span>
@@ -157,6 +171,51 @@ export function PageReaderClient({
                     : `revised ×${meta.revisionAttempts}`}
                 </span>
               )}
+            {kind && (
+              <span
+                className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
+                style={{
+                  background:
+                    kind === "guide"
+                      ? "#DCFCE7"
+                      : kind === "explanation"
+                        ? "#DBEAFE"
+                        : "var(--rr-bg-surface)",
+                  color:
+                    kind === "guide"
+                      ? "#166534"
+                      : kind === "explanation"
+                        ? "#1E40AF"
+                        : "var(--rr-text-muted)",
+                }}
+              >
+                {kind}
+              </span>
+            )}
+            {level && (
+              <span
+                className="inline-flex items-center gap-0.5"
+                title={level}
+                style={{ color: "var(--rr-text-muted)" }}
+              >
+                {Array.from({
+                  length:
+                    level === "beginner"
+                      ? 1
+                      : level === "intermediate"
+                        ? 2
+                        : level === "advanced"
+                          ? 3
+                          : 0,
+                }).map((_, i) => (
+                  <span
+                    key={i}
+                    className="inline-block h-1.5 w-1.5 rounded-full"
+                    style={{ background: "var(--rr-text-muted)" }}
+                  />
+                ))}
+              </span>
+            )}
           </div>
         )}
 

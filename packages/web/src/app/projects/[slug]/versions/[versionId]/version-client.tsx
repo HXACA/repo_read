@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { WikiJson, VersionJson } from "@reporead/core";
 import { useSettings } from "@/lib/settings-context";
 import { t } from "@/lib/i18n";
+import { BookTOC } from "./book-toc";
 
 type VersionMeta = {
   versionId: string;
@@ -111,54 +112,70 @@ export function VersionClient({
           {t(locale, "readingOrder")}
         </h2>
 
-        <ol className="space-y-2">
-          {wiki.reading_order.map((page, idx) => (
-            <li key={page.slug}>
-              <Link
-                href={`/projects/${slug}/versions/${versionId}/pages/${page.slug}`}
-                className="group flex items-start gap-4 rounded-lg px-4 py-3.5 transition-colors"
-                style={{
-                  border: "1px solid var(--rr-border)",
-                  background: "var(--rr-bg-elevated)",
-                }}
-              >
-                <span
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sm font-semibold"
+        {wiki.reading_order.some((p) => p.section) ? (
+          <BookTOC
+            pages={wiki.reading_order.map((p) => ({
+              slug: p.slug,
+              title: p.title,
+              rationale: p.rationale,
+              section: p.section,
+              group: p.group,
+              level: p.level,
+              kind: p.kind,
+            }))}
+            projectSlug={slug}
+            versionId={versionId}
+          />
+        ) : (
+          <ol className="space-y-2">
+            {wiki.reading_order.map((page, idx) => (
+              <li key={page.slug}>
+                <Link
+                  href={`/projects/${slug}/versions/${versionId}/pages/${page.slug}`}
+                  className="group flex items-start gap-4 rounded-lg px-4 py-3.5 transition-colors"
                   style={{
-                    background: "var(--rr-accent-subtle)",
-                    color: "var(--rr-accent)",
-                    fontFamily: "var(--font-mono), monospace",
+                    border: "1px solid var(--rr-border)",
+                    background: "var(--rr-bg-elevated)",
                   }}
                 >
-                  {String(idx + 1).padStart(2, "0")}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <h3
-                    className="text-base font-medium"
+                  <span
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sm font-semibold"
                     style={{
-                      fontFamily: "var(--font-display), Georgia, serif",
-                      color: "var(--rr-text)",
+                      background: "var(--rr-accent-subtle)",
+                      color: "var(--rr-accent)",
+                      fontFamily: "var(--font-mono), monospace",
                     }}
                   >
-                    {page.title}
-                  </h3>
-                  <p
-                    className="mt-0.5 truncate text-sm leading-snug"
-                    style={{ color: "var(--rr-text-muted)" }}
+                    {String(idx + 1).padStart(2, "0")}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <h3
+                      className="text-base font-medium"
+                      style={{
+                        fontFamily: "var(--font-display), Georgia, serif",
+                        color: "var(--rr-text)",
+                      }}
+                    >
+                      {page.title}
+                    </h3>
+                    <p
+                      className="mt-0.5 truncate text-sm leading-snug"
+                      style={{ color: "var(--rr-text-muted)" }}
+                    >
+                      {page.rationale}
+                    </p>
+                  </div>
+                  <span
+                    className="mt-1 shrink-0 text-sm opacity-0 transition-opacity group-hover:opacity-70"
+                    style={{ color: "var(--rr-accent)" }}
                   >
-                    {page.rationale}
-                  </p>
-                </div>
-                <span
-                  className="mt-1 shrink-0 text-sm opacity-0 transition-opacity group-hover:opacity-70"
-                  style={{ color: "var(--rr-accent)" }}
-                >
-                  &rarr;
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ol>
+                    &rarr;
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ol>
+        )}
       </section>
     </main>
   );

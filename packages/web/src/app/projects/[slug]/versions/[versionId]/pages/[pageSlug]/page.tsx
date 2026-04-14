@@ -59,6 +59,8 @@ export default async function PageReader({
   const { markdown, meta, wiki } = data;
   const { prev, next, total, current } = findAdjacentPages(wiki, pageSlug);
 
+  const currentPage = wiki?.reading_order.find((p) => p.slug === pageSlug);
+
   const allPages =
     wiki?.reading_order.map((p) => ({
       slug: p.slug,
@@ -77,6 +79,9 @@ export default async function PageReader({
       total={total}
       current={current}
       allPages={allPages}
+      section={currentPage?.section}
+      kind={currentPage?.kind}
+      level={currentPage?.level}
     />
   );
 }
