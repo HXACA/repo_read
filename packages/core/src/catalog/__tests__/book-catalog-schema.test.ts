@@ -182,4 +182,49 @@ describe("book catalog schema validation", () => {
     const result = validateCatalog(wiki);
     expect(result.warnings.some((w) => w.includes("covered_files"))).toBe(true);
   });
+
+  // Section/level validation
+
+  it("missing section triggers warning", () => {
+    const wiki = makeBookCatalog();
+    delete (wiki.reading_order[1] as Record<string, unknown>).section;
+    const result = validateCatalog(wiki);
+    expect(result.warnings.some((w) => w.includes("missing section"))).toBe(true);
+  });
+
+  it("missing level triggers warning", () => {
+    const wiki = makeBookCatalog();
+    delete (wiki.reading_order[1] as Record<string, unknown>).level;
+    const result = validateCatalog(wiki);
+    expect(result.warnings.some((w) => w.includes("missing level"))).toBe(true);
+  });
+
+  // Kind diversity
+
+  it("no guide pages triggers warning", () => {
+    const wiki = makeBookCatalog();
+    for (const p of wiki.reading_order) {
+      if (p.kind === "guide") p.kind = "explanation";
+    }
+    const result = validateCatalog(wiki);
+    expect(result.warnings.some((w) => w.includes("No guide pages"))).toBe(true);
+  });
+
+  it("no explanation pages triggers warning", () => {
+    const wiki = makeBookCatalog();
+    for (const p of wiki.reading_order) {
+      if (p.kind === "explanation") p.kind = "guide";
+    }
+    const result = validateCatalog(wiki);
+    expect(result.warnings.some((w) => w.includes("No explanation pages"))).toBe(true);
+  });
+
+  it("no reference or appendix triggers warning", () => {
+    const wiki = makeBookCatalog();
+    for (const p of wiki.reading_order) {
+      if (p.kind === "reference" || p.kind === "appendix") p.kind = "explanation";
+    }
+    const result = validateCatalog(wiki);
+    expect(result.warnings.some((w) => w.includes("No reference or appendix"))).toBe(true);
+  });
 });

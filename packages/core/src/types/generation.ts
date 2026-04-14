@@ -54,10 +54,6 @@ export type WikiJson = {
      *  v1: stored but not yet consumed by validator, drafter, or publish order.
      *  Reserved for B3 Editorial Pass (dependency-based reordering). */
     prerequisites?: string[];
-    /** Narrative role within the book flow. */
-    narrativeRole?: string;
-    /** How central this page is to the book. */
-    coveragePriority?: "core" | "supporting" | "appendix";
   }>;
 };
 
@@ -74,8 +70,6 @@ export type PageMeta = {
   kind?: PageKind;
   readerGoal?: string;
   prerequisites?: string[];
-  narrativeRole?: string;
-  coveragePriority?: "core" | "supporting" | "appendix";
   coveredFiles: string[];
   relatedPages: string[];
   generatedAt: string;

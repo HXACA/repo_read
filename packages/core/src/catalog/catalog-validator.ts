@@ -65,6 +65,14 @@ export function validateCatalog(wiki: WikiJson): ValidationReport {
     if (!page.readerGoal || page.readerGoal.trim().length === 0) {
       warnings.push(`${prefix} (${page.slug}): missing readerGoal — each page should state what the reader gains`);
     }
+
+    // Book schema: section/level — needed for BookTOC rendering
+    if (!page.section || page.section.trim().length === 0) {
+      warnings.push(`${prefix} (${page.slug}): missing section — required for book TOC grouping`);
+    }
+    if (!page.level) {
+      warnings.push(`${prefix} (${page.slug}): missing level — should be beginner/intermediate/advanced`);
+    }
   }
 
   // Book schema: structural ordering warnings
@@ -97,6 +105,23 @@ export function validateCatalog(wiki: WikiJson): ValidationReport {
           warnings.push(`Page ${i + 1} (${wiki.reading_order[i].slug}): reference should not appear before the first explanation page`);
         }
       }
+    }
+
+    // Book schema: kind diversity — a book should have multiple page types
+    const kindCounts = { guide: 0, explanation: 0, reference: 0, appendix: 0 };
+    for (const page of wiki.reading_order) {
+      if (page.kind && page.kind in kindCounts) {
+        kindCounts[page.kind as keyof typeof kindCounts]++;
+      }
+    }
+    if (kindCounts.guide === 0) {
+      warnings.push("No guide pages — a book should have at least one entry/overview page");
+    }
+    if (kindCounts.explanation === 0) {
+      warnings.push("No explanation pages — the main reading flow needs at least one explanation page");
+    }
+    if (kindCounts.reference === 0 && kindCounts.appendix === 0) {
+      warnings.push("No reference or appendix pages — consider adding structured reference content");
     }
   }
 

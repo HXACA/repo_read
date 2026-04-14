@@ -1024,8 +1024,6 @@ export class GenerationPipeline {
       kind: page.kind,
       readerGoal: page.readerGoal,
       prerequisites: page.prerequisites,
-      narrativeRole: page.narrativeRole,
-      coveragePriority: page.coveragePriority,
       coveredFiles: page.covered_files,
       relatedPages: mergedRelated,
       generatedAt: new Date().toISOString(),
