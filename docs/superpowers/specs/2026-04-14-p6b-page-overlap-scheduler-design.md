@@ -153,6 +153,19 @@ orphanedPrefetch?: {
 
 prefetch 对 UI 和 events.ndjson 完全不可见。正式 workflow 命中 prefetch artifact 后，由正式 workflow 自己发事件。
 
+### 3.8 不 prefetch 已跳过的页（resume 保护）
+
+`startPrefetch` 的前置条件必须包含 `!skipSlugs.has(nextPage.slug)`。resume 场景下 `skipSlugs` 包含已验证页，对这些页发起 prefetch 最轻是白跑，最坏是覆盖已验证页的 artifact。
+
+### 3.9 磁盘 artifact 是唯一正确性来源，slot 只负责诊断
+
+`runPageWorkflow` 判断"是否跳过 evidence/outline 采集"的依据是 **disk 上是否成功加载到 artifact**（`artifactStore.loadEvidence` / `loadOutline`），不是 `slot.artifactsReady`。slot 只用于：
+
+1. 补充 phase metrics（区分 prefetch 成本 vs 上次 job 的真复用）
+2. 记录 hit / waitMs 诊断信息
+
+如果 slot 说 ready 但 disk 加载失败（理论上不应发生，但防御性编程），以 disk 为准，正常重跑。
+
 ---
 
 ## 4. 数据流
@@ -171,15 +184,23 @@ pipeline loop 入口:
       activePrefetch = null
 
     runPageWorkflow(page[i], { prefetchSlot: slot })
-      → resume 逻辑检查 disk artifact
-      → 如果 slot.artifactsReady.evidence:
-          evidenceMetric = slot.phases.evidence  // 真实 cost，不是 reused=true
-          跳过采集
-      → 否则正常采集
+      → resume 逻辑检查 disk artifact（loadEvidence / loadOutline）
+      → 磁盘成功加载是唯一正确性来源：
+          if (disk 上有 evidence):
+            跳过采集
+            if (slot?.artifactsReady.evidence):
+              evidenceMetric = slot.phases.evidence  // 继承 prefetch 真实 cost
+            else:
+              evidenceMetric = { reused: true, llmCalls: 0 }  // 来自上次 job 的真复用
+          else:
+            正常采集（无论 slot 怎么说）
+      → outline 同理
 
       → draft → review cycle:
-          // 在 review 调用前（attempt === 0 时已启动则跳过）
-          if (nextPage exists && !prefetchedSlugs.has(nextPage.slug)):
+          // 在 review 调用前
+          if (nextPage exists
+              && !prefetchedSlugs.has(nextPage.slug)
+              && !skipSlugs.has(nextPage.slug)):  // resume 保护：不 prefetch 已验证页
             prefetchedSlugs.add(nextPage.slug)
             activePrefetch = startPrefetch(nextPage, {
               publishedSummaries: [...publishedSummaries],  // 快照
