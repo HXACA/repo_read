@@ -477,6 +477,7 @@ export class GenerationPipeline {
     const draftMetric: PhaseMetric = zeroPhaseMetric();
     const reviewMetric: PhaseMetric = zeroPhaseMetric();
 
+    try {
     while (true) {
       reviewUnverified = false;
 
@@ -570,6 +571,8 @@ export class GenerationPipeline {
         evidenceMetric.durationMs += Date.now() - evidenceStartedAt;
         evidenceMetric.llmCalls += evidenceResult.metrics.llmCalls;
         addUsageInput(evidenceMetric.usage, evidenceResult.metrics.usage);
+        // If we did real LLM work, this is no longer a pure cache reuse
+        if (evidenceResult.metrics.llmCalls > 0) evidenceMetric.reused = false;
       }
 
       // === OUTLINE PLANNING ===
@@ -590,6 +593,7 @@ export class GenerationPipeline {
         outlineMetric.durationMs += Date.now() - outlineStartedAt;
         outlineMetric.llmCalls += outlineResult.metrics.llmCalls;
         addUsageInput(outlineMetric.usage, outlineResult.metrics.usage);
+        if (outlineResult.metrics.llmCalls > 0) outlineMetric.reused = false;
         if (outline) {
           await this.artifactStore.saveOutline(pageRef, outline);
         }
@@ -938,6 +942,19 @@ export class GenerationPipeline {
     };
 
     return { success: true, job, pageMetrics };
+
+    } catch (err) {
+      // Any exception in the page workflow — return failure with partial metrics
+      return {
+        success: false,
+        job,
+        error: `Page ${page.slug} failed: ${(err as Error).message}`,
+        pageMetrics: this.buildPartialPageMetrics(
+          page.slug, lane, initialLane, attempt, pageStartedAt,
+          evidenceMetric, outlineMetric, draftMetric, reviewMetric, zeroPhaseMetric(),
+        ),
+      };
+    }
   }
 
   // ---------------------------------------------------------------------------

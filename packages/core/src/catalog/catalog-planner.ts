@@ -56,9 +56,11 @@ export class CatalogPlanner {
     const tools = createCatalogTools(profile.repoRoot, { allowBash: this.allowBash });
 
     let lastError = "";
+    // Accumulate metrics across retry attempts so failures still report total cost
+    const totalMetrics = { llmCalls: 0, usage: { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 } };
+
     for (let attempt = 0; attempt < this.maxRetries; attempt++) {
       try {
-        // On retry, append the previous error so the model knows what went wrong
         let userPrompt = buildCatalogUserPrompt(profile, this.language);
         if (attempt > 0 && lastError) {
           userPrompt += `\n\n## Previous Attempt Failed (attempt ${attempt}/${this.maxRetries})\n\nError: ${lastError}\n\nPlease fix the issue and output a valid JSON object with "summary" and "reading_order" fields. Output ONLY the JSON object.`;
@@ -78,31 +80,37 @@ export class CatalogPlanner {
           onStep: this.onStep,
         });
 
+        // Accumulate this attempt's cost
+        totalMetrics.llmCalls += 1;
+        totalMetrics.usage.inputTokens += result.usage.inputTokens;
+        totalMetrics.usage.outputTokens += result.usage.outputTokens;
+        totalMetrics.usage.reasoningTokens += result.usage.reasoningTokens;
+        totalMetrics.usage.cachedTokens += result.usage.cachedTokens;
+
         const wiki = this.parseWikiJson(result.text);
 
         return {
           success: true,
           wiki,
           usage: {
-            promptTokens: result.usage.inputTokens,
-            completionTokens: result.usage.outputTokens,
-            totalTokens: result.usage.inputTokens + result.usage.outputTokens,
+            promptTokens: totalMetrics.usage.inputTokens,
+            completionTokens: totalMetrics.usage.outputTokens,
+            totalTokens: totalMetrics.usage.inputTokens + totalMetrics.usage.outputTokens,
           },
-          metrics: {
-            llmCalls: 1,
-            usage: {
-              inputTokens: result.usage.inputTokens,
-              outputTokens: result.usage.outputTokens,
-              reasoningTokens: result.usage.reasoningTokens,
-              cachedTokens: result.usage.cachedTokens,
-            },
-          },
+          metrics: totalMetrics,
         };
       } catch (err) {
         lastError = (err as Error).message;
+        // The turnEngine call succeeded (it returned a result) but parsing failed,
+        // or it threw — either way the LLM cost was already accumulated above if
+        // we got past the run() call. If run() itself threw, no cost to record.
       }
     }
-    return { success: false, error: `Catalog planning failed after ${this.maxRetries} attempts: ${lastError}` };
+    return {
+      success: false,
+      error: `Catalog planning failed after ${this.maxRetries} attempts: ${lastError}`,
+      metrics: totalMetrics,
+    };
   }
 
   private parseWikiJson(text: string): WikiJson {
