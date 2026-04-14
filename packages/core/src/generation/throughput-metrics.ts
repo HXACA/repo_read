@@ -38,6 +38,16 @@ export type PageThroughputRecord = {
     validate: PhaseMetric;
   };
   usage: UsageBucket;
+  /** Prefetch diagnostic — only present when this page was a prefetch target.
+   *  phases is a diagnostic mirror; it MUST NOT be included in totals aggregation. */
+  prefetch?: {
+    hit: boolean;
+    waitMs: number;
+    phases: {
+      evidence?: PhaseMetric;
+      outline?: PhaseMetric;
+    };
+  };
 };
 
 /** Top-level throughput report persisted as throughput.json. */
@@ -50,6 +60,13 @@ export type ThroughputReport = {
     usage: UsageBucket;
   };
   reviewEscalationRate: number;
+  prefetchHitRate: number;
+  orphanedPrefetch?: {
+    phases: {
+      evidence?: PhaseMetric;
+      outline?: PhaseMetric;
+    };
+  };
 };
 
 export type PageThroughputMetrics = {
@@ -236,6 +253,7 @@ export function zeroPhaseMetric(): PhaseMetric {
 export class ThroughputReportBuilder {
   private catalog: PhaseMetric = zeroPhaseMetric();
   private readonly pageRecords: PageThroughputRecord[] = [];
+  private orphanedPrefetch: ThroughputReport["orphanedPrefetch"];
 
   setCatalog(metric: PhaseMetric): void {
     this.catalog = metric;
@@ -243,6 +261,10 @@ export class ThroughputReportBuilder {
 
   addPage(record: PageThroughputRecord): void {
     this.pageRecords.push(record);
+  }
+
+  setOrphanedPrefetch(value: ThroughputReport["orphanedPrefetch"]): void {
+    this.orphanedPrefetch = value;
   }
 
   finish(opts: { totalLatencyMs: number }): ThroughputReport {
@@ -257,6 +279,8 @@ export class ThroughputReportBuilder {
     totalUsage.requests += this.catalog.llmCalls;
 
     for (const page of this.pageRecords) {
+      // Only iterates page.phases — NOT page.prefetch.phases — so prefetch
+      // diagnostic data is never double-counted in the totals.
       for (const phase of Object.values(page.phases)) {
         totalLlmCalls += phase.llmCalls;
         totalUsage.inputTokens += phase.usage.inputTokens;
@@ -270,6 +294,10 @@ export class ThroughputReportBuilder {
     const escalatedCount = this.pageRecords.filter(p => p.escalatedToDeepLane).length;
     const reviewEscalationRate = this.pageRecords.length > 0 ? escalatedCount / this.pageRecords.length : 0;
 
+    const prefetchedPages = this.pageRecords.filter(p => p.prefetch != null);
+    const prefetchHits = prefetchedPages.filter(p => p.prefetch!.hit).length;
+    const prefetchHitRate = prefetchedPages.length > 0 ? prefetchHits / prefetchedPages.length : 0;
+
     return {
       catalog: this.catalog,
       pages: this.pageRecords,
@@ -279,6 +307,8 @@ export class ThroughputReportBuilder {
         usage: totalUsage,
       },
       reviewEscalationRate,
+      prefetchHitRate,
+      orphanedPrefetch: this.orphanedPrefetch,
     };
   }
 }
