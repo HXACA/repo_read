@@ -43,7 +43,7 @@ export type ThroughputReport = {
   pages: PageThroughputRecord[];
   totals: {
     llmCalls: number;
-    durationMs: number;
+    totalLatencyMs: number;
     usage: UsageBucket;
   };
   reviewEscalationRate: number;
@@ -272,7 +272,7 @@ export class ThroughputReportBuilder {
       pages: this.pageRecords,
       totals: {
         llmCalls: totalLlmCalls,
-        durationMs: opts.totalLatencyMs,
+        totalLatencyMs: opts.totalLatencyMs,
         usage: totalUsage,
       },
       reviewEscalationRate,

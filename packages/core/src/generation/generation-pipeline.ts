@@ -143,16 +143,20 @@ export class GenerationPipeline {
     try {
       // === CATALOG PHASE ===
       const catalogStartedAt = Date.now();
-      const catalogResult = await this.runCatalogPhase(job, emitter, options);
+      let catalogResult;
+      try {
+        catalogResult = await this.runCatalogPhase(job, emitter, options);
+      } finally {
+        // Always record catalog cost, even if it fails partway through
+        throughput.setCatalog({
+          durationMs: Date.now() - catalogStartedAt,
+          llmCalls: catalogResult?.metrics?.llmCalls ?? 0,
+          usage: catalogResult?.metrics?.usage ?? { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 },
+          reused: isResume,
+        });
+      }
       job = catalogResult.job;
       const wiki = catalogResult.wiki;
-
-      throughput.setCatalog({
-        durationMs: Date.now() - catalogStartedAt,
-        llmCalls: catalogResult.metrics?.llmCalls ?? 0,
-        usage: catalogResult.metrics?.usage ?? { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 },
-        reused: isResume,
-      });
 
       job.summary.totalPages = wiki.reading_order.length;
       if (!isResume) {
@@ -266,6 +270,10 @@ export class GenerationPipeline {
         });
 
         if (!pageResult.success) {
+          // Include the failed page's partial metrics in the report
+          if (pageResult.pageMetrics) {
+            throughput.addPage(pageResult.pageMetrics);
+          }
           await this.artifactStore.saveThroughputMetrics(
             { projectSlug: slug, jobId },
             throughput.finish({ totalLatencyMs: Date.now() - pipelineStartedAt }),
@@ -658,10 +666,15 @@ export class GenerationPipeline {
         !draftResult.markdown ||
         !draftResult.metadata
       ) {
+        // Include partial metrics so throughput.json captures cost of failed pages
         return {
           success: false,
           job,
           error: draftResult.error ?? `Page ${page.slug} drafting failed`,
+          pageMetrics: this.buildPartialPageMetrics(
+            page.slug, lane, initialLane, attempt, pageStartedAt,
+            evidenceMetric, outlineMetric, draftMetric, reviewMetric, zeroPhaseMetric(),
+          ),
         };
       }
 
@@ -930,6 +943,38 @@ export class GenerationPipeline {
   // ---------------------------------------------------------------------------
   // Private: helpers
   // ---------------------------------------------------------------------------
+
+  /** Build partial page throughput record from whatever metrics were accumulated before failure. */
+  private buildPartialPageMetrics(
+    pageSlug: string,
+    lane: string,
+    initialLane: string,
+    attempt: number,
+    pageStartedAt: number,
+    evidenceMetric: PhaseMetric,
+    outlineMetric: PhaseMetric,
+    draftMetric: PhaseMetric,
+    reviewMetric: PhaseMetric,
+    validateMetric: PhaseMetric,
+  ): PageThroughputRecord {
+    const pageUsage = zeroThroughputUsage();
+    for (const pm of [evidenceMetric, outlineMetric, draftMetric, reviewMetric, validateMetric]) {
+      pageUsage.inputTokens += pm.usage.inputTokens;
+      pageUsage.outputTokens += pm.usage.outputTokens;
+      pageUsage.reasoningTokens += pm.usage.reasoningTokens;
+      pageUsage.cachedTokens += pm.usage.cachedTokens;
+      pageUsage.requests += pm.llmCalls;
+    }
+    return {
+      pageSlug,
+      lane: lane as PageThroughputRecord["lane"],
+      totalLatencyMs: Date.now() - pageStartedAt,
+      revisionAttempts: attempt,
+      escalatedToDeepLane: lane === "deep" && initialLane !== "deep",
+      phases: { evidence: evidenceMetric, outline: outlineMetric, draft: draftMetric, review: reviewMetric, validate: validateMetric },
+      usage: pageUsage,
+    };
+  }
 
   private async persistJobSummary(job: GenerationJob): Promise<void> {
     await this.storage.writeJson(
