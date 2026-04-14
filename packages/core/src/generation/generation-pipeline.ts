@@ -543,17 +543,16 @@ export class GenerationPipeline {
     const draftMetric: PhaseMetric = zeroPhaseMetric();
     const reviewMetric: PhaseMetric = zeroPhaseMetric();
 
+    // Track whether prefetch artifacts were actually consumed by THIS workflow
+    // (disk load succeeded AND we inherited prefetch metrics). This is used to
+    // compute an accurate prefetch.hit — not slot.artifactsReady which only
+    // tracks whether the prefetcher *wrote* successfully.
+    let prefetchHitEvidence = false;
+    let prefetchHitOutline = false;
+
     try {
     while (true) {
       reviewUnverified = false;
-
-      // === RESUME: load existing evidence + outline from disk ===
-      // Track whether prefetch artifacts were actually consumed by THIS workflow
-      // (disk load succeeded AND we inherited prefetch metrics). This is used to
-      // compute an accurate prefetch.hit — not slot.artifactsReady which only
-      // tracks whether the prefetcher *wrote* successfully.
-      let prefetchHitEvidence = false;
-      let prefetchHitOutline = false;
 
       if (attempt === 0 && !evidenceResult) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- reading JSON blob of unknown structure
@@ -1088,7 +1087,7 @@ export class GenerationPipeline {
       },
       usage: pageUsage,
       prefetch: prefetchSlot ? {
-        hit: prefetchSlot.artifactsReady.evidence || prefetchSlot.artifactsReady.outline,
+        hit: prefetchHitEvidence || prefetchHitOutline,
         waitMs: prefetchWaitMs,
         phases: { ...prefetchSlot.phases },
       } : undefined,
@@ -1107,7 +1106,7 @@ export class GenerationPipeline {
           evidenceMetric, outlineMetric, draftMetric, reviewMetric, zeroPhaseMetric(),
           currentVerificationLevel,
           prefetchSlot ? {
-            hit: prefetchSlot.artifactsReady.evidence || prefetchSlot.artifactsReady.outline,
+            hit: prefetchHitEvidence || prefetchHitOutline,
             waitMs: prefetchWaitMs,
             phases: { ...prefetchSlot.phases },
           } : undefined,
