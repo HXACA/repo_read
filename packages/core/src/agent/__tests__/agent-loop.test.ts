@@ -537,18 +537,14 @@ describe("Anthropic prompt caching", () => {
     mockBuildResponses.mockReturnValue(null);
   });
 
-  it("injects cache_control on system block when promptCache=true", async () => {
+  it("injects cache_control on system block for Anthropic provider", async () => {
     mockResponses = [{ text: "ok", finishReason: "stop", usage: makeUsage(10, 5), toolCalls: [] }];
 
     await runAgentLoop(
-      makeOptions({
-        model: { provider: "anthropic", modelId: "claude-sonnet-4-6" } as any,
-        providerCallOptions: { promptCache: true },
-      }),
+      makeOptions({ model: { provider: "anthropic", modelId: "claude-sonnet-4-6" } as any }),
       "test",
     );
 
-    // system should be converted to SystemModelMessage with cache_control
     const sys = lastStreamTextArgs?.system as Record<string, unknown>;
     expect(sys.role).toBe("system");
     expect(sys.content).toBe("You are a test assistant.");
@@ -557,22 +553,17 @@ describe("Anthropic prompt caching", () => {
     });
   });
 
-  it("injects cache_control on last user message when promptCache=true", async () => {
+  it("injects cache_control on last user message for Anthropic provider", async () => {
     mockResponses = [{ text: "ok", finishReason: "stop", usage: makeUsage(10, 5), toolCalls: [] }];
 
     await runAgentLoop(
-      makeOptions({
-        model: { provider: "anthropic", modelId: "claude-sonnet-4-6" } as any,
-        providerCallOptions: { promptCache: true },
-      }),
+      makeOptions({ model: { provider: "anthropic", modelId: "claude-sonnet-4-6" } as any }),
       "test prompt",
     );
 
-    // The user message should be converted to structured content with cache_control
     const msgs = lastStreamTextArgs?.messages as Array<Record<string, unknown>>;
     const userMsg = msgs.find((m) => m.role === "user");
     expect(userMsg).toBeDefined();
-    // Content should be array with providerOptions
     const content = userMsg!.content as Array<Record<string, unknown>>;
     expect(Array.isArray(content)).toBe(true);
     expect(content[0].type).toBe("text");
@@ -582,25 +573,10 @@ describe("Anthropic prompt caching", () => {
     });
   });
 
-  it("does NOT inject cache_control when promptCache is not set", async () => {
+  it("does NOT inject cache_control for non-Anthropic providers", async () => {
     mockResponses = [{ text: "ok", finishReason: "stop", usage: makeUsage(10, 5), toolCalls: [] }];
 
-    await runAgentLoop(
-      makeOptions({ model: { provider: "anthropic", modelId: "claude-sonnet-4-6" } as any }),
-      "test",
-    );
-
-    // system stays as plain string
-    expect(typeof lastStreamTextArgs?.system).toBe("string");
-  });
-
-  it("does NOT inject cache_control for non-Anthropic providers even with promptCache=true", async () => {
-    mockResponses = [{ text: "ok", finishReason: "stop", usage: makeUsage(10, 5), toolCalls: [] }];
-
-    await runAgentLoop(
-      makeOptions({ providerCallOptions: { promptCache: true } }), // default model: provider "test"
-      "test",
-    );
+    await runAgentLoop(makeOptions(), "test"); // default model: provider "test"
 
     expect(typeof lastStreamTextArgs?.system).toBe("string");
   });

@@ -197,53 +197,50 @@ function buildStreamParams(
   }
 
   // Anthropic prompt caching — explicit per-block cache_control injection.
-  // Only enabled when the model config sets promptCache: true, because not all
-  // models behind Anthropic-compatible proxies support cache_control.
+  // Always enabled for Anthropic protocol models. Backends that don't support
+  // cache_control will ignore the field silently (it's a no-op, not an error).
   //
   // Anthropic caches in order: tools → system → messages.
-  // We place up to 3 breakpoints (max 4 allowed):
+  // We place 2 breakpoints (max 4 allowed):
   //   1. system prompt block (stable across all pages in a job)
   //   2. last user message block (stable across retries for the same page)
   //
   // Cache reads cost 10% of base input; writes cost 25% more. Min 2048-4096 tokens.
   const isAnthropic = (model as unknown as { provider?: string })?.provider?.startsWith("anthropic");
   if (isAnthropic && !responsesOpts) {
-    if (providerCallOptions?.promptCache) {
-      const cacheMarker = { anthropic: { cacheControl: { type: "ephemeral" as const } } };
+    const cacheMarker = { anthropic: { cacheControl: { type: "ephemeral" as const } } };
 
-      // Breakpoint 1: system prompt — stable across all pages in a job.
-      // Convert from plain string to SystemModelMessage with cache_control.
-      params.system = {
-        role: "system",
-        content: system,
-        providerOptions: cacheMarker,
-      };
+    // Breakpoint 1: system prompt — stable across all pages in a job.
+    // Convert from plain string to SystemModelMessage with cache_control.
+    params.system = {
+      role: "system",
+      content: system,
+      providerOptions: cacheMarker,
+    };
 
-      // Breakpoint 2: last user message — stable for same-page retries.
-      // The user message typically contains evidence + outline + revision context.
-      // On retries, only the revision feedback changes (appended), so the prefix
-      // (system + tools + early messages) stays identical → cache hit.
-      if (messages.length > 0) {
-        const tagged = [...messages];
-        // Find the last user message and tag its content
-        for (let i = tagged.length - 1; i >= 0; i--) {
-          if (tagged[i].role === "user") {
-            const msg = tagged[i] as { role: "user"; content: string };
-            tagged[i] = {
-              role: "user",
-              content: [
-                {
-                  type: "text",
-                  text: msg.content,
-                  providerOptions: cacheMarker,
-                },
-              ],
-            } as unknown as Message;
-            break;
-          }
+    // Breakpoint 2: last user message — stable for same-page retries.
+    // The user message typically contains evidence + outline + revision context.
+    // On retries, only the revision feedback changes (appended), so the prefix
+    // (system + tools + early messages) stays identical → cache hit.
+    if (messages.length > 0) {
+      const tagged = [...messages];
+      for (let i = tagged.length - 1; i >= 0; i--) {
+        if (tagged[i].role === "user") {
+          const msg = tagged[i] as { role: "user"; content: string };
+          tagged[i] = {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: msg.content,
+                providerOptions: cacheMarker,
+              },
+            ],
+          } as unknown as Message;
+          break;
         }
-        params.messages = tagged;
       }
+      params.messages = tagged;
     }
     // @ai-sdk/anthropic defaults to 4096 max_tokens for unknown model IDs
     // (non-Claude models routed through Anthropic-compatible proxies).

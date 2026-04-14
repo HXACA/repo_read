@@ -23,8 +23,6 @@ const ProviderModelConfigSchema = z.object({
   reasoningEffort: z.enum(["none", "minimal", "low", "medium", "high", "xhigh"]).optional(),
   reasoningSummary: z.enum(["auto", "concise", "detailed"]).optional(),
   serviceTier: z.enum(["fast", "flex"]).optional(),
-  /** Enable Anthropic-style prompt caching (cache_control injection). Only set true for models that support it. */
-  promptCache: z.boolean().optional(),
 });
 
 const ProviderCredentialConfigSchema = z.object({

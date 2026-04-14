@@ -43,9 +43,6 @@ export type ProviderModelConfig = {
   reasoningSummary?: "auto" | "concise" | "detailed";
   /** OpenAI service tier. "fast" maps to "priority" (faster, costlier), "flex" may queue (cheaper). */
   serviceTier?: "fast" | "flex";
-  /** Enable Anthropic-style prompt caching (cache_control on content blocks).
-   *  Only set true for models that actually support it. */
-  promptCache?: boolean;
 };
 
 export type ProviderCredentialConfig = {
