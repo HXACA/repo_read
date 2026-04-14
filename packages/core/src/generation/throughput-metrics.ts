@@ -1,5 +1,6 @@
 import type { UsageBucket } from "../utils/usage-tracker.js";
 import type { UsageInput } from "../utils/usage-tracker.js";
+import type { VerificationLevel } from "../review/verification-level.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -27,6 +28,8 @@ export type PageThroughputRecord = {
   totalLatencyMs: number;
   revisionAttempts: number;
   escalatedToDeepLane: boolean;
+  /** Which verification level was actually reached for this page. */
+  verificationLevel?: VerificationLevel;
   phases: {
     evidence: PhaseMetric;
     outline: PhaseMetric;
