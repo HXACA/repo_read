@@ -284,6 +284,61 @@ describe("VerificationLadder", () => {
     expect(result.levelReached).toBe("L1");
   });
 
+  it("L2: proceeds to L2 when L1 fails (graceful degradation)", async () => {
+    mockValidatePage.mockReturnValue(passL0);
+    mockL1Review.mockResolvedValue({
+      success: false,
+      error: "L1 review failed: API error",
+    });
+    mockL2Review.mockResolvedValue(passL2);
+    const ladder = new VerificationLadder({
+      reviewerModel: {} as never,
+      repoRoot: "/tmp/repo",
+    });
+    const result = await ladder.verify({
+      level: "L2",
+      briefing,
+      draftContent: "# Title\nContent",
+      validationInput: {
+        markdown: "# Title\nContent",
+        citations: [],
+        knownFiles: [],
+        knownPages: [],
+        pageSlug: "test",
+      },
+    });
+    // L1 failed → defaults to pass conclusion → no blockers → proceeds to L2
+    expect(result.levelReached).toBe("L2");
+    expect(result.conclusion!.verdict).toBe("pass");
+    expect(mockL2Review).toHaveBeenCalledOnce();
+  });
+
+  it("L0 failure with L2 selected: short-circuits at L1 (L0 errors become blockers)", async () => {
+    mockValidatePage.mockReturnValue(failL0);
+    mockL1Review.mockResolvedValue(passL1);
+    const ladder = new VerificationLadder({
+      reviewerModel: {} as never,
+      repoRoot: "/tmp/repo",
+    });
+    const result = await ladder.verify({
+      level: "L2",
+      briefing,
+      draftContent: "no heading",
+      validationInput: {
+        markdown: "no heading",
+        citations: [],
+        knownFiles: [],
+        knownPages: [],
+        pageSlug: "test",
+      },
+    });
+    // L0 errors merge as blockers → merged verdict is "revise" → short-circuits before L2
+    expect(result.conclusion!.verdict).toBe("revise");
+    expect(result.conclusion!.blockers.some((b) => b.includes("missing H1 title"))).toBe(true);
+    expect(result.levelReached).toBe("L1");
+    expect(mockL2Review).not.toHaveBeenCalled();
+  });
+
   it("accumulates metrics across levels", async () => {
     mockValidatePage.mockReturnValue(passL0);
     mockL1Review.mockResolvedValue(passL1);

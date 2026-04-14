@@ -63,19 +63,20 @@ const wikiJson: WikiJson = {
   ],
 };
 
-function draftOutput(slug: string, title: string): string {
+function draftOutput(slug: string, title: string, coveredFiles: string[]): string {
+  const citedFile = coveredFiles[0];
   return `# ${title}
 
 This page covers the ${slug} section of the mini TypeScript application. The implementation demonstrates clean TypeScript patterns with proper type annotations and modular design.
 
 The codebase follows modern ESM conventions with explicit exports and a clear module boundary between core functions and utilities.
 
-[cite:file:src/index.ts:1-10]
+[cite:file:${citedFile}:1-10]
 
 \`\`\`json
 {
   "summary": "Covers ${title.toLowerCase()} with evidence from the repository",
-  "citations": [{ "kind": "file", "target": "src/index.ts", "locator": "1-10", "note": "Main module" }],
+  "citations": [{ "kind": "file", "target": "${citedFile}", "locator": "1-10", "note": "Main module" }],
   "related_pages": []
 }
 \`\`\``;
@@ -90,12 +91,12 @@ const passReview = JSON.stringify({
   suggested_revisions: [],
 });
 
-const workerOutput = (slug: string) =>
+const workerOutput = (slug: string, coveredFiles: string[]) =>
   JSON.stringify({
     directive: `Collect evidence for ${slug}`,
     findings: [`Finding from ${slug}`],
     citations: [
-      { kind: "file", target: "src/index.ts", locator: "1-10", note: "entry" },
+      { kind: "file", target: coveredFiles[0], locator: "1-10", note: "entry" },
     ],
     open_questions: [],
   });
@@ -133,19 +134,20 @@ describe("E2E Pipeline", () => {
     // Catalog
     mock.mockResolvedValueOnce({ text: JSON.stringify(wikiJson), usage: { inputTokens: 500, outputTokens: 300 } } as never);
 
-    // 3 pages x (worker + outline + draft + review) = 12 calls
+    // 3 pages x (worker + outline + draft) = 9 calls
     // (budget preset forkWorkers=1, planner fast-path skips LLM)
+    // Review mock is NOT needed: budget preset + low complexity → fast lane → L0
+    // (deterministic-only verification, no LLM call)
     for (const page of wikiJson.reading_order) {
-      mock.mockResolvedValueOnce({ text: workerOutput(page.slug), usage: { inputTokens: 200, outputTokens: 100 } } as never);
+      mock.mockResolvedValueOnce({ text: workerOutput(page.slug, page.covered_files), usage: { inputTokens: 200, outputTokens: 100 } } as never);
       // Outline planner
       mock.mockResolvedValueOnce({ text: JSON.stringify({
         sections: [
-          { heading: `${page.title} 概述`, key_points: ["overview"], cite_from: [{ target: "src/index.ts", locator: "1-10" }] },
-          { heading: `${page.title} 细节`, key_points: ["details"], cite_from: [{ target: "src/index.ts", locator: "1-10" }] },
+          { heading: `${page.title} 概述`, key_points: ["overview"], cite_from: [{ target: page.covered_files[0], locator: "1-10" }] },
+          { heading: `${page.title} 细节`, key_points: ["details"], cite_from: [{ target: page.covered_files[0], locator: "1-10" }] },
         ],
       }), usage: { inputTokens: 100, outputTokens: 80 } } as never);
-      mock.mockResolvedValueOnce({ text: draftOutput(page.slug, page.title), usage: { inputTokens: 500, outputTokens: 300 } } as never);
-      mock.mockResolvedValueOnce({ text: passReview, usage: { inputTokens: 300, outputTokens: 100 } } as never);
+      mock.mockResolvedValueOnce({ text: draftOutput(page.slug, page.title, page.covered_files), usage: { inputTokens: 500, outputTokens: 300 } } as never);
     }
 
     const job = await jobManager.create("mini-ts-app", tmpDir, mockConfig);
