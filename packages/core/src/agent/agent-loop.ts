@@ -466,14 +466,18 @@ export async function* runAgentLoopStream(
     for await (const part of stream.fullStream) {
       switch (part.type) {
         case "text-delta": {
-          const d = (part as { delta?: string; textDelta?: string }).delta
+          // AI SDK v6 uses `delta` for text-delta events in fullStream,
+          // but the Responses API provider may use `text` instead.
+          const d = (part as { delta?: string; text?: string; textDelta?: string }).delta
+            ?? (part as { text?: string }).text
             ?? (part as { textDelta?: string }).textDelta ?? "";
           stepText += d;
           yield { type: "text-delta", text: d };
           break;
         }
         case "reasoning-delta": {
-          const d = (part as { delta?: string }).delta ?? "";
+          const d = (part as { delta?: string; text?: string }).delta
+            ?? (part as { text?: string }).text ?? "";
           yield { type: "reasoning-delta", text: d };
           break;
         }
