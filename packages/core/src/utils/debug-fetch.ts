@@ -269,19 +269,26 @@ export function createDebugFetch(): typeof globalThis.fetch {
       return response;
     }
 
-    // Streaming: clone and read in background for debug logging.
-    // SDK gets the original untouched response.
-    const clone = response.clone();
-    record.response = "(streaming — reading in background)";
-    await writeJson(filePath, record);
+    // Streaming: tee the body so debug logging reads one branch and the
+    // SDK reads the other. response.clone() is unsafe here — clone and
+    // original share the same underlying TCP stream, causing data loss
+    // under concurrent reads (especially with large payloads 300KB+).
+    const [sdkBranch, debugBranch] = response.body.tee();
 
-    clone.text().then((raw) => {
+    // Background: read debug branch and assemble SSE
+    const debugReader = new Response(debugBranch);
+    debugReader.text().then((raw) => {
       try { record.response = assembleStreamResponse(raw); } catch { record.response = raw; }
       record.durationMs = Date.now() - start;
       record.responseAt = new Date().toISOString();
       writeJson(filePath, record);
-    }).catch(() => { /* ignore clone read errors */ });
+    }).catch(() => { /* ignore debug read errors */ });
 
-    return response;
+    // Return a new Response with the SDK branch — completely independent
+    return new Response(sdkBranch, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
   };
 }
