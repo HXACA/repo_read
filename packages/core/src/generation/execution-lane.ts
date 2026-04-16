@@ -32,7 +32,7 @@ export function selectExecutionLane(input: {
       ...params,
       forkWorkers: params.forkWorkers + 1,
       drafterMaxSteps: params.drafterMaxSteps + 10,
-      maxRevisionAttempts: params.maxRevisionAttempts + 1,
+      maxRevisionAttempts: params.maxRevisionAttempts + base.deepLaneRevisionBonus,
     };
     return { lane: "deep", policy: buildLanePolicy("deep", boostedParams) };
   }

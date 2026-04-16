@@ -27,4 +27,33 @@ describe("selectExecutionLane", () => {
     const baseAdjusted = base.drafterMaxSteps; // score=8 → no complexity boost from adjustParams
     expect(result.policy.drafterMaxSteps).toBeGreaterThan(baseAdjusted);
   });
+
+  it("deepLaneRevisionBonus=0: deep lane maxRevisionAttempts equals base", () => {
+    const base = { ...getQualityProfile("quality"), deepLaneRevisionBonus: 0 };
+    const complexity = { score: 20, fileCount: 30, dirSpread: 3, crossLanguage: false };
+    const result = selectExecutionLane({ preset: "quality", base, complexity, signals: {} });
+    expect(result.lane).toBe("deep");
+    expect(result.policy.maxRevisionAttempts).toBe(base.maxRevisionAttempts);
+  });
+
+  it("deepLaneRevisionBonus=1: deep lane adds +1 revision", () => {
+    const base = { ...getQualityProfile("quality"), deepLaneRevisionBonus: 1 };
+    const complexity = { score: 20, fileCount: 30, dirSpread: 3, crossLanguage: false };
+    const result = selectExecutionLane({ preset: "quality", base, complexity, signals: {} });
+    expect(result.lane).toBe("deep");
+    expect(result.policy.maxRevisionAttempts).toBe(base.maxRevisionAttempts + 1);
+  });
+
+  it("runtime signals with bonus=0 still trigger deep lane without +1", () => {
+    const base = { ...getQualityProfile("quality"), deepLaneRevisionBonus: 0 };
+    const complexity = { score: 5, fileCount: 5, dirSpread: 1, crossLanguage: false };
+    const result = selectExecutionLane({
+      preset: "quality",
+      base,
+      complexity,
+      signals: { factualRisksCount: 2 },
+    });
+    expect(result.lane).toBe("deep");
+    expect(result.policy.maxRevisionAttempts).toBe(base.maxRevisionAttempts);
+  });
 });
