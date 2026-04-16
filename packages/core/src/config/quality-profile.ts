@@ -32,6 +32,12 @@ export type QualityProfile = {
    * Set to 1 to disable incremental re-runs entirely.
    */
   maxEvidenceAttempts: number;
+  /**
+   * Extra revision budget granted to pages running on the deep lane, on top
+   * of `maxRevisionAttempts`. Historically hardcoded to +1; now configurable
+   * per-preset. Set to 0 to treat deep pages identically to standard.
+   */
+  deepLaneRevisionBonus: number;
   drafterMaxSteps: number;
   reviewerMaxSteps: number;
   reviewerVerifyMinCitations: number;
@@ -57,6 +63,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     forkWorkerConcurrency: 3,
     maxRevisionAttempts: 3,
     maxEvidenceAttempts: 2,
+    deepLaneRevisionBonus: 0,
     workerMaxSteps: 50,
     catalogMaxSteps: 100,
     drafterMaxSteps: 100,
@@ -71,6 +78,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     forkWorkerConcurrency: 2,
     maxRevisionAttempts: 2,
     maxEvidenceAttempts: 2,
+    deepLaneRevisionBonus: 0,
     workerMaxSteps: 6,
     catalogMaxSteps: 30,
     drafterMaxSteps: 20,
@@ -85,6 +93,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     forkWorkerConcurrency: 1,
     maxRevisionAttempts: 1,
     maxEvidenceAttempts: 1,
+    deepLaneRevisionBonus: 0,
     workerMaxSteps: 4,
     catalogMaxSteps: 20,
     drafterMaxSteps: 12,
@@ -99,6 +108,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     forkWorkerConcurrency: 1,
     maxRevisionAttempts: 1,
     maxEvidenceAttempts: 1,
+    deepLaneRevisionBonus: 0,
     workerMaxSteps: 4,
     catalogMaxSteps: 20,
     drafterMaxSteps: 12,

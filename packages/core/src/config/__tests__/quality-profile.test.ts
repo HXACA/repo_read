@@ -65,6 +65,18 @@ describe("quality profile", () => {
     expect(a).toBe(b);
   });
 
+  it("every preset defines deepLaneRevisionBonus in [0, 2]", () => {
+    for (const preset of ["quality", "balanced", "budget", "local-only"] as const) {
+      const p = getQualityProfile(preset);
+      expect(p.deepLaneRevisionBonus).toBeGreaterThanOrEqual(0);
+      expect(p.deepLaneRevisionBonus).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it("quality preset has deepLaneRevisionBonus=0 (removes legacy +1)", () => {
+    expect(getQualityProfile("quality").deepLaneRevisionBonus).toBe(0);
+  });
+
   it("every preset has maxEvidenceAttempts >= 1", () => {
     for (const preset of ["quality", "balanced", "budget", "local-only"] as const) {
       const p = getQualityProfile(preset);
