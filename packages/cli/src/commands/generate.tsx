@@ -27,6 +27,8 @@ export interface GenerateOptions {
   resume?: string;
   /** Placeholder for incremental regeneration (not yet wired up). */
   incremental?: boolean;
+  /** Override qp.pageConcurrency (1-5). CLI flag validates the range. */
+  pageConcurrency?: number;
 }
 
 export async function runGenerate(options: GenerateOptions): Promise<void> {
@@ -61,7 +63,18 @@ export async function runGenerate(options: GenerateOptions): Promise<void> {
 
   const providerCenter = new ProviderCenter();
   const resolvedConfig = providerCenter.resolve(config);
-  console.log(`Config resolved: preset=${resolvedConfig.preset}`);
+
+  // CLI override: --page-concurrency replaces qp.pageConcurrency (if set).
+  if (options.pageConcurrency != null) {
+    resolvedConfig.qualityProfile = {
+      ...resolvedConfig.qualityProfile,
+      pageConcurrency: options.pageConcurrency,
+    };
+  }
+
+  console.log(
+    `Config resolved: preset=${resolvedConfig.preset} pageConcurrency=${resolvedConfig.qualityProfile.pageConcurrency}`,
+  );
 
   // 3. Gather API keys — env var > config.apiKey
   const apiKeys = resolveApiKeys(config);

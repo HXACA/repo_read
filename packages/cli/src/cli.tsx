@@ -36,6 +36,17 @@ export function createProgram(): Command {
     )
     .option("--debug", "Log full model request/response pairs to .reporead/debug/")
     .option("--incremental", "Only regenerate pages affected by changed files (not yet implemented)", false)
+    .option(
+      "--page-concurrency <n>",
+      "Max pages to run in parallel (1-5). Overrides the preset default.",
+      (value) => {
+        const n = Number.parseInt(value, 10);
+        if (!Number.isInteger(n) || n < 1 || n > 5) {
+          throw new Error("--page-concurrency must be an integer in [1, 5]");
+        }
+        return n;
+      },
+    )
     .action(async (opts) => {
       if (opts.debug) process.env.REPOREAD_DEBUG = "1";
       await runGenerate({
@@ -43,6 +54,7 @@ export function createProgram(): Command {
         name: opts.name,
         resume: opts.resume,
         incremental: opts.incremental,
+        pageConcurrency: opts.pageConcurrency,
       });
     });
 
