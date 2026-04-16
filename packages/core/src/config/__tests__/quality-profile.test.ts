@@ -65,6 +65,21 @@ describe("quality profile", () => {
     expect(a).toBe(b);
   });
 
+  it("every preset defines pageConcurrency >= 1", () => {
+    for (const preset of ["quality", "balanced", "budget", "local-only"] as const) {
+      const p = getQualityProfile(preset);
+      expect(p.pageConcurrency).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("quality preset has pageConcurrency=3 (default target)", () => {
+    expect(getQualityProfile("quality").pageConcurrency).toBe(3);
+  });
+
+  it("budget preset has pageConcurrency=1 (serial)", () => {
+    expect(getQualityProfile("budget").pageConcurrency).toBe(1);
+  });
+
   it("every preset defines deepLaneRevisionBonus in [0, 2]", () => {
     for (const preset of ["quality", "balanced", "budget", "local-only"] as const) {
       const p = getQualityProfile(preset);

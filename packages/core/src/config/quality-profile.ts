@@ -38,6 +38,13 @@ export type QualityProfile = {
    * per-preset. Set to 0 to treat deep pages identically to standard.
    */
   deepLaneRevisionBonus: number;
+  /**
+   * Upper bound on pages running concurrently inside a single generation job.
+   * 1 = strictly serial (legacy behavior). Higher values let the
+   * ParallelPageScheduler overlap evidence/outline/draft with revision loops
+   * of earlier pages. CLI may override via `--page-concurrency`.
+   */
+  pageConcurrency: number;
   drafterMaxSteps: number;
   reviewerMaxSteps: number;
   reviewerVerifyMinCitations: number;
@@ -64,6 +71,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     maxRevisionAttempts: 3,
     maxEvidenceAttempts: 2,
     deepLaneRevisionBonus: 0,
+    pageConcurrency: 3,
     workerMaxSteps: 50,
     catalogMaxSteps: 100,
     drafterMaxSteps: 100,
@@ -79,6 +87,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     maxRevisionAttempts: 2,
     maxEvidenceAttempts: 2,
     deepLaneRevisionBonus: 0,
+    pageConcurrency: 2,
     workerMaxSteps: 6,
     catalogMaxSteps: 30,
     drafterMaxSteps: 20,
@@ -94,6 +103,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     maxRevisionAttempts: 1,
     maxEvidenceAttempts: 1,
     deepLaneRevisionBonus: 0,
+    pageConcurrency: 1,
     workerMaxSteps: 4,
     catalogMaxSteps: 20,
     drafterMaxSteps: 12,
@@ -109,6 +119,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     maxRevisionAttempts: 1,
     maxEvidenceAttempts: 1,
     deepLaneRevisionBonus: 0,
+    pageConcurrency: 1,
     workerMaxSteps: 4,
     catalogMaxSteps: 20,
     drafterMaxSteps: 12,
