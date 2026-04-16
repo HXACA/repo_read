@@ -65,6 +65,21 @@ describe("quality profile", () => {
     expect(a).toBe(b);
   });
 
+  it("every preset has maxEvidenceAttempts >= 1", () => {
+    for (const preset of ["quality", "balanced", "budget", "local-only"] as const) {
+      const p = getQualityProfile(preset);
+      expect(p.maxEvidenceAttempts).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("quality preset caps evidence at 2 total attempts (1 initial + 1 incremental)", () => {
+    expect(getQualityProfile("quality").maxEvidenceAttempts).toBe(2);
+  });
+
+  it("budget preset caps evidence at 1 attempt (no re-runs)", () => {
+    expect(getQualityProfile("budget").maxEvidenceAttempts).toBe(1);
+  });
+
   it("profiles are deeply frozen", () => {
     const q = getQualityProfile("quality") as QualityProfile & {
       forkWorkers: number;

@@ -26,6 +26,12 @@ export type QualityProfile = {
   forkWorkers: number;
   forkWorkerConcurrency: number;
   maxRevisionAttempts: number;
+  /**
+   * Upper bound on total evidence-collection attempts per page (initial + incremental re-runs).
+   * Reviewer-triggered re-runs beyond this limit are suppressed; drafter reuses the existing ledger.
+   * Set to 1 to disable incremental re-runs entirely.
+   */
+  maxEvidenceAttempts: number;
   drafterMaxSteps: number;
   reviewerMaxSteps: number;
   reviewerVerifyMinCitations: number;
@@ -50,6 +56,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     forkWorkers: 3,
     forkWorkerConcurrency: 3,
     maxRevisionAttempts: 3,
+    maxEvidenceAttempts: 2,
     workerMaxSteps: 50,
     catalogMaxSteps: 100,
     drafterMaxSteps: 100,
@@ -63,6 +70,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     forkWorkers: 2,
     forkWorkerConcurrency: 2,
     maxRevisionAttempts: 2,
+    maxEvidenceAttempts: 2,
     workerMaxSteps: 6,
     catalogMaxSteps: 30,
     drafterMaxSteps: 20,
@@ -76,6 +84,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     forkWorkers: 1,
     forkWorkerConcurrency: 1,
     maxRevisionAttempts: 1,
+    maxEvidenceAttempts: 1,
     workerMaxSteps: 4,
     catalogMaxSteps: 20,
     drafterMaxSteps: 12,
@@ -89,6 +98,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     forkWorkers: 1,
     forkWorkerConcurrency: 1,
     maxRevisionAttempts: 1,
+    maxEvidenceAttempts: 1,
     workerMaxSteps: 4,
     catalogMaxSteps: 20,
     drafterMaxSteps: 12,
