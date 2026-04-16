@@ -555,6 +555,13 @@ export class GenerationPipeline {
     let prefetchHitEvidence = false;
     let prefetchHitOutline = false;
 
+    // Count total evidence-collection attempts (prefetch/disk/inline). Reviewer-
+    // triggered re-runs are suppressed once this reaches qp.maxEvidenceAttempts.
+    let evidenceCollectionCount = 0;
+    if (prefetchSlot?.artifactsReady.evidence) {
+      evidenceCollectionCount = 1;
+    }
+
     try {
     while (true) {
       reviewUnverified = false;
@@ -564,6 +571,9 @@ export class GenerationPipeline {
         const existing = await this.artifactStore.loadEvidence<any>(pageRef);
         if (existing && existing.ledger) {
           evidenceResult = existing as EvidenceCollectionResult;
+          // Disk-load also counts as 1 attempt (covers resume-from-prior-job
+          // paths where there is no prefetchSlot).
+          if (evidenceCollectionCount === 0) evidenceCollectionCount = 1;
           // Also try loading outline
           const existingOutline = await this.artifactStore.loadOutline<PageOutline>(pageRef);
           if (existingOutline) outline = existingOutline;
@@ -596,6 +606,7 @@ export class GenerationPipeline {
       // or scope_violations (suggesting we need more/different files).
       const shouldCollectEvidence =
         coordinator !== null &&
+        evidenceCollectionCount < qp.maxEvidenceAttempts &&
         ((attempt === 0 && !evidenceResult) ||
           (attempt > 0 &&
             ((reviewResult?.conclusion?.missing_evidence?.length ?? 0) > 0 ||
@@ -605,6 +616,7 @@ export class GenerationPipeline {
       let evidenceJustCollected = false;
 
       if (shouldCollectEvidence) {
+        evidenceCollectionCount++;
         evidenceJustCollected = true;
         // Use per-page coordinator when policy has adjusted worker params
         const needsCustomCoordinator =
