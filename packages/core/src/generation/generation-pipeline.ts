@@ -37,6 +37,7 @@ import type { ProviderCallOptions } from "../runtime/turn-types.js";
 import { getModelOptionsForRole, type ModelOptions } from "../providers/model-factory.js";
 import { UsageTracker } from "../utils/usage-tracker.js";
 import { startPrefetch, type PrefetchSlot } from "./page-prefetcher.js";
+import { ParallelPageScheduler } from "./parallel-scheduler.js";
 
 export type GenerationPipelineOptions = {
   storage: StorageAdapter;
@@ -246,87 +247,120 @@ export class GenerationPipeline {
 
       const prefetchedSlugs = new Set<string>();
 
-      for (let i = 0; i < wiki.reading_order.length; i++) {
-        const page = wiki.reading_order[i];
+      // Page dispatch is delegated to the ParallelPageScheduler. When
+      // qp.pageConcurrency === 1 the scheduler preserves strict serial
+      // ordering (gates and semaphore reduce to pass-through). For higher
+      // concurrency, pages overlap via per-page reviewGate synchronization.
+      // A shared `failed` flag short-circuits subsequent pages once any
+      // page has failed — this keeps the fail-fast semantics of the legacy
+      // for-loop while still letting in-flight pages finish cleanly.
+      let pipelineFailed = false;
+      const scheduler = new ParallelPageScheduler<WikiJson["reading_order"][number]>({
+        concurrency: qp.pageConcurrency,
+        runPage: async ({ page, pageIndex, reviewGate, onFirstReviewStart }) => {
+          if (skipSlugs.has(page.slug)) {
+            return { success: true };
+          }
+          if (pipelineFailed) {
+            // A prior page already failed — skip downstream pages to match
+            // the legacy serial fail-fast behavior.
+            return { success: true };
+          }
 
-        // Resume path: fast-forward past already-validated pages without
-        // re-running their draft/review/validate loops.
-        if (skipSlugs.has(page.slug)) {
-          continue;
-        }
-
-        // Await prefetch if it matches this page
-        let prefetchSlot: PrefetchSlot | null = null;
-        let prefetchWaitMs = 0;
-        if (prefetchRef.current?.pageSlug === page.slug) {
-          const waitStart = Date.now();
-          await prefetchRef.current.promise.catch(() => {});
-          prefetchWaitMs = Date.now() - waitStart;
-          prefetchSlot = prefetchRef.current;
-          prefetchRef.current = null;
-        }
-
-        const pageResult = await this.runPageWorkflow({
-          page,
-          pageIndex: i,
-          wiki,
-          job,
-          slug,
-          jobId,
-          versionId,
-          emitter,
-          publishedSummaries,
-          knownPages,
-          qp,
-          allowBash,
-          drafter,
-          ladder,
-          coordinator,
-          outlinePlanner,
-          drafterProviderOpts,
-          prefetchSlot,
-          prefetchWaitMs,
-          skipSlugs,
-          prefetchedSlugs,
-          workerProviderOpts,
-          outlineProviderOpts,
-          reviewerProviderOpts,
-          setActivePrefetch: (slot) => { prefetchRef.current = slot; },
-          // Legacy serial path: omit reviewGate so runPageWorkflow does not
-          // add an extra microtask yield.
-        });
-
-        if (!pageResult.success) {
-          // Drain any outstanding prefetch so its work is captured
-          if (prefetchRef.current) {
+          // Await any prefetch targeting this page (single-flight via prefetchRef).
+          let prefetchSlot: PrefetchSlot | null = null;
+          let prefetchWaitMs = 0;
+          if (prefetchRef.current?.pageSlug === page.slug) {
+            const waitStart = Date.now();
             await prefetchRef.current.promise.catch(() => {});
-            if (prefetchRef.current.phases.evidence || prefetchRef.current.phases.outline) {
-              throughput.setOrphanedPrefetch({ phases: { ...prefetchRef.current.phases } });
-            }
+            prefetchWaitMs = Date.now() - waitStart;
+            prefetchSlot = prefetchRef.current;
+            prefetchRef.current = null;
           }
-          // Include the failed page's partial metrics in the report
-          if (pageResult.pageMetrics) {
-            throughput.addPage(pageResult.pageMetrics);
+
+          // Pass reviewGate only when pageConcurrency > 1; in serial mode
+          // omitting it preserves the legacy microtask ordering that
+          // mock-heavy tests depend on.
+          const workflowCtx = {
+            page,
+            pageIndex,
+            wiki,
+            job,
+            slug,
+            jobId,
+            versionId,
+            emitter,
+            publishedSummaries,
+            knownPages,
+            qp,
+            allowBash,
+            drafter,
+            ladder,
+            coordinator,
+            outlinePlanner,
+            drafterProviderOpts,
+            prefetchSlot,
+            prefetchWaitMs,
+            skipSlugs,
+            prefetchedSlugs,
+            workerProviderOpts,
+            outlineProviderOpts,
+            reviewerProviderOpts,
+            setActivePrefetch: (slot: PrefetchSlot | null) => { prefetchRef.current = slot; },
+            ...(qp.pageConcurrency > 1 ? { reviewGate, onFirstReviewStart } : {}),
+          };
+
+          const pageResult = await this.runPageWorkflow(workflowCtx);
+
+          if (!pageResult.success) {
+            pipelineFailed = true;
+            return {
+              success: false,
+              error: pageResult.error,
+              pageMetrics: pageResult.pageMetrics,
+            };
           }
-          await this.artifactStore.saveThroughputMetrics(
-            { projectSlug: slug, jobId },
-            throughput.finish({ totalLatencyMs: Date.now() - pipelineStartedAt }),
-          ).catch(() => {}); // best-effort, never block failure path
-          return this.failJob(job, emitter, pageResult.error!);
-        }
 
-        job = pageResult.job;
-        if (pageResult.pageMetrics) {
-          throughput.addPage(pageResult.pageMetrics);
-        }
+          job = pageResult.job;
 
-        // Transition: back to page_drafting for next page, or to publishing for last
-        if (i < wiki.reading_order.length - 1) {
-          job = await this.jobManager.transition(slug, jobId, "page_drafting");
+          // Transition between pages (not the last one)
+          if (pageIndex < wiki.reading_order.length - 1) {
+            job = await this.jobManager.transition(slug, jobId, "page_drafting");
+          }
+
+          return {
+            success: true,
+            pageMetrics: pageResult.pageMetrics,
+          };
+        },
+      });
+
+      const pageResults = await scheduler.runAll(wiki.reading_order, publishedSummaries);
+
+      // Aggregate throughput metrics in order
+      for (const result of pageResults) {
+        if (result.pageMetrics) {
+          throughput.addPage(result.pageMetrics as PageThroughputRecord);
         }
       }
 
-      // Drain any remaining unused prefetch
+      const firstFailure = pageResults.find((r) => !r.success);
+      if (firstFailure) {
+        if (prefetchRef.current) {
+          await prefetchRef.current.promise.catch(() => {});
+          if (prefetchRef.current.phases.evidence || prefetchRef.current.phases.outline) {
+            throughput.setOrphanedPrefetch({ phases: { ...prefetchRef.current.phases } });
+          }
+          prefetchRef.current = null;
+        }
+        await this.artifactStore.saveThroughputMetrics(
+          { projectSlug: slug, jobId },
+          throughput.finish({ totalLatencyMs: Date.now() - pipelineStartedAt }),
+        ).catch(() => {});
+        return this.failJob(job, emitter, firstFailure.error ?? "page failed");
+      }
+
+      // Drain any remaining unused prefetch (success path)
       if (prefetchRef.current) {
         await prefetchRef.current.promise.catch(() => {});
         if (prefetchRef.current.phases.evidence || prefetchRef.current.phases.outline) {
