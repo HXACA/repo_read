@@ -56,7 +56,7 @@ repo-read `repository-model` 实测：4 次 evidence re-run × ~6.8 min = 27 min
 
 ### 1.2 Deep lane 的 +1 revision bonus 回报率低
 
-`escalation-policy.ts:35` 给 deep lane 加 +1 revision（quality preset base=3 → deep=4）。
+`execution-lane.ts:35` 给 deep lane 的 `boostedParams` 加 +1 revision（quality preset base=3 → deep=4）。
 
 实测：第 4 次 revision 帮助 1/10 的 deep 页面从 L1 升到 L2（repo-read 的 `runtime-tooling`）。即 90% 的 deep 页面不需要第 4 次 revision。
 
@@ -145,20 +145,26 @@ if (shouldCollectEvidence) {
 
 ## 4. 组件 2：Max Revisions Deep Lane +1 移除（Phase 1）
 
-### 4.1 LaneExecutionPolicy 改造
+### 4.1 Execution Lane boostedParams 改造
 
-`packages/core/src/generation/escalation-policy.ts:35`：
+`packages/core/src/generation/execution-lane.ts:31-36`：
 
 ```typescript
-// 原
-maxRevisionAttempts: lane === "deep"
-  ? params.maxRevisionAttempts + 1
-  : params.maxRevisionAttempts,
+// 原（hasHardSignals || complexity.score >= 16 分支里硬编码 +1）
+const boostedParams: AdjustedParams = {
+  ...params,
+  forkWorkers: params.forkWorkers + 1,
+  drafterMaxSteps: params.drafterMaxSteps + 10,
+  maxRevisionAttempts: params.maxRevisionAttempts + 1,  // 硬编码
+};
 
-// 改
-maxRevisionAttempts: lane === "deep"
-  ? params.maxRevisionAttempts + qp.deepLaneRevisionBonus
-  : params.maxRevisionAttempts,
+// 改（读 qp.deepLaneRevisionBonus）
+const boostedParams: AdjustedParams = {
+  ...params,
+  forkWorkers: params.forkWorkers + 1,
+  drafterMaxSteps: params.drafterMaxSteps + 10,
+  maxRevisionAttempts: params.maxRevisionAttempts + base.deepLaneRevisionBonus,
+};
 ```
 
 ### 4.2 QualityProfile 新字段
