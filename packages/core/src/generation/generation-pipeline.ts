@@ -323,19 +323,32 @@ export class GenerationPipeline {
 
           job = pageResult.job;
 
-          // Transition between pages (not the last one)
-          if (pageIndex < wiki.reading_order.length - 1) {
+          // Between-page transition is only meaningful in strict-serial mode;
+          // at concurrency > 1 multiple pages may finish concurrently and race
+          // on job-state.json. The job remains in page_drafting throughout
+          // parallel execution and transitions to publishing after runAll.
+          if (qp.pageConcurrency === 1 && pageIndex < wiki.reading_order.length - 1) {
             job = await this.jobManager.transition(slug, jobId, "page_drafting");
           }
 
           return {
             success: true,
+            summary: pageResult.summary,
             pageMetrics: pageResult.pageMetrics,
           };
         },
       });
 
       const pageResults = await scheduler.runAll(wiki.reading_order, publishedSummaries);
+
+      // In parallel mode the per-page savePublishedIndex was skipped inside
+      // runPageWorkflow (to avoid races); flush the aggregated index once.
+      if (qp.pageConcurrency > 1 && publishedSummaries.length > 0) {
+        await this.artifactStore.savePublishedIndex(
+          { projectSlug: slug, jobId },
+          publishedSummaries,
+        );
+      }
 
       // Aggregate throughput metrics in order
       for (const result of pageResults) {
@@ -514,7 +527,13 @@ export class GenerationPipeline {
      */
     reviewGate?: Promise<void>;
     onFirstReviewStart?: () => void;
-  }): Promise<{ success: boolean; job: GenerationJob; error?: string; pageMetrics?: PageThroughputRecord }> {
+  }): Promise<{
+    success: boolean;
+    job: GenerationJob;
+    error?: string;
+    pageMetrics?: PageThroughputRecord;
+    summary?: { slug: string; title: string; summary: string };
+  }> {
     const {
       page, pageIndex: i, wiki, slug, jobId, versionId, emitter,
       publishedSummaries, knownPages, qp, allowBash, drafter, ladder,
@@ -1190,15 +1209,21 @@ export class GenerationPipeline {
 
     // Track progress
     knownPages.push(page.slug);
-    publishedSummaries.push({
+    const pageSummary = {
       slug: page.slug,
       title: page.title,
       summary: finalDraft.metadata!.summary,
-    });
-    await this.artifactStore.savePublishedIndex(
-      { projectSlug: slug, jobId },
-      publishedSummaries,
-    );
+    };
+    // In parallel mode the scheduler collects summaries in reading order
+    // and writes the index at the end. Serial-path callers also push
+    // directly for backwards compatibility.
+    if (qp.pageConcurrency === 1) {
+      publishedSummaries.push(pageSummary);
+      await this.artifactStore.savePublishedIndex(
+        { projectSlug: slug, jobId },
+        publishedSummaries,
+      );
+    }
     job.summary.succeededPages = (job.summary.succeededPages ?? 0) + 1;
     await this.persistJobSummary(job);
 
@@ -1233,7 +1258,15 @@ export class GenerationPipeline {
       } : undefined,
     };
 
-    return { success: true, job, pageMetrics };
+    // Only surface the summary when running in parallel mode so the scheduler
+    // can append in reading order. Serial mode mutates publishedSummaries
+    // directly (above) and expects no second push.
+    return {
+      success: true,
+      job,
+      pageMetrics,
+      summary: qp.pageConcurrency > 1 ? pageSummary : undefined,
+    };
 
     } catch (err) {
       // Any exception in the page workflow — return failure with partial metrics

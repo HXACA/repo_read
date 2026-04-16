@@ -245,6 +245,84 @@ describe("GenerationPipeline", () => {
     expect(types).toContain("job.completed");
   });
 
+  it("pageConcurrency=3 preserves publishedSummaries order and completes all pages", async () => {
+    const { generateText } = await import("ai");
+    const mockGenerateText = vi.mocked(generateText);
+
+    // Route mocks by role (identified via system prompt) so parallel
+    // consumption order does not break the test. Per page (budget preset):
+    // worker + outline + draft; L0 review means no reviewer LLM call.
+    const capturedSlug = (msgs: unknown): string | null => {
+      const s = JSON.stringify(msgs ?? "");
+      if (s.includes("README.md") || s.includes("overview") || s.includes("Overview")) return "overview";
+      if (s.includes("src/index.ts") || s.includes("core") || s.includes("Core")) return "core";
+      return null;
+    };
+
+    mockGenerateText.mockImplementation((params: unknown) => {
+      const opts = params as { system?: string; messages?: unknown } | undefined;
+      const sys = opts?.system ?? "";
+      const slug = capturedSlug(opts?.messages) ?? "overview";
+      const title = slug === "overview" ? "Overview" : "Core";
+      const file = slug === "overview" ? "README.md" : "src/index.ts";
+
+      if (sys.includes("catalog")) {
+        return Promise.resolve(mockResponse(JSON.stringify(wikiJson)));
+      }
+      if (sys.includes("You are \"worker\"")) {
+        return Promise.resolve(mockResponse(workerOutput(slug)));
+      }
+      if (sys.includes("documentation outline planner")) {
+        return Promise.resolve(mockResponse(outlineOutput(slug)));
+      }
+      if (sys.includes("You are \"drafter\"")) {
+        return Promise.resolve(mockResponse(draftOutput(slug, title, file)));
+      }
+      // Fallback (reviewer or unknown)
+      return Promise.resolve(mockResponse(JSON.stringify({
+        verdict: "pass",
+        blockers: [],
+        factual_risks: [],
+        missing_evidence: [],
+        scope_violations: [],
+        suggested_revisions: [],
+      })));
+    });
+
+    const concurrentConfig: ResolvedConfig = {
+      ...mockConfig,
+      qualityProfile: {
+        ...getQualityProfile("budget"),
+        pageConcurrency: 3,
+      },
+    };
+
+    const pipeline = new GenerationPipeline({
+      storage,
+      jobManager,
+      config: concurrentConfig,
+      catalogModel: {} as never,
+      outlineModel: {} as never,
+      drafterModel: {} as never,
+      workerModel: {} as never,
+      reviewerModel: {} as never,
+      repoRoot: tmpDir,
+      commitHash: "abc123",
+    });
+
+    const job = await jobManager.create("proj-parallel", tmpDir, concurrentConfig);
+    const result = await pipeline.run(job);
+
+    expect(result.success).toBe(true);
+    expect(result.job.summary.succeededPages).toBe(2);
+
+    // Verify publishedSummaries ordering matches reading_order.
+    const publishedIndexPath = storage.paths.publishedIndexJson("proj-parallel", job.id);
+    const summariesRaw = await fs.readFile(publishedIndexPath, "utf-8").catch(() => "[]");
+    const summaries = JSON.parse(summariesRaw) as Array<{ slug: string }>;
+    expect(summaries.map((s) => s.slug)).toEqual(["overview", "core"]);
+  });
+
   it("resume: skips catalog + already-validated pages", async () => {
     const { generateText } = await import("ai");
     const mockGenerateText = vi.mocked(generateText);

@@ -57,33 +57,60 @@ export class JobStateManager {
     );
   }
 
+  /**
+   * Serializes read-modify-write mutations on per-job state files so
+   * concurrent page workflows (pageConcurrency > 1) do not race.
+   * Keyed by `projectSlug:jobId`.
+   */
+  private readonly mutexChain = new Map<string, Promise<unknown>>();
+
+  private withMutex<T>(projectSlug: string, jobId: string, fn: () => Promise<T>): Promise<T> {
+    const key = `${projectSlug}:${jobId}`;
+    const prev = this.mutexChain.get(key) ?? Promise.resolve();
+    const next = prev.then(fn, fn);
+    // Keep the chain alive even if `fn` throws
+    this.mutexChain.set(key, next.catch(() => undefined));
+    return next;
+  }
+
   async transition(
     projectSlug: string,
     jobId: string,
     targetStatus: JobStatus,
   ): Promise<GenerationJob> {
-    const job = await this.requireJob(projectSlug, jobId);
-    const allowed = VALID_TRANSITIONS[job.status];
+    return this.withMutex(projectSlug, jobId, async () => {
+      const job = await this.requireJob(projectSlug, jobId);
 
-    if (!allowed.includes(targetStatus)) {
-      throw new AppError(
-        "JOB_INVALID_STATE",
-        `Cannot transition from "${job.status}" to "${targetStatus}"`,
-        { jobId, current: job.status, target: targetStatus },
-      );
-    }
+      // Idempotent: staying in the current status is a no-op. This keeps
+      // parallel page workflows from fighting over per-page transitions
+      // (e.g. two pages both moving into "reviewing") while still guarding
+      // real invalid transitions.
+      if (job.status === targetStatus) {
+        return job;
+      }
 
-    job.status = targetStatus;
+      const allowed = VALID_TRANSITIONS[job.status];
 
-    if (targetStatus === "cataloging" && !job.startedAt) {
-      job.startedAt = new Date().toISOString();
-    }
-    if (targetStatus === "completed" || targetStatus === "failed") {
-      job.finishedAt = new Date().toISOString();
-    }
+      if (!allowed.includes(targetStatus)) {
+        throw new AppError(
+          "JOB_INVALID_STATE",
+          `Cannot transition from "${job.status}" to "${targetStatus}"`,
+          { jobId, current: job.status, target: targetStatus },
+        );
+      }
 
-    await this.persist(projectSlug, job);
-    return job;
+      job.status = targetStatus;
+
+      if (targetStatus === "cataloging" && !job.startedAt) {
+        job.startedAt = new Date().toISOString();
+      }
+      if (targetStatus === "completed" || targetStatus === "failed") {
+        job.finishedAt = new Date().toISOString();
+      }
+
+      await this.persist(projectSlug, job);
+      return job;
+    });
   }
 
   async fail(
@@ -91,12 +118,14 @@ export class JobStateManager {
     jobId: string,
     error: string,
   ): Promise<GenerationJob> {
-    const job = await this.requireJob(projectSlug, jobId);
-    job.status = "failed";
-    job.lastError = error;
-    job.finishedAt = new Date().toISOString();
-    await this.persist(projectSlug, job);
-    return job;
+    return this.withMutex(projectSlug, jobId, async () => {
+      const job = await this.requireJob(projectSlug, jobId);
+      job.status = "failed";
+      job.lastError = error;
+      job.finishedAt = new Date().toISOString();
+      await this.persist(projectSlug, job);
+      return job;
+    });
   }
 
   async updatePage(
@@ -105,11 +134,13 @@ export class JobStateManager {
     pageSlug: string,
     nextOrder?: number,
   ): Promise<GenerationJob> {
-    const job = await this.requireJob(projectSlug, jobId);
-    job.currentPageSlug = pageSlug;
-    if (nextOrder !== undefined) job.nextPageOrder = nextOrder;
-    await this.persist(projectSlug, job);
-    return job;
+    return this.withMutex(projectSlug, jobId, async () => {
+      const job = await this.requireJob(projectSlug, jobId);
+      job.currentPageSlug = pageSlug;
+      if (nextOrder !== undefined) job.nextPageOrder = nextOrder;
+      await this.persist(projectSlug, job);
+      return job;
+    });
   }
 
   private async requireJob(projectSlug: string, jobId: string): Promise<GenerationJob> {
