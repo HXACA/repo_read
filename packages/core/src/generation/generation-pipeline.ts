@@ -292,6 +292,8 @@ export class GenerationPipeline {
           outlineProviderOpts,
           reviewerProviderOpts,
           setActivePrefetch: (slot) => { prefetchRef.current = slot; },
+          // Legacy serial path: omit reviewGate so runPageWorkflow does not
+          // add an extra microtask yield.
         });
 
         if (!pageResult.success) {
@@ -471,6 +473,13 @@ export class GenerationPipeline {
     outlineProviderOpts: ProviderCallOptions;
     reviewerProviderOpts: ProviderCallOptions;
     setActivePrefetch: (slot: PrefetchSlot | null) => void;
+    /**
+     * Awaited before the first review so publishedSummaries is up-to-date.
+     * Omit for the serial / legacy code path to avoid an extra microtask
+     * yield that perturbs LLM call ordering in mock-heavy tests.
+     */
+    reviewGate?: Promise<void>;
+    onFirstReviewStart?: () => void;
   }): Promise<{ success: boolean; job: GenerationJob; error?: string; pageMetrics?: PageThroughputRecord }> {
     const {
       page, pageIndex: i, wiki, slug, jobId, versionId, emitter,
@@ -478,6 +487,7 @@ export class GenerationPipeline {
       coordinator, outlinePlanner, drafterProviderOpts,
       prefetchSlot, prefetchWaitMs, skipSlugs, prefetchedSlugs,
       workerProviderOpts, outlineProviderOpts, reviewerProviderOpts,
+      reviewGate, onFirstReviewStart,
     } = ctx;
     let { job } = ctx;
 
@@ -954,6 +964,16 @@ export class GenerationPipeline {
             onStep: (step) => this.usageTracker.add("reviewer", (this.reviewerModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
           })
         : ladder;
+
+      // On the first review attempt of this page, wait until the previous
+      // page's publishedSummary is available. The scheduler supplies a gate
+      // only when pageConcurrency > 1; the legacy serial call site omits it
+      // to avoid an extra microtask yield that would perturb LLM call
+      // ordering.
+      if (attempt === 0 && reviewGate) {
+        await reviewGate;
+        onFirstReviewStart?.();
+      }
 
       const reviewStartedAt = Date.now();
       try {
