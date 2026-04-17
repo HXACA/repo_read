@@ -45,6 +45,16 @@ export type QualityProfile = {
    * of earlier pages. CLI may override via `--page-concurrency`.
    */
   pageConcurrency: number;
+  /**
+   * Controls the mechanism-coverage recall check.
+   *
+   * - `off`: mechanism list is not derived; outline/drafter/reviewer unchanged.
+   * - `warn`: mechanism list is derived and observed, but a non-empty
+   *   `missing_coverage` does NOT trigger revision (metrics only).
+   * - `strict`: `missing_coverage` behaves like `missing_evidence` — triggers
+   *   a re-draft. Never triggers evidence re-collection.
+   */
+  coverageEnforcement: "off" | "warn" | "strict";
   drafterMaxSteps: number;
   reviewerMaxSteps: number;
   reviewerVerifyMinCitations: number;
@@ -72,6 +82,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     maxEvidenceAttempts: 2,
     deepLaneRevisionBonus: 0,
     pageConcurrency: 3,
+    coverageEnforcement: "warn",
     workerMaxSteps: 50,
     catalogMaxSteps: 100,
     drafterMaxSteps: 100,
@@ -88,6 +99,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     maxEvidenceAttempts: 2,
     deepLaneRevisionBonus: 0,
     pageConcurrency: 2,
+    coverageEnforcement: "off",
     workerMaxSteps: 6,
     catalogMaxSteps: 30,
     drafterMaxSteps: 20,
@@ -104,6 +116,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     maxEvidenceAttempts: 1,
     deepLaneRevisionBonus: 0,
     pageConcurrency: 1,
+    coverageEnforcement: "off",
     workerMaxSteps: 4,
     catalogMaxSteps: 20,
     drafterMaxSteps: 12,
@@ -120,6 +133,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     maxEvidenceAttempts: 1,
     deepLaneRevisionBonus: 0,
     pageConcurrency: 1,
+    coverageEnforcement: "off",
     workerMaxSteps: 4,
     catalogMaxSteps: 20,
     drafterMaxSteps: 12,

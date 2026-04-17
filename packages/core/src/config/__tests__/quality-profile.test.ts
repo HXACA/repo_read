@@ -115,6 +115,22 @@ describe("quality profile", () => {
       q.forkWorkers = 999;
     }).toThrow();
   });
+
+  it("every preset defines coverageEnforcement", () => {
+    for (const preset of ["quality", "balanced", "budget", "local-only"] as const) {
+      const p = getQualityProfile(preset);
+      expect(["off", "warn", "strict"]).toContain(p.coverageEnforcement);
+    }
+  });
+
+  it("quality preset defaults coverageEnforcement to 'warn' (phase 1 rollout)", () => {
+    expect(getQualityProfile("quality").coverageEnforcement).toBe("warn");
+  });
+
+  it("budget and local-only presets default coverageEnforcement to 'off'", () => {
+    expect(getQualityProfile("budget").coverageEnforcement).toBe("off");
+    expect(getQualityProfile("local-only").coverageEnforcement).toBe("off");
+  });
 });
 
 // Local re-export to keep the mutation test above type-safe
