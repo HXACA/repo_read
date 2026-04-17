@@ -25,6 +25,7 @@ import {
   type EvidenceCollectionResult,
 } from "./evidence-coordinator.js";
 import { OutlinePlanner } from "./outline-planner.js";
+import { deriveMechanismList, type Mechanism } from "./mechanism-list.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -62,6 +63,9 @@ export type PrefetchContext = {
   allowBash: boolean;
   onWorkerStep?: (step: StepInfo) => void;
   onOutlineStep?: (step: StepInfo) => void;
+  /** Quality profile coverage enforcement mode. When undefined or "off",
+   *  prefetch does not derive a mechanism list (preserves legacy behavior). */
+  qualityProfile?: { coverageEnforcement: "off" | "warn" | "strict" };
 };
 
 type PageEntry = WikiJson["reading_order"][number];
@@ -160,6 +164,14 @@ export function startPrefetch(
       // Phase 2: Outline — failure here is non-fatal (partial readiness)
       const outlineStart = Date.now();
       try {
+        // Derive mechanism list for outline allocation. Empty when
+        // coverageEnforcement is "off" / undefined — legacy behavior.
+        const mechanisms: Mechanism[] =
+          ctx.qualityProfile?.coverageEnforcement &&
+          ctx.qualityProfile.coverageEnforcement !== "off"
+            ? deriveMechanismList(evidenceResult.ledger, page.covered_files)
+            : [];
+
         const outlinePlanner = new OutlinePlanner({
           model: ctx.outlineModel,
           providerCallOptions: ctx.outlineProviderOpts,
@@ -173,6 +185,7 @@ export function startPrefetch(
           language: ctx.language,
           ledger: evidenceResult.ledger,
           findings: evidenceResult.findings,
+          mechanisms,
         });
 
         if (outlineResult.outline) {

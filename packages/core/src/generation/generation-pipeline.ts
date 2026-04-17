@@ -1024,6 +1024,7 @@ export class GenerationPipeline {
             allowBash,
             onWorkerStep: (step) => this.usageTracker.add("worker", (this.workerModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
             onOutlineStep: (step) => this.usageTracker.add("outline", (this.outlineModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
+            qualityProfile: { coverageEnforcement: qp.coverageEnforcement },
           }));
         }
       }
