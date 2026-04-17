@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { OutlinePlanner } from "../outline-planner.js";
 import type { OutlinePlannerInput } from "../outline-planner.js";
+import type { Mechanism } from "../mechanism-list.js";
 
 vi.mock("ai", () => {
   const generateText = vi.fn();
@@ -168,5 +169,166 @@ describe("OutlinePlanner", () => {
     expect(result.sections[0].cite_from[0].locator).toBeUndefined();
     expect(result.sections[1].key_points).toEqual([]);
     expect(result.sections[1].cite_from).toEqual([]);
+  });
+});
+
+describe("OutlinePlanner mechanism coverage", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("accepts mechanisms and renders them into the prompt", async () => {
+    const { generateText } = await import("ai");
+    const mockGenerateText = vi.mocked(generateText);
+
+    const validOutline = JSON.stringify({
+      sections: [
+        { heading: "A", key_points: ["k1"], cite_from: [], covers_mechanisms: ["file:x.ts"] },
+        { heading: "B", key_points: ["k2"], cite_from: [], covers_mechanisms: [] },
+      ],
+      out_of_scope_mechanisms: [],
+    });
+    mockGenerateText.mockResolvedValueOnce({
+      text: validOutline,
+      usage: { inputTokens: 10, outputTokens: 5 },
+    } as never);
+
+    const mechanisms: Mechanism[] = [
+      { id: "file:x.ts", citation: { kind: "file", target: "x.ts" }, description: "the X thing", coverageRequirement: "must_cite" },
+    ];
+
+    const planner = new OutlinePlanner({ model: {} as never });
+    const result = await planner.planWithMetrics({
+      pageTitle: "Page",
+      pageRationale: "r",
+      coveredFiles: ["x.ts"],
+      language: "en",
+      ledger: [],
+      findings: [],
+      mechanisms,
+    });
+
+    const callArgs = mockGenerateText.mock.calls[0][0] as { prompt?: string; messages?: unknown[] };
+    const promptText = (callArgs.prompt ?? JSON.stringify(callArgs.messages ?? "")).toString();
+    expect(promptText).toContain("file:x.ts");
+    expect(promptText).toContain("the X thing");
+    expect(result.outline.sections[0].covers_mechanisms).toEqual(["file:x.ts"]);
+  });
+
+  it("retries with instruction when outline misses a mechanism", async () => {
+    const { generateText } = await import("ai");
+    const mockGenerateText = vi.mocked(generateText);
+
+    mockGenerateText.mockResolvedValueOnce({
+      text: JSON.stringify({
+        sections: [{ heading: "A", key_points: ["k"], cite_from: [], covers_mechanisms: ["file:m1"] }],
+        out_of_scope_mechanisms: [],
+      }),
+      usage: { inputTokens: 10, outputTokens: 5 },
+    } as never);
+
+    mockGenerateText.mockResolvedValueOnce({
+      text: JSON.stringify({
+        sections: [{ heading: "A", key_points: ["k"], cite_from: [], covers_mechanisms: ["file:m1", "file:m2"] }],
+        out_of_scope_mechanisms: [],
+      }),
+      usage: { inputTokens: 10, outputTokens: 5 },
+    } as never);
+
+    const mechanisms: Mechanism[] = [
+      { id: "file:m1", citation: { kind: "file", target: "m1" }, description: "m1", coverageRequirement: "must_cite" },
+      { id: "file:m2", citation: { kind: "file", target: "m2" }, description: "m2", coverageRequirement: "must_cite" },
+    ];
+
+    const planner = new OutlinePlanner({ model: {} as never });
+    const result = await planner.planWithMetrics({
+      pageTitle: "Page", pageRationale: "r", coveredFiles: ["m1", "m2"], language: "en",
+      ledger: [], findings: [], mechanisms,
+    });
+
+    expect(mockGenerateText).toHaveBeenCalledTimes(2);
+    expect(result.outline.sections[0].covers_mechanisms).toContain("file:m2");
+  });
+
+  it("forces allocation to last section when retry still misses a mechanism", async () => {
+    const { generateText } = await import("ai");
+    const mockGenerateText = vi.mocked(generateText);
+
+    const missingOutline = JSON.stringify({
+      sections: [
+        { heading: "A", key_points: ["k1"], cite_from: [], covers_mechanisms: ["file:m1"] },
+        { heading: "B", key_points: ["k2"], cite_from: [], covers_mechanisms: [] },
+      ],
+      out_of_scope_mechanisms: [],
+    });
+    mockGenerateText.mockResolvedValueOnce({ text: missingOutline, usage: { inputTokens: 10, outputTokens: 5 } } as never);
+    mockGenerateText.mockResolvedValueOnce({ text: missingOutline, usage: { inputTokens: 10, outputTokens: 5 } } as never);
+
+    const mechanisms: Mechanism[] = [
+      { id: "file:m1", citation: { kind: "file", target: "m1" }, description: "m1", coverageRequirement: "must_cite" },
+      { id: "file:m2", citation: { kind: "file", target: "m2" }, description: "m2", coverageRequirement: "must_cite" },
+    ];
+
+    const planner = new OutlinePlanner({ model: {} as never });
+    const result = await planner.planWithMetrics({
+      pageTitle: "Page", pageRationale: "r", coveredFiles: ["m1", "m2"], language: "en",
+      ledger: [], findings: [], mechanisms,
+    });
+
+    expect(mockGenerateText).toHaveBeenCalledTimes(2);
+    const sections = result.outline.sections;
+    expect(sections[sections.length - 1].covers_mechanisms).toContain("file:m2");
+    expect(result.usedFallback).toBe(true);
+  });
+
+  it("accepts out_of_scope declarations as valid coverage", async () => {
+    const { generateText } = await import("ai");
+    const mockGenerateText = vi.mocked(generateText);
+
+    mockGenerateText.mockResolvedValueOnce({
+      text: JSON.stringify({
+        sections: [{ heading: "A", key_points: ["k"], cite_from: [], covers_mechanisms: ["file:m1"] }],
+        out_of_scope_mechanisms: [{ id: "file:m2", reason: "covered in another-page-slug" }],
+      }),
+      usage: { inputTokens: 10, outputTokens: 5 },
+    } as never);
+
+    const mechanisms: Mechanism[] = [
+      { id: "file:m1", citation: { kind: "file", target: "m1" }, description: "m1", coverageRequirement: "must_cite" },
+      { id: "file:m2", citation: { kind: "file", target: "m2" }, description: "m2", coverageRequirement: "must_cite" },
+    ];
+
+    const planner = new OutlinePlanner({ model: {} as never });
+    const result = await planner.planWithMetrics({
+      pageTitle: "Page", pageRationale: "r", coveredFiles: ["m1", "m2"], language: "en",
+      ledger: [], findings: [], mechanisms,
+    });
+
+    expect(mockGenerateText).toHaveBeenCalledTimes(1);
+    expect(result.outline.out_of_scope_mechanisms).toEqual([{ id: "file:m2", reason: "covered in another-page-slug" }]);
+  });
+
+  it("omits mechanism-enforcement when mechanisms array is empty", async () => {
+    const { generateText } = await import("ai");
+    const mockGenerateText = vi.mocked(generateText);
+
+    mockGenerateText.mockResolvedValueOnce({
+      text: JSON.stringify({
+        sections: [
+          { heading: "A", key_points: ["k"], cite_from: [] },
+          { heading: "B", key_points: ["k2"], cite_from: [] },
+        ],
+      }),
+      usage: { inputTokens: 10, outputTokens: 5 },
+    } as never);
+
+    const planner = new OutlinePlanner({ model: {} as never });
+    const result = await planner.planWithMetrics({
+      pageTitle: "Page", pageRationale: "r", coveredFiles: [], language: "en",
+      ledger: [], findings: [], mechanisms: [],
+    });
+
+    expect(mockGenerateText).toHaveBeenCalledTimes(1);
+    expect(result.outline.sections[0].heading).toBe("A");
   });
 });

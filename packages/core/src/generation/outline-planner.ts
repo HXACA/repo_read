@@ -5,6 +5,7 @@ import { extractJson } from "../utils/extract-json.js";
 import type { ProviderCallOptions } from "../runtime/turn-types.js";
 import { PromptAssembler } from "../prompt/assembler.js";
 import { TurnEngineAdapter } from "../runtime/turn-engine.js";
+import type { Mechanism } from "./mechanism-list.js";
 
 export type OutlinePlannerInput = {
   pageTitle: string;
@@ -20,6 +21,9 @@ export type OutlinePlannerInput = {
   }>;
   /** Natural-language findings from workers. */
   findings: string[];
+  /** When non-empty, outline MUST allocate each mechanism id to either
+   *  `covers_mechanisms` on some section or `out_of_scope_mechanisms`. */
+  mechanisms?: Mechanism[];
 };
 
 export type OutlinePlannerOptions = {
@@ -61,6 +65,43 @@ export class OutlinePlanner {
   }
 
   async planWithMetrics(input: OutlinePlannerInput): Promise<OutlinePlanResult> {
+    const firstAttempt = await this.runLLM(input, undefined);
+    const mechanisms = input.mechanisms ?? [];
+
+    // Legacy path: no mechanism enforcement
+    if (mechanisms.length === 0) return firstAttempt;
+
+    const missingAfterFirst = findUncoveredMechanismIds(firstAttempt.outline, mechanisms);
+    if (missingAfterFirst.length === 0) return firstAttempt;
+
+    // One-shot retry asking the LLM to amend its previous outline
+    const retryAttempt = await this.runLLM(input, {
+      previousOutline: firstAttempt.outline,
+      missingIds: missingAfterFirst,
+    });
+    const combinedMetrics = {
+      llmCalls: firstAttempt.metrics.llmCalls + retryAttempt.metrics.llmCalls,
+      usage: sumUsage(firstAttempt.metrics.usage, retryAttempt.metrics.usage),
+    };
+
+    const missingAfterRetry = findUncoveredMechanismIds(retryAttempt.outline, mechanisms);
+    if (missingAfterRetry.length === 0) {
+      return { ...retryAttempt, metrics: combinedMetrics };
+    }
+
+    // Deterministic fallback: force-allocate the still-missing ids to the
+    // last section's covers_mechanisms. usedFallback signals to callers.
+    return {
+      outline: forceAllocateMechanisms(retryAttempt.outline, missingAfterRetry),
+      usedFallback: true,
+      metrics: combinedMetrics,
+    };
+  }
+
+  private async runLLM(
+    input: OutlinePlannerInput,
+    retry: { previousOutline: PageOutline; missingIds: string[] } | undefined,
+  ): Promise<OutlinePlanResult> {
     const systemPrompt = `You are a documentation outline planner. Given a page topic, its evidence (file citations and findings), produce a structured JSON outline.
 
 Rules:
@@ -76,12 +117,25 @@ Schema:
     {
       "heading": "section heading text (no ## prefix)",
       "key_points": ["point 1", "point 2"],
-      "cite_from": [{ "target": "path/to/file", "locator": "10-30" }]
+      "cite_from": [{ "target": "path/to/file", "locator": "10-30" }],
+      "covers_mechanisms": ["file:src/foo.ts"]
     }
-  ]
+  ],
+  "out_of_scope_mechanisms": [{ "id": "file:src/bar.ts", "reason": "covered in another-slug" }]
 }`;
 
-    const userPrompt = this.buildUserPrompt(input);
+    let userPrompt = this.buildUserPrompt(input);
+    if (retry) {
+      userPrompt += `
+
+===== RETRY =====
+Your previous outline below is MISSING the following mechanism ids: ${retry.missingIds.join(", ")}.
+Update the outline to add each missing id — either to an existing section's covers_mechanisms, or to out_of_scope_mechanisms with a reason (>= 10 chars). Keep the rest of the outline stable.
+
+Previous outline:
+${JSON.stringify(retry.previousOutline, null, 2)}
+`;
+    }
     const assembled = this.promptAssembler.assemble({ role: "outline", language: input.language, systemPrompt, userPrompt });
 
     try {
@@ -100,8 +154,12 @@ Schema:
 
       const parsed = extractJson(result.text);
       if (parsed && Array.isArray(parsed.sections)) {
-        const outline = this.parseOutline(parsed.sections);
-        if (outline.sections.length >= 2) {
+        const outline = this.parseOutline(parsed);
+        // When mechanism enforcement is active, a 1-section outline is
+        // acceptable as long as it (or out_of_scope_mechanisms) covers
+        // the mechanisms. The legacy path still requires >= 2.
+        const minSections = (input.mechanisms && input.mechanisms.length > 0) ? 1 : 2;
+        if (outline.sections.length >= minSections) {
           return {
             outline,
             usedFallback: false,
@@ -151,15 +209,27 @@ Schema:
       }
     }
 
+    if (input.mechanisms && input.mechanisms.length > 0) {
+      parts.push("");
+      parts.push("===== MECHANISMS =====");
+      for (const m of input.mechanisms) {
+        parts.push(`- [${m.id}] ${m.description} (requirement: ${m.coverageRequirement})`);
+      }
+      parts.push("");
+      parts.push('For every mechanism above, your outline MUST do ONE of the following:');
+      parts.push('A) Include its id in the "covers_mechanisms" array of some section whose "key_points" discuss it.');
+      parts.push('B) Include it in "out_of_scope_mechanisms" with a reason at least 10 characters long (typical phrasing: "covered in <other-slug>" or "out of scope for this page").');
+      parts.push("Never leave a mechanism unaccounted for.");
+    }
+
     parts.push("Produce the outline JSON.");
     return parts.join("\n");
   }
 
-  private parseOutline(
-    raw: unknown[],
-  ): PageOutline {
+  private parseOutline(data: Record<string, unknown>): PageOutline {
+    const rawSections = Array.isArray(data.sections) ? (data.sections as unknown[]) : [];
     const sections: PageOutlineSection[] = [];
-    for (const item of raw) {
+    for (const item of rawSections) {
       if (!item || typeof item !== "object") continue;
       const r = item as Record<string, unknown>;
       const heading =
@@ -185,9 +255,26 @@ Schema:
             .filter((c) => c.target !== "")
         : [];
 
-      sections.push({ heading, key_points, cite_from });
+      const covers_mechanisms = Array.isArray(r.covers_mechanisms)
+        ? (r.covers_mechanisms as unknown[]).filter(
+            (x): x is string => typeof x === "string",
+          )
+        : [];
+
+      sections.push({ heading, key_points, cite_from, covers_mechanisms });
     }
-    return { sections };
+
+    const out_of_scope_mechanisms = Array.isArray(data.out_of_scope_mechanisms)
+      ? (data.out_of_scope_mechanisms as unknown[])
+          .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
+          .map((x) => ({
+            id: typeof x.id === "string" ? x.id : "",
+            reason: typeof x.reason === "string" ? x.reason : "",
+          }))
+          .filter((x) => x.id.length > 0)
+      : [];
+
+    return { sections, out_of_scope_mechanisms };
   }
 
   /**
@@ -209,6 +296,7 @@ Schema:
       heading: input.language === "zh" ? "概述" : "Overview",
       key_points: [input.pageRationale],
       cite_from: input.coveredFiles.slice(0, 2).map((f) => ({ target: f })),
+      covers_mechanisms: [],
     });
 
     // One section per file group
@@ -220,9 +308,46 @@ Schema:
           target: e.target,
           locator: undefined,
         })),
+        covers_mechanisms: [],
       });
     }
 
-    return { sections };
+    return { sections, out_of_scope_mechanisms: [] };
   }
+}
+
+function findUncoveredMechanismIds(outline: PageOutline, mechanisms: Mechanism[]): string[] {
+  const claimed = new Set<string>();
+  for (const section of outline.sections) {
+    for (const id of section.covers_mechanisms ?? []) claimed.add(id);
+  }
+  for (const item of outline.out_of_scope_mechanisms ?? []) claimed.add(item.id);
+  return mechanisms.map((m) => m.id).filter((id) => !claimed.has(id));
+}
+
+function forceAllocateMechanisms(outline: PageOutline, missingIds: string[]): PageOutline {
+  const sections = outline.sections.length > 0
+    ? outline.sections.map((s, i) =>
+        i === outline.sections.length - 1
+          ? { ...s, covers_mechanisms: [...(s.covers_mechanisms ?? []), ...missingIds] }
+          : s,
+      )
+    : [
+        {
+          heading: "附录：未规划机制",
+          key_points: ["以下机制在 outline 阶段未被正式分配到任何 section，由 drafter 自行判断如何展开"],
+          cite_from: [],
+          covers_mechanisms: [...missingIds],
+        },
+      ];
+  return { ...outline, sections };
+}
+
+function sumUsage(a: UsageInput, b: UsageInput): UsageInput {
+  return {
+    inputTokens: (a.inputTokens ?? 0) + (b.inputTokens ?? 0),
+    outputTokens: (a.outputTokens ?? 0) + (b.outputTokens ?? 0),
+    reasoningTokens: (a.reasoningTokens ?? 0) + (b.reasoningTokens ?? 0),
+    cachedTokens: (a.cachedTokens ?? 0) + (b.cachedTokens ?? 0),
+  };
 }
