@@ -205,6 +205,19 @@ export function buildPageDraftUserPrompt(
     }
   }
 
+  // === Mechanisms to cover ===
+  if (context.mechanisms && context.mechanisms.length > 0) {
+    const mechBlock = context.mechanisms
+      .map((m) => `- [${m.id}] ${m.description} (requirement: ${m.coverageRequirement})`)
+      .join("\n");
+    const outOfScopeSection = (context.mechanisms_out_of_scope ?? []).length > 0
+      ? `\n\nOut of scope for this page (do NOT expand):\n${context.mechanisms_out_of_scope!.map((id) => `- ${id}`).join("\n")}`
+      : "";
+    sections.push(
+      `## MECHANISMS TO COVER\n${mechBlock}${outOfScopeSection}\n\nFor each mechanism:\n- must_cite: include a \`[cite:...]\` marker referencing its citation target in the relevant section.\n- must_mention: include the target name or description keywords somewhere in the body.`,
+    );
+  }
+
   // === Revision context — included when re-drafting after a "revise" verdict ===
   if (context.revision) {
     const r = context.revision;

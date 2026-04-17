@@ -42,6 +42,13 @@ export type MainAuthorContext = {
    * to cite in each `##` heading.
    */
   page_outline?: PageOutline;
+  /** When coverageEnforcement != "off", the list of mechanisms the drafter
+   *  should consciously cover. Mirrors the outline's covers_mechanisms but
+   *  with full descriptions so the drafter doesn't need to re-read ledger. */
+  mechanisms?: import("../generation/mechanism-list.js").Mechanism[];
+  /** Mechanism ids the outline planner declared out-of-scope; drafter
+   *  should not expand them on this page. */
+  mechanisms_out_of_scope?: string[];
   /** File path to evidence JSON — drafter can read via tool */
   evidence_file?: string;
   /** File path to outline JSON — drafter can read via tool */
