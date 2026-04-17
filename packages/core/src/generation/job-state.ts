@@ -7,9 +7,12 @@ import type { ResolvedConfig } from "../types/config.js";
 const VALID_TRANSITIONS: Record<JobStatus, JobStatus[]> = {
   queued: ["cataloging", "failed"],
   cataloging: ["page_drafting", "failed", "interrupted"],
-  page_drafting: ["reviewing", "failed", "interrupted"],
-  // reviewing → page_drafting allows the retry loop when reviewer requests revisions
-  reviewing: ["validating", "page_drafting", "failed", "interrupted"],
+  // page_drafting → publishing is allowed for parallel jobs where the global
+  // phase can skip the per-page reviewing/validating "states" (those are
+  // per-page lifecycle markers, not a meaningful job-wide status under
+  // pageConcurrency > 1).
+  page_drafting: ["reviewing", "publishing", "failed", "interrupted"],
+  reviewing: ["validating", "page_drafting", "publishing", "failed", "interrupted"],
   validating: ["page_drafting", "publishing", "failed", "interrupted"],
   publishing: ["completed", "failed"],
   completed: [],
@@ -86,6 +89,19 @@ export class JobStateManager {
       // (e.g. two pages both moving into "reviewing") while still guarding
       // real invalid transitions.
       if (job.status === targetStatus) {
+        return job;
+      }
+
+      // Per-page lifecycle states (page_drafting/reviewing/validating) cannot
+      // accurately represent a job running N pages in parallel — at any moment
+      // different pages are in different phases. Treat any transition between
+      // these three as a no-op so we don't fail when page B wants "reviewing"
+      // while page A has already moved the global flag to "validating".
+      const PAGE_PHASE_STATES: JobStatus[] = ["page_drafting", "reviewing", "validating"];
+      if (
+        PAGE_PHASE_STATES.includes(job.status) &&
+        PAGE_PHASE_STATES.includes(targetStatus)
+      ) {
         return job;
       }
 
