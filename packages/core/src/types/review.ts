@@ -42,6 +42,14 @@ export type ReviewConclusion = {
   factual_risks: string[];
   missing_evidence: string[];
   scope_violations: string[];
+  /**
+   * Mechanism ids the reviewer judged as not adequately covered in the
+   * draft. Derived from `deriveMechanismList` and pre-filtered to exclude
+   * items the outline declared out-of-scope. Non-empty in strict mode
+   * forces `verdict = "revise"` and triggers a re-draft (never re-evidence).
+   * Older review.json files will not have this field.
+   */
+  missing_coverage?: string[];
   suggested_revisions: string[];
   /**
    * Optional: citations the reviewer verified against source. Populated only
