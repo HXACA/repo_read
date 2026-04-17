@@ -29,6 +29,8 @@ export interface GenerateOptions {
   incremental?: boolean;
   /** Override qp.pageConcurrency (1-5). CLI flag validates the range. */
   pageConcurrency?: number;
+  /** Override qp.coverageEnforcement. CLI flag validates the mode. */
+  coverageEnforcement?: "off" | "warn" | "strict";
 }
 
 export async function runGenerate(options: GenerateOptions): Promise<void> {
@@ -64,16 +66,17 @@ export async function runGenerate(options: GenerateOptions): Promise<void> {
   const providerCenter = new ProviderCenter();
   const resolvedConfig = providerCenter.resolve(config);
 
-  // CLI override: --page-concurrency replaces qp.pageConcurrency (if set).
-  if (options.pageConcurrency != null) {
+  // CLI overrides: --page-concurrency and --coverage-enforcement replace qp.* (if set).
+  if (options.pageConcurrency != null || options.coverageEnforcement != null) {
     resolvedConfig.qualityProfile = {
       ...resolvedConfig.qualityProfile,
-      pageConcurrency: options.pageConcurrency,
+      ...(options.pageConcurrency != null && { pageConcurrency: options.pageConcurrency }),
+      ...(options.coverageEnforcement != null && { coverageEnforcement: options.coverageEnforcement }),
     };
   }
 
   console.log(
-    `Config resolved: preset=${resolvedConfig.preset} pageConcurrency=${resolvedConfig.qualityProfile.pageConcurrency}`,
+    `Config resolved: preset=${resolvedConfig.preset} pageConcurrency=${resolvedConfig.qualityProfile.pageConcurrency} coverageEnforcement=${resolvedConfig.qualityProfile.coverageEnforcement}`,
   );
 
   // 3. Gather API keys — env var > config.apiKey

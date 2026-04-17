@@ -47,6 +47,16 @@ export function createProgram(): Command {
         return n;
       },
     )
+    .option(
+      "--coverage-enforcement <mode>",
+      "Mechanism coverage enforcement: off, warn (observe only), or strict (triggers re-draft on gaps). Overrides the preset default.",
+      (value) => {
+        if (!["off", "warn", "strict"].includes(value)) {
+          throw new Error(`--coverage-enforcement must be one of: off, warn, strict (got "${value}")`);
+        }
+        return value as "off" | "warn" | "strict";
+      },
+    )
     .action(async (opts) => {
       if (opts.debug) process.env.REPOREAD_DEBUG = "1";
       await runGenerate({
@@ -55,6 +65,7 @@ export function createProgram(): Command {
         resume: opts.resume,
         incremental: opts.incremental,
         pageConcurrency: opts.pageConcurrency,
+        coverageEnforcement: opts.coverageEnforcement,
       });
     });
 
