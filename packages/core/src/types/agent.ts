@@ -64,6 +64,12 @@ export type MainAuthorContext = {
  */
 export type PageOutline = {
   sections: PageOutlineSection[];
+  /**
+   * Mechanisms the outline planner declared out of scope for this page,
+   * with a short reason (typically referencing where the mechanism is
+   * covered instead). Empty when coverageEnforcement is "off".
+   */
+  out_of_scope_mechanisms?: Array<{ id: string; reason: string }>;
 };
 
 export type PageOutlineSection = {
@@ -73,6 +79,11 @@ export type PageOutlineSection = {
   key_points: string[];
   /** Evidence entries the drafter MUST cite in this section. */
   cite_from: Array<{ target: string; locator?: string }>;
+  /**
+   * Mechanism ids (see `deriveMechanismList`) this section is responsible
+   * for covering. Empty when coverageEnforcement is "off".
+   */
+  covers_mechanisms?: string[];
 };
 
 export type ForkWorkerResult = {
