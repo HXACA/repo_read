@@ -85,3 +85,43 @@ describe("ThroughputReport prefetch fields", () => {
     expect(report.orphanedPrefetch!.phases.evidence!.llmCalls).toBe(1);
   });
 });
+
+describe("ThroughputReport coverage audit", () => {
+  it("aggregates coverage audit across pages", () => {
+    const builder = new ThroughputReportBuilder();
+    builder.setCatalog(zeroPhaseMetric());
+
+    builder.addPage(makePageRecord({
+      pageSlug: "p1",
+      coverage: {
+        totalMechanisms: 5,
+        outOfScopeMechanisms: 1,
+        unresolvedMissingCoverage: 0,
+        coverageDrivenRevisions: 0,
+      },
+    }));
+    builder.addPage(makePageRecord({
+      pageSlug: "p2",
+      coverage: {
+        totalMechanisms: 3,
+        outOfScopeMechanisms: 0,
+        unresolvedMissingCoverage: 2,
+        coverageDrivenRevisions: 3,
+      },
+    }));
+
+    const report = builder.finish({ totalLatencyMs: 1000 });
+    expect(report.coverageAudit).toBeDefined();
+    expect(report.coverageAudit!.totalMechanismsJob).toBe(8);
+    expect(report.coverageAudit!.unresolvedJob).toBe(2);
+    expect(report.coverageAudit!.pagesWithCoverageGap).toEqual(["p2"]);
+  });
+
+  it("omits coverageAudit when no page contributed a coverage record", () => {
+    const builder = new ThroughputReportBuilder();
+    builder.setCatalog(zeroPhaseMetric());
+    builder.addPage(makePageRecord({ pageSlug: "p1" }));
+    const report = builder.finish({ totalLatencyMs: 1000 });
+    expect(report.coverageAudit).toBeUndefined();
+  });
+});

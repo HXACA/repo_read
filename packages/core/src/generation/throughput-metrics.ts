@@ -48,6 +48,19 @@ export type PageThroughputRecord = {
       outline?: PhaseMetric;
     };
   };
+  /** Mechanism coverage audit for this page. Undefined when
+   *  coverageEnforcement was "off" at generation time. */
+  coverage?: {
+    /** Total mechanisms derived from the evidence ledger for this page. */
+    totalMechanisms: number;
+    /** Number of mechanisms the outline planner declared out-of-scope. */
+    outOfScopeMechanisms: number;
+    /** Mechanisms still missing from the draft when the page was finalized. */
+    unresolvedMissingCoverage: number;
+    /** Number of revisions triggered exclusively by coverage gaps
+     *  (not by missing_evidence / factual_risks / scope_violations). */
+    coverageDrivenRevisions: number;
+  };
 };
 
 /** Top-level throughput report persisted as throughput.json. */
@@ -66,6 +79,16 @@ export type ThroughputReport = {
       evidence?: PhaseMetric;
       outline?: PhaseMetric;
     };
+  };
+  /** Job-wide mechanism coverage summary. Undefined when no page used
+   *  coverage enforcement. */
+  coverageAudit?: {
+    /** Sum of totalMechanisms across all pages. */
+    totalMechanismsJob: number;
+    /** Sum of unresolvedMissingCoverage across all pages. */
+    unresolvedJob: number;
+    /** Slugs of pages that ended with non-zero unresolvedMissingCoverage. */
+    pagesWithCoverageGap: string[];
   };
 };
 
@@ -298,6 +321,27 @@ export class ThroughputReportBuilder {
     const prefetchHits = prefetchedPages.filter(p => p.prefetch!.hit).length;
     const prefetchHitRate = prefetchedPages.length > 0 ? prefetchHits / prefetchedPages.length : 0;
 
+    // Job-wide coverage audit: only emitted when at least one page
+    // contributed a `coverage` record (i.e. coverageEnforcement != "off").
+    let coverageAudit: ThroughputReport["coverageAudit"] | undefined;
+    const pagesWithCoverage = this.pageRecords.filter((p) => p.coverage != null);
+    if (pagesWithCoverage.length > 0) {
+      let totalMechanismsJob = 0;
+      let unresolvedJob = 0;
+      const pagesWithGap: string[] = [];
+      for (const p of pagesWithCoverage) {
+        const c = p.coverage!;
+        totalMechanismsJob += c.totalMechanisms;
+        unresolvedJob += c.unresolvedMissingCoverage;
+        if (c.unresolvedMissingCoverage > 0) pagesWithGap.push(p.pageSlug);
+      }
+      coverageAudit = {
+        totalMechanismsJob,
+        unresolvedJob,
+        pagesWithCoverageGap: pagesWithGap,
+      };
+    }
+
     return {
       catalog: this.catalog,
       pages: this.pageRecords,
@@ -308,7 +352,8 @@ export class ThroughputReportBuilder {
       },
       reviewEscalationRate,
       prefetchHitRate,
-      orphanedPrefetch: this.orphanedPrefetch,
+      ...(this.orphanedPrefetch ? { orphanedPrefetch: this.orphanedPrefetch } : {}),
+      ...(coverageAudit ? { coverageAudit } : {}),
     };
   }
 }

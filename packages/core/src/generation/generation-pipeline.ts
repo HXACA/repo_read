@@ -603,6 +603,10 @@ export class GenerationPipeline {
     let evidenceResult: EvidenceCollectionResult | null = null;
     // Outline is planned once after evidence collection and reused across retries
     let outline: PageOutline | null = null;
+    // Mechanism list derived from the current evidence ledger. Re-derived on
+    // each retry in case evidence was re-collected. Surfaced via
+    // pageMetrics.coverage once the page finishes.
+    let mechanisms: Mechanism[] = [];
     const pageRef: PageRef = { projectSlug: slug, jobId, pageSlug: page.slug };
     const versionedRef: VersionedPageRef = { ...pageRef, versionId };
 
@@ -625,6 +629,11 @@ export class GenerationPipeline {
     if (prefetchSlot?.artifactsReady.evidence) {
       evidenceCollectionCount = 1;
     }
+
+    // Count revisions triggered exclusively by coverage gaps (not by
+    // missing_evidence / factual_risks / scope_violations). Feeds
+    // pageMetrics.coverage.coverageDrivenRevisions.
+    let coverageDrivenRevisions = 0;
 
     try {
     while (true) {
@@ -758,7 +767,8 @@ export class GenerationPipeline {
 
       // Derive mechanism list from the current evidence ledger. Empty when
       // coverageEnforcement is "off" or when the ledger has no notes.
-      let mechanisms: Mechanism[] = [];
+      // (declared in outer scope so it's visible at pageMetrics assembly)
+      mechanisms = [];
       if (qp.coverageEnforcement !== "off" && evidenceResult) {
         mechanisms = deriveMechanismList(evidenceResult.ledger, page.covered_files);
       }
@@ -1150,6 +1160,10 @@ export class GenerationPipeline {
         break;
       }
 
+      if (hasCoverageGap && !hasEvidenceIssues) {
+        coverageDrivenRevisions += 1;
+      }
+
       // Retry: increment attempt, drafter will receive revision context
       attempt++;
       job = await this.jobManager.transition(slug, jobId, "page_drafting");
@@ -1294,6 +1308,17 @@ export class GenerationPipeline {
         waitMs: prefetchWaitMs,
         phases: { ...prefetchSlot.phases },
       } : undefined,
+      // Coverage metrics — undefined (via conditional spread) when coverageEnforcement is "off".
+      ...(qp.coverageEnforcement !== "off"
+        ? {
+            coverage: {
+              totalMechanisms: mechanisms.length,
+              outOfScopeMechanisms: (outline?.out_of_scope_mechanisms ?? []).length,
+              unresolvedMissingCoverage: finalReview?.conclusion?.missing_coverage?.length ?? 0,
+              coverageDrivenRevisions,
+            },
+          }
+        : {}),
     };
 
     // Only surface the summary when running in parallel mode so the scheduler
