@@ -355,8 +355,9 @@ describe("coverage enforcement integration", () => {
     const result = await pipeline.run(job);
 
     expect(result.success).toBe(true);
-    // warn mode: at least one review per page must have happened
-    expect(reviewCalls).toBeGreaterThanOrEqual(2);
+    // warn mode: exactly one review per page; must NOT trigger any revision
+    // from the coverage branch because `hasCoverageGap` is strict-gated.
+    expect(reviewCalls).toBe(2);
 
     const throughputPath = path.join(
       storage.paths.jobDir("proj", job.id),

@@ -125,8 +125,11 @@ export class FreshReviewer {
  * unit testing. Defensively coerces every field so malformed JSON never
  * throws — the pipeline can rely on shape even if the model hallucinates.
  *
- * Promotes `missing_coverage` entries into blockers with a `[coverage:<id>]`
- * marker, and forces `verdict = "revise"` when any coverage gap is reported.
+ * `missing_coverage` is reported as pure data. The reviewer does NOT force
+ * `verdict = "revise"` or promote entries to blockers when only a coverage
+ * gap exists — the pipeline is the sole arbiter of mode-gated routing
+ * (strict vs warn vs off). Verdict is still forced to `"revise"` when there
+ * are explicit blockers or citation verification failures.
  */
 export function parseFreshReviewerOutput(text: string): ReviewResult {
   const data = extractJson(text);
@@ -153,13 +156,9 @@ export function parseFreshReviewerOutput(text: string): ReviewResult {
     ? (data.missing_coverage as unknown[]).filter((x): x is string => typeof x === "string")
     : [];
 
-  // Promote any missing_coverage entries into blockers (visible to pipeline + revision prompt).
-  for (const id of missingCoverage) {
-    const marker = `[coverage:${id}]`;
-    if (!blockers.some((b) => b.includes(marker))) {
-      blockers.push(`Mechanism ${marker} not covered in draft`);
-    }
-  }
+  // Note: `missing_coverage` is reported as pure data. We do NOT auto-promote
+  // it to blockers — that decision is mode-gated (strict vs warn) and belongs
+  // to the pipeline, which knows `qp.coverageEnforcement`.
 
   // Parse verified_citations, defensively coerce each entry
   const verified: VerifiedCitation[] = [];
@@ -208,12 +207,14 @@ export function parseFreshReviewerOutput(text: string): ReviewResult {
     }
   }
 
-  // If any non-match verifications OR any missing coverage, the verdict must be "revise"
+  // If any non-match verifications OR any explicit blockers, the verdict must
+  // be "revise". Missing coverage is NOT a reviewer-side force — the pipeline
+  // applies mode-gated logic based on `qp.coverageEnforcement`.
   const hasVerificationFailure = verified.some((v) => v.status !== "match");
   const rawVerdict =
     data.verdict === "revise" ? "revise" : ("pass" as const);
   const verdict =
-    blockers.length > 0 || hasVerificationFailure || missingCoverage.length > 0
+    blockers.length > 0 || hasVerificationFailure
       ? "revise"
       : rawVerdict;
 

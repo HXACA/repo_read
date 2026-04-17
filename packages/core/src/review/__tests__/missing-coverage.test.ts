@@ -3,7 +3,7 @@ import { parseFreshReviewerOutput } from "../reviewer.js";
 import { parseL1SemanticReviewerOutput } from "../l1-semantic-reviewer.js";
 
 describe("parseFreshReviewerOutput — missing_coverage handling", () => {
-  it("promotes missing_coverage entries into blockers and forces verdict=revise", () => {
+  it("reports missing_coverage as data; verdict follows LLM, not forced by coverage", () => {
     const result = parseFreshReviewerOutput(
       JSON.stringify({
         verdict: "pass",
@@ -17,17 +17,15 @@ describe("parseFreshReviewerOutput — missing_coverage handling", () => {
     );
 
     expect(result.success).toBe(true);
-    expect(result.conclusion!.verdict).toBe("revise");
+    // Reviewer does NOT force verdict when only missing_coverage is non-empty;
+    // the pipeline decides based on qp.coverageEnforcement.
+    expect(result.conclusion!.verdict).toBe("pass");
     expect(result.conclusion!.missing_coverage).toEqual([
       "file:foo.ts",
       "file:bar.ts",
     ]);
-    expect(result.conclusion!.blockers).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining("[coverage:file:foo.ts]"),
-        expect.stringContaining("[coverage:file:bar.ts]"),
-      ]),
-    );
+    // No coverage markers auto-promoted into blockers.
+    expect(result.conclusion!.blockers).toEqual([]);
   });
 
   it("keeps verdict=pass when missing_coverage is empty", () => {
@@ -81,7 +79,7 @@ describe("parseFreshReviewerOutput — missing_coverage handling", () => {
     expect(result.conclusion!.verdict).toBe("pass");
   });
 
-  it("does not duplicate coverage blocker when already present", () => {
+  it("preserves LLM-supplied coverage-mention blockers verbatim (no auto-promotion, no dedup)", () => {
     const result = parseFreshReviewerOutput(
       JSON.stringify({
         verdict: "revise",
@@ -94,10 +92,13 @@ describe("parseFreshReviewerOutput — missing_coverage handling", () => {
       }),
     );
 
+    // Reviewer no longer auto-promotes missing_coverage into blockers, so
+    // the only coverage-marked blocker is the one the LLM itself supplied.
     const coverageBlockers = result.conclusion!.blockers.filter((b) =>
       b.includes("[coverage:file:foo.ts]"),
     );
     expect(coverageBlockers).toHaveLength(1);
+    // Verdict stays "revise" because the LLM said so (blockers.length > 0 also triggers it).
     expect(result.conclusion!.verdict).toBe("revise");
   });
 
@@ -126,7 +127,7 @@ describe("parseFreshReviewerOutput — missing_coverage handling", () => {
 });
 
 describe("parseL1SemanticReviewerOutput — missing_coverage handling", () => {
-  it("promotes missing_coverage entries into blockers and forces verdict=revise", () => {
+  it("reports missing_coverage as data; verdict follows LLM, not forced by coverage", () => {
     const result = parseL1SemanticReviewerOutput(
       JSON.stringify({
         verdict: "pass",
@@ -140,17 +141,15 @@ describe("parseL1SemanticReviewerOutput — missing_coverage handling", () => {
     );
 
     expect(result.success).toBe(true);
-    expect(result.conclusion!.verdict).toBe("revise");
+    // Reviewer does NOT force verdict when only missing_coverage is non-empty;
+    // the pipeline decides based on qp.coverageEnforcement.
+    expect(result.conclusion!.verdict).toBe("pass");
     expect(result.conclusion!.missing_coverage).toEqual([
       "file:foo.ts",
       "file:bar.ts",
     ]);
-    expect(result.conclusion!.blockers).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining("[coverage:file:foo.ts]"),
-        expect.stringContaining("[coverage:file:bar.ts]"),
-      ]),
-    );
+    // No coverage markers auto-promoted into blockers.
+    expect(result.conclusion!.blockers).toEqual([]);
   });
 
   it("keeps verdict=pass when missing_coverage is empty", () => {
@@ -189,7 +188,7 @@ describe("parseL1SemanticReviewerOutput — missing_coverage handling", () => {
     expect(result.conclusion!.missing_coverage).toEqual([]);
   });
 
-  it("preserves other fields alongside missing_coverage", () => {
+  it("preserves other fields alongside missing_coverage (no coverage auto-promotion)", () => {
     const result = parseL1SemanticReviewerOutput(
       JSON.stringify({
         verdict: "revise",
@@ -202,16 +201,19 @@ describe("parseL1SemanticReviewerOutput — missing_coverage handling", () => {
       }),
     );
 
+    // Verdict stays "revise" because LLM said so (and blockers is non-empty).
     expect(result.conclusion!.verdict).toBe("revise");
     expect(result.conclusion!.factual_risks).toEqual(["risk A"]);
     expect(result.conclusion!.missing_evidence).toEqual(["evidence B"]);
     expect(result.conclusion!.scope_violations).toEqual(["scope C"]);
     expect(result.conclusion!.suggested_revisions).toEqual(["fix X"]);
-    expect(result.conclusion!.blockers).toContain("Explicit blocker");
+    expect(result.conclusion!.missing_coverage).toEqual(["file:foo.ts"]);
+    // Blockers contain only what the LLM supplied — no coverage marker injected.
+    expect(result.conclusion!.blockers).toEqual(["Explicit blocker"]);
     expect(
       result.conclusion!.blockers.some((b) =>
         b.includes("[coverage:file:foo.ts]"),
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 });

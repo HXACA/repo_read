@@ -1150,12 +1150,22 @@ export class GenerationPipeline {
 
       const verdict = reviewResult.conclusion!.verdict;
       const canRetry = attempt < policy.maxRevisionAttempts;
-      // A "pass" verdict is authoritative and terminal — never retry on pass,
-      // even if other fields are populated (e.g. degraded-reviewer synthesis
-      // writes a factual_risks note while still returning pass).
+
+      // Coverage gap in strict mode overrides a "pass" verdict. The reviewer
+      // reports `missing_coverage` as pure data and does NOT force revise on
+      // coverage alone — that's a mode-gated decision the pipeline owns.
+      // Recall failures (missing mechanism coverage) should trigger a re-draft
+      // in strict mode even when the LLM said "pass".
+      const effectiveVerdict: "pass" | "revise" =
+        hasCoverageGap && verdict === "pass" ? "revise" : verdict;
+
+      // A "pass" verdict (post-coverage-upgrade) is authoritative and terminal
+      // — never retry on pass, even if other fields are populated (e.g.
+      // degraded-reviewer synthesis writes a factual_risks note while still
+      // returning pass).
       const needsRevision =
-        verdict !== "pass" &&
-        (verdict === "revise" || hasEvidenceIssues || hasCoverageGap);
+        effectiveVerdict !== "pass" &&
+        (effectiveVerdict === "revise" || hasEvidenceIssues || hasCoverageGap);
 
       if (!needsRevision || !canRetry) {
         break;
