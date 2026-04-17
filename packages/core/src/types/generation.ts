@@ -80,6 +80,10 @@ export type PageMeta = {
   reviewSummary: string;
   reviewDigest: string;
   revisionAttempts?: number;
+  /** Mechanism ids still uncovered when the page was finalized. Populated
+   *  only when coverageEnforcement is on and revisions were exhausted.
+   *  Empty/absent when every mechanism was covered (or coverage is off). */
+  coverageBlockers?: string[];
   status: PageStatus;
   validation: {
     structurePassed: boolean;

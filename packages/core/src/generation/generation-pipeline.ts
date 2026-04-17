@@ -1121,15 +1121,32 @@ export class GenerationPipeline {
         policy = lanePlan.policy;
       }
 
-      // Decide whether to retry: if the reviewer says "revise" and we
-      // still have budget, always retry — the rationale may be in
-      // blockers, factual_risks, missing_evidence, or suggested_revisions.
-      // Previously we required non-empty blockers, but that let pages
-      // through when the reviewer flagged issues in other fields only.
+      // Decide whether to retry. There are two kinds of issues:
+      //   - Evidence-class issues (missing_evidence, factual_risks,
+      //     scope_violations) may trigger an evidence re-run (bounded by
+      //     qp.maxEvidenceAttempts).
+      //   - Coverage gaps (missing_coverage non-empty) trigger a re-draft
+      //     only when coverageEnforcement === "strict"; never an evidence
+      //     re-run — the ledger already has the relevant info.
+      const hasEvidenceIssues =
+        (reviewResult?.conclusion?.missing_evidence?.length ?? 0) > 0 ||
+        (reviewResult?.conclusion?.factual_risks?.length ?? 0) > 0 ||
+        (reviewResult?.conclusion?.scope_violations?.length ?? 0) > 0;
+
+      const hasCoverageGap =
+        qp.coverageEnforcement === "strict" &&
+        (reviewResult?.conclusion?.missing_coverage?.length ?? 0) > 0;
+
       const verdict = reviewResult.conclusion!.verdict;
       const canRetry = attempt < policy.maxRevisionAttempts;
+      // A "pass" verdict is authoritative and terminal — never retry on pass,
+      // even if other fields are populated (e.g. degraded-reviewer synthesis
+      // writes a factual_risks note while still returning pass).
+      const needsRevision =
+        verdict !== "pass" &&
+        (verdict === "revise" || hasEvidenceIssues || hasCoverageGap);
 
-      if (verdict === "pass" || !canRetry) {
+      if (!needsRevision || !canRetry) {
         break;
       }
 
@@ -1205,6 +1222,9 @@ export class GenerationPipeline {
         finalReview.conclusion!.blockers.join("; ") || "No blockers",
       reviewDigest: JSON.stringify(finalReview.conclusion),
       revisionAttempts: attempt,
+      ...(qp.coverageEnforcement !== "off"
+        ? { coverageBlockers: finalReview.conclusion?.missing_coverage ?? [] }
+        : {}),
       status: "validated" as const,
       validation: {
         structurePassed: validationResult.passed,
