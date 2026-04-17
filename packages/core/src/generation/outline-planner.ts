@@ -154,7 +154,10 @@ ${JSON.stringify(retry.previousOutline, null, 2)}
 
       const parsed = extractJson(result.text);
       if (parsed && Array.isArray(parsed.sections)) {
-        const outline = this.parseOutline(parsed);
+        const validMechanismIds = input.mechanisms && input.mechanisms.length > 0
+          ? new Set(input.mechanisms.map((m) => m.id))
+          : undefined;
+        const outline = this.parseOutline(parsed, validMechanismIds);
         // When mechanism enforcement is active, a 1-section outline is
         // acceptable as long as it (or out_of_scope_mechanisms) covers
         // the mechanisms. The legacy path still requires >= 2.
@@ -226,7 +229,10 @@ ${JSON.stringify(retry.previousOutline, null, 2)}
     return parts.join("\n");
   }
 
-  private parseOutline(data: Record<string, unknown>): PageOutline {
+  private parseOutline(
+    data: Record<string, unknown>,
+    validMechanismIds?: ReadonlySet<string>,
+  ): PageOutline {
     const rawSections = Array.isArray(data.sections) ? (data.sections as unknown[]) : [];
     const sections: PageOutlineSection[] = [];
     for (const item of rawSections) {
@@ -271,7 +277,16 @@ ${JSON.stringify(retry.previousOutline, null, 2)}
             id: typeof x.id === "string" ? x.id : "",
             reason: typeof x.reason === "string" ? x.reason : "",
           }))
+          // Structural validation: id must be a non-empty string.
           .filter((x) => x.id.length > 0)
+          // Semantic validation: reason must be meaningful (>= 10 chars trimmed).
+          // Without this, the planner could silently drop any mechanism from the
+          // coverage chain with a token reason.
+          .filter((x) => x.reason.trim().length >= 10)
+          // Anti-fabrication: id must come from the input mechanism set when
+          // enforcement is active. Prevents the planner from inventing ids to
+          // declare "out of scope".
+          .filter((x) => validMechanismIds === undefined || validMechanismIds.has(x.id))
       : [];
 
     return { sections, out_of_scope_mechanisms };

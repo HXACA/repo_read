@@ -308,6 +308,107 @@ describe("OutlinePlanner mechanism coverage", () => {
     expect(result.outline.out_of_scope_mechanisms).toEqual([{ id: "file:m2", reason: "covered in another-page-slug" }]);
   });
 
+  it("drops out_of_scope entries with fabricated ids (not in input)", async () => {
+    const { generateText } = await import("ai");
+    const mockGenerateText = vi.mocked(generateText);
+
+    // LLM returns an out_of_scope declaration for an id not in input — should be dropped,
+    // triggering retry because m1 is now unallocated.
+    mockGenerateText.mockResolvedValueOnce({
+      text: JSON.stringify({
+        sections: [{ heading: "A", key_points: ["k"], cite_from: [], covers_mechanisms: [] }],
+        out_of_scope_mechanisms: [{ id: "file:fabricated.ts", reason: "covered elsewhere properly" }],
+      }),
+      usage: { inputTokens: 10, outputTokens: 5 },
+    } as never);
+    // Retry adds m1
+    mockGenerateText.mockResolvedValueOnce({
+      text: JSON.stringify({
+        sections: [{ heading: "A", key_points: ["k"], cite_from: [], covers_mechanisms: ["file:m1"] }],
+        out_of_scope_mechanisms: [],
+      }),
+      usage: { inputTokens: 10, outputTokens: 5 },
+    } as never);
+
+    const mechanisms: Mechanism[] = [
+      { id: "file:m1", citation: { kind: "file", target: "m1" }, description: "m1", coverageRequirement: "must_cite" },
+    ];
+
+    const planner = new OutlinePlanner({ model: {} as never });
+    const result = await planner.planWithMetrics({
+      pageTitle: "Page", pageRationale: "r", coveredFiles: ["m1"], language: "en",
+      ledger: [], findings: [], mechanisms,
+    });
+
+    // Retry was required because fabricated id was dropped
+    expect(mockGenerateText).toHaveBeenCalledTimes(2);
+    // Final outline has m1 allocated to section, no fabricated id anywhere
+    expect(result.outline.sections[0].covers_mechanisms).toContain("file:m1");
+    expect(result.outline.out_of_scope_mechanisms ?? []).toEqual([]);
+  });
+
+  it("drops out_of_scope entries with reason shorter than 10 chars", async () => {
+    const { generateText } = await import("ai");
+    const mockGenerateText = vi.mocked(generateText);
+
+    mockGenerateText.mockResolvedValueOnce({
+      text: JSON.stringify({
+        sections: [{ heading: "A", key_points: ["k"], cite_from: [], covers_mechanisms: ["file:m1"] }],
+        out_of_scope_mechanisms: [{ id: "file:m2", reason: "nope" }], // <10 chars
+      }),
+      usage: { inputTokens: 10, outputTokens: 5 },
+    } as never);
+    mockGenerateText.mockResolvedValueOnce({
+      text: JSON.stringify({
+        sections: [{ heading: "A", key_points: ["k"], cite_from: [], covers_mechanisms: ["file:m1", "file:m2"] }],
+        out_of_scope_mechanisms: [],
+      }),
+      usage: { inputTokens: 10, outputTokens: 5 },
+    } as never);
+
+    const mechanisms: Mechanism[] = [
+      { id: "file:m1", citation: { kind: "file", target: "m1" }, description: "m1", coverageRequirement: "must_cite" },
+      { id: "file:m2", citation: { kind: "file", target: "m2" }, description: "m2", coverageRequirement: "must_cite" },
+    ];
+
+    const planner = new OutlinePlanner({ model: {} as never });
+    const result = await planner.planWithMetrics({
+      pageTitle: "Page", pageRationale: "r", coveredFiles: ["m1", "m2"], language: "en",
+      ledger: [], findings: [], mechanisms,
+    });
+
+    expect(mockGenerateText).toHaveBeenCalledTimes(2);
+    expect(result.outline.sections[0].covers_mechanisms).toContain("file:m2");
+  });
+
+  it("keeps out_of_scope entries that satisfy both id-validity and reason-length", async () => {
+    const { generateText } = await import("ai");
+    const mockGenerateText = vi.mocked(generateText);
+
+    mockGenerateText.mockResolvedValueOnce({
+      text: JSON.stringify({
+        sections: [{ heading: "A", key_points: ["k"], cite_from: [], covers_mechanisms: ["file:m1"] }],
+        out_of_scope_mechanisms: [{ id: "file:m2", reason: "covered in related-page-slug" }],
+      }),
+      usage: { inputTokens: 10, outputTokens: 5 },
+    } as never);
+
+    const mechanisms: Mechanism[] = [
+      { id: "file:m1", citation: { kind: "file", target: "m1" }, description: "m1", coverageRequirement: "must_cite" },
+      { id: "file:m2", citation: { kind: "file", target: "m2" }, description: "m2", coverageRequirement: "must_cite" },
+    ];
+
+    const planner = new OutlinePlanner({ model: {} as never });
+    const result = await planner.planWithMetrics({
+      pageTitle: "Page", pageRationale: "r", coveredFiles: ["m1", "m2"], language: "en",
+      ledger: [], findings: [], mechanisms,
+    });
+
+    // No retry needed: valid out_of_scope
+    expect(mockGenerateText).toHaveBeenCalledTimes(1);
+    expect(result.outline.out_of_scope_mechanisms).toEqual([{ id: "file:m2", reason: "covered in related-page-slug" }]);
+  });
+
   it("omits mechanism-enforcement when mechanisms array is empty", async () => {
     const { generateText } = await import("ai");
     const mockGenerateText = vi.mocked(generateText);
