@@ -40,7 +40,7 @@ ${l1StrictnessRule(strictness)}
 When a MECHANISMS_TO_VERIFY block is present, scan the draft text for each mechanism:
 - must_cite: look for [cite:...] containing the target (with or without locator).
 - must_mention: look for the target string or keywords from the description.
-List uncovered ids verbatim in missing_coverage. Non-empty missing_coverage forces verdict="revise". Do NOT invent ids — only use the ones provided.
+List uncovered ids verbatim in missing_coverage. Report honestly; the pipeline's coverageEnforcement setting routes revision — your verdict is based on blockers + factual findings, not on missing_coverage. Do NOT invent ids — only use the ones provided.
 
 Be concise. You are a fast gate, not an exhaustive reviewer.`;
 }
@@ -61,6 +61,12 @@ export function buildL1UserPrompt(briefing: ReviewBriefing, draftContent: string
     }
     if (prev.factual_risks.length > 0) {
       sections.push(`**Factual risks:**\n${prev.factual_risks.map((r) => `- ${r}`).join("\n")}`);
+    }
+    if (prev.missing_evidence.length > 0) {
+      sections.push(`**Missing evidence:**\n${prev.missing_evidence.map((m) => `- ${m}`).join("\n")}`);
+    }
+    if (prev.missing_coverage && prev.missing_coverage.length > 0) {
+      sections.push(`**Previously missing coverage:**\n${prev.missing_coverage.map((id) => `- ${id}`).join("\n")}`);
     }
   }
 

@@ -243,6 +243,11 @@ export function buildPageDraftUserPrompt(
       sections.push("### Scope violations (remove or move out)");
       fb.scope_violations.forEach((b, i) => sections.push(`${i + 1}. ${b}`));
     }
+    if (fb.missing_coverage && fb.missing_coverage.length > 0) {
+      sections.push(
+        `### Missing mechanism coverage (MUST address in this revision)\n${fb.missing_coverage.map((id) => `- ${id}`).join("\n")}\n\nFor each id above, locate its entry in the MECHANISMS TO COVER block and add the required [cite:...] or mention.`,
+      );
+    }
     if (fb.suggested_revisions.length > 0) {
       sections.push("### Suggested revisions");
       fb.suggested_revisions.forEach((b, i) => sections.push(`${i + 1}. ${b}`));

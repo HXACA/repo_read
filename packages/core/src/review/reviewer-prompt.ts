@@ -67,7 +67,7 @@ Rules:
    - requirement=must_cite: The draft must contain a [cite:...] marker that references the mechanism's citation target (and locator if given).
    - requirement=must_mention: The draft text must mention the target name or obvious keywords from the description.
 
-   List any uncovered mechanism ids verbatim in missing_coverage. If missing_coverage is non-empty, verdict MUST be "revise". Do NOT invent ids — only use the ones provided.
+   List any uncovered mechanism ids verbatim in missing_coverage. The pipeline's coverageEnforcement setting decides whether to re-draft — you just report. Do NOT invent ids; only use the ones provided. Your verdict is based on blockers + factual findings, not on missing_coverage.
 8. Return your conclusion as a single JSON object:
 
 {
@@ -114,8 +114,11 @@ export function buildReviewerUserPrompt(briefing: ReviewBriefing): string {
     if (prev.missing_evidence.length > 0) {
       sections.push(`**Missing evidence:**\n${prev.missing_evidence.map((m) => `- ${m}`).join("\n")}`);
     }
+    if (prev.missing_coverage && prev.missing_coverage.length > 0) {
+      sections.push(`**Previously missing coverage:**\n${prev.missing_coverage.map((id) => `- ${id}`).join("\n")}`);
+    }
     sections.push(`The author has revised the draft. Changes: ${attempt}`);
-    sections.push(`The revised draft is at: \`${briefing.draft_file}\`\nUse the \`read\` tool to read the draft, then:\n1. For EACH previously flagged issue above, check if it is now resolved. Include ALL previous issues in your output — mark resolved ones in suggested_revisions as "[RESOLVED] ...", keep unresolved ones in their original category (blockers/factual_risks/missing_evidence).\n2. Spot-check 1-2 unchanged sections for regression.\n3. Report any NEW issues found during spot-check.\n\nIMPORTANT: Do NOT omit unresolved previous issues from your output. Every previous blocker must appear in your conclusion — either still as a blocker (if unresolved) or noted as resolved.`);
+    sections.push(`The revised draft is at: \`${briefing.draft_file}\`\nUse the \`read\` tool to read the draft, then:\n1. For EACH previously flagged issue above, check if it is now resolved. Include ALL previous issues in your output — mark resolved ones in suggested_revisions as "[RESOLVED] ...", keep unresolved ones in their original category (blockers/factual_risks/missing_evidence).\n2. For each id in "Previously missing coverage", verify whether the current draft now covers it (cite or mention per the MECHANISMS_TO_VERIFY requirement). If still uncovered, include it in missing_coverage again. If resolved, note in suggested_revisions as "[RESOLVED] mechanism <id> now covered".\n3. Spot-check 1-2 unchanged sections for regression.\n4. Report any NEW issues found during spot-check.\n\nIMPORTANT: Do NOT omit unresolved previous issues from your output. Every previous blocker must appear in your conclusion — either still as a blocker (if unresolved) or noted as resolved.`);
   } else {
     // First review: read draft from file
     sections.push(`You are reviewing a wiki page draft.\n\nThe draft is saved at: \`${briefing.draft_file}\`\nUse the \`read\` tool to read the draft before reviewing.`);
