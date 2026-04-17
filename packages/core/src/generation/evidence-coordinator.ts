@@ -136,10 +136,32 @@ export class EvidenceCoordinator {
         continue;
       }
       for (const finding of r.data.findings) {
-        if (finding.trim()) findings.push(finding.trim());
+        if (typeof finding !== "string") {
+          if (process.env.REPOREAD_DEBUG) {
+            // eslint-disable-next-line no-console
+            console.warn(
+              `[evidence-coordinator] dropped non-string finding from task ${r.taskId}:`,
+              finding,
+            );
+          }
+          continue;
+        }
+        const s = finding.trim();
+        if (s) findings.push(s);
       }
       for (const q of r.data.open_questions ?? []) {
-        if (q.trim()) openQuestions.push(q.trim());
+        if (typeof q !== "string") {
+          if (process.env.REPOREAD_DEBUG) {
+            // eslint-disable-next-line no-console
+            console.warn(
+              `[evidence-coordinator] dropped non-string open_question from task ${r.taskId}:`,
+              q,
+            );
+          }
+          continue;
+        }
+        const s = q.trim();
+        if (s) openQuestions.push(s);
       }
       for (const c of r.data.citations) {
         const entry = toLedgerEntry(c, String(ledgerAutoId));

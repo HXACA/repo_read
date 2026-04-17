@@ -261,4 +261,75 @@ describe("EvidenceCoordinator", () => {
 
     expect(maxInFlight).toBeLessThanOrEqual(2);
   });
+
+  it("drops non-string findings and open_questions silently", async () => {
+    mockPlan.mockResolvedValueOnce({
+      success: true,
+      plan: {
+        tasks: [
+          { id: "t1", directive: "d1", targetFiles: ["a.ts"], rationale: "r1" },
+          { id: "t2", directive: "d2", targetFiles: ["b.ts"], rationale: "r2" },
+        ],
+      },
+    });
+
+    mockExecute
+      .mockResolvedValueOnce({
+        success: true,
+        data: {
+          directive: "d1",
+          findings: [
+            "valid string finding",
+            { bad: "object" },
+            42,
+            null,
+            "another valid one",
+          ],
+          citations: [
+            {
+              kind: "file" as const,
+              target: "a.ts",
+              locator: "1-10",
+              note: "n-t1",
+            },
+          ],
+          open_questions: ["valid question", [1, 2, 3], undefined, "q2"],
+        },
+      })
+      .mockResolvedValueOnce(workerOk("t2"));
+
+    const coordinator = new EvidenceCoordinator({
+      plannerModel: {} as never,
+      workerModel: {} as never,
+      repoRoot: "/tmp",
+      concurrency: 2,
+    });
+
+    const result = await coordinator.collect({
+      ...baseInput,
+      taskCount: 2,
+    });
+
+    // Only string findings should be in the result
+    expect(result.findings).toEqual(
+      expect.arrayContaining([
+        "valid string finding",
+        "another valid one",
+        "f-t2",
+      ]),
+    );
+    // No "[object Object]" or "42" or "null" in findings
+    expect(result.findings).not.toContain("[object Object]");
+    expect(result.findings).not.toContain("42");
+    expect(result.findings).not.toContain("null");
+
+    // Only string open_questions should be in the result
+    expect(result.openQuestions).toEqual(
+      expect.arrayContaining(["valid question", "q2"]),
+    );
+    // No "[1,2,3]" or "undefined" in openQuestions
+    expect(result.openQuestions).not.toContain("1,2,3");
+    expect(result.openQuestions).not.toContain("[1,2,3]");
+    expect(result.openQuestions).not.toContain("undefined");
+  });
 });
