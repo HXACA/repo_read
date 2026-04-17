@@ -446,4 +446,91 @@ describe("VerificationLadder", () => {
     expect(result.metrics!.usage.inputTokens).toBe(700);
     expect(result.metrics!.usage.outputTokens).toBe(250);
   });
+
+  it("merges missing_coverage from L1 and L2 with dedup", async () => {
+    mockValidatePage.mockReturnValue(passL0);
+    mockL1Review.mockResolvedValue({
+      success: true,
+      conclusion: {
+        verdict: "pass",
+        blockers: [],
+        factual_risks: [],
+        missing_evidence: [],
+        scope_violations: [],
+        suggested_revisions: [],
+        missing_coverage: ["a", "b"],
+      },
+      metrics: { llmCalls: 1, usage: { inputTokens: 200, outputTokens: 80, reasoningTokens: 0, cachedTokens: 0 } },
+    });
+    mockL2Review.mockResolvedValue({
+      success: true,
+      conclusion: {
+        verdict: "pass",
+        blockers: [],
+        factual_risks: [],
+        missing_evidence: [],
+        scope_violations: [],
+        suggested_revisions: [],
+        missing_coverage: ["b", "c"],
+      },
+      metrics: { llmCalls: 1, usage: { inputTokens: 500, outputTokens: 200, reasoningTokens: 0, cachedTokens: 0 } },
+    });
+    const ladder = new VerificationLadder({
+      reviewerModel: {} as never,
+      repoRoot: "/tmp/repo",
+    });
+    const result = await ladder.verify({
+      level: "L2",
+      briefing,
+      draftContent: "# Title\nContent",
+      validationInput: {
+        markdown: "# Title\nContent",
+        citations: [],
+        knownFiles: [],
+        knownPages: [],
+        pageSlug: "test",
+      },
+    });
+    expect(result.conclusion!.verdict).toBe("pass");
+    // missing_coverage should be deduped union: ["a", "b", "c"]
+    expect(result.conclusion!.missing_coverage).toContain("a");
+    expect(result.conclusion!.missing_coverage).toContain("b");
+    expect(result.conclusion!.missing_coverage).toContain("c");
+    expect(result.conclusion!.missing_coverage!.length).toBe(3);
+  });
+
+  it("forwards missing_coverage when short-circuiting after L1", async () => {
+    mockValidatePage.mockReturnValue(passL0);
+    mockL1Review.mockResolvedValue({
+      success: true,
+      conclusion: {
+        verdict: "revise",
+        blockers: ["Scope drift"],
+        factual_risks: [],
+        missing_evidence: [],
+        scope_violations: ["Discusses deployment"],
+        suggested_revisions: [],
+        missing_coverage: ["x"],
+      },
+      metrics: { llmCalls: 1, usage: { inputTokens: 200, outputTokens: 80, reasoningTokens: 0, cachedTokens: 0 } },
+    });
+    const ladder = new VerificationLadder({
+      reviewerModel: {} as never,
+      repoRoot: "/tmp/repo",
+    });
+    const result = await ladder.verify({
+      level: "L2",
+      briefing,
+      draftContent: "# Title\nContent",
+      validationInput: {
+        markdown: "# Title\nContent",
+        citations: [],
+        knownFiles: [],
+        knownPages: [],
+        pageSlug: "test",
+      },
+    });
+    expect(result.levelReached).toBe("L1");
+    expect(result.conclusion!.missing_coverage).toEqual(["x"]);
+  });
 });

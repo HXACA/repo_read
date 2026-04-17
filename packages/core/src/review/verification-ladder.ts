@@ -176,6 +176,10 @@ export class VerificationLadder {
       ...l1Conclusion.scope_violations,
       ...l2Conclusion.scope_violations,
     ]);
+    const mergedMissingCoverage = dedup([
+      ...(l1Conclusion.missing_coverage ?? []),
+      ...(l2Conclusion.missing_coverage ?? []),
+    ]);
 
     const finalBlockers = [...l0Blockers, ...l2Conclusion.blockers];
     const finalVerdict =
@@ -190,6 +194,7 @@ export class VerificationLadder {
         factual_risks: mergedFactualRisks,
         missing_evidence: mergedMissingEvidence,
         scope_violations: mergedScopeViolations,
+        missing_coverage: mergedMissingCoverage.length > 0 ? mergedMissingCoverage : undefined,
         suggested_revisions: dedup([
           ...l0Result.warnings.map((w) => `[L0] ${w}`),
           ...l1Conclusion.suggested_revisions,
