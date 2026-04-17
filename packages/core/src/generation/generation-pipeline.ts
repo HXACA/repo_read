@@ -20,6 +20,7 @@ import { persistCatalog } from "../catalog/catalog-persister.js";
 import { Publisher } from "./publisher.js";
 import { EvidenceCoordinator, type EvidenceCollectionResult } from "./evidence-coordinator.js";
 import { OutlinePlanner } from "./outline-planner.js";
+import { deriveMechanismList, type Mechanism } from "./mechanism-list.js";
 import type { PageOutline } from "../types/agent.js";
 import { ArtifactStore } from "../artifacts/artifact-store.js";
 import {
@@ -755,6 +756,13 @@ export class GenerationPipeline {
         if (evidenceResult.metrics.llmCalls > 0) evidenceMetric.reused = false;
       }
 
+      // Derive mechanism list from the current evidence ledger. Empty when
+      // coverageEnforcement is "off" or when the ledger has no notes.
+      let mechanisms: Mechanism[] = [];
+      if (qp.coverageEnforcement !== "off" && evidenceResult) {
+        mechanisms = deriveMechanismList(evidenceResult.ledger, page.covered_files);
+      }
+
       // === OUTLINE PLANNING ===
       // Plan the outline after evidence is collected. Re-plan when
       // evidence was just re-collected on a retry (the evidence base
@@ -768,6 +776,7 @@ export class GenerationPipeline {
           language: this.config.language,
           ledger: evidenceResult.ledger,
           findings: evidenceResult.findings,
+          mechanisms,
         });
         outline = outlineResult.outline;
         outlineMetric.durationMs += Date.now() - outlineStartedAt;
@@ -778,6 +787,12 @@ export class GenerationPipeline {
           await this.artifactStore.saveOutline(pageRef, outline);
         }
       }
+
+      // Filtered mechanism lists, used by drafter and reviewer. Entries
+      // marked out-of-scope by the outline are excluded from both surfaces.
+      const outOfScopeIds = (outline?.out_of_scope_mechanisms ?? []).map((x) => x.id);
+      const mechanismsForDrafter = mechanisms.filter((m) => !outOfScopeIds.includes(m.id));
+      const mechanismsForReviewer = mechanismsForDrafter;
 
       await emitter.pageDrafting(page.slug);
 
@@ -817,6 +832,8 @@ export class GenerationPipeline {
               draft_file: path.relative(this.repoRoot, this.storage.paths.draftPageMd(slug, jobId, versionId, page.slug)),
             }
           : {}),
+        ...(mechanismsForDrafter.length > 0 ? { mechanisms: mechanismsForDrafter } : {}),
+        ...(outOfScopeIds.length > 0 ? { mechanisms_out_of_scope: outOfScopeIds } : {}),
       };
 
       // Use a per-page drafter when complexity scoring has adjusted
@@ -967,6 +984,7 @@ export class GenerationPipeline {
           previous_review: reviewResult.conclusion,
           revision_diff_summary: `Revision attempt ${attempt} addressing: ${reviewResult.conclusion.blockers.join("; ")}`,
         } : {}),
+        ...(mechanismsForReviewer.length > 0 ? { mechanisms_to_verify: mechanismsForReviewer } : {}),
       };
 
       // Start prefetching the next page's evidence+outline BEFORE review.
