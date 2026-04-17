@@ -78,36 +78,64 @@ export class L1SemanticReviewer {
   }
 
   private parseOutput(text: string): ReviewResult {
-    const data = extractJson(text);
-    if (!data) {
-      return {
-        success: true,
-        conclusion: {
-          verdict: "pass",
-          blockers: [],
-          factual_risks: [],
-          missing_evidence: [],
-          scope_violations: [],
-          suggested_revisions: [text.slice(0, 200)],
-        },
-      };
-    }
+    return parseL1SemanticReviewerOutput(text);
+  }
+}
 
-    const blockers = Array.isArray(data.blockers)
-      ? (data.blockers as string[]).filter((b) => typeof b === "string")
-      : [];
-    const verdict = blockers.length > 0 || data.verdict === "revise" ? "revise" : "pass";
-
+/**
+ * Parses an L1SemanticReviewer LLM output string into a ReviewResult.
+ * Exported for unit testing. Promotes `missing_coverage` entries into blockers
+ * with a `[coverage:<id>]` marker and forces `verdict = "revise"` when any
+ * coverage gap is reported.
+ */
+export function parseL1SemanticReviewerOutput(text: string): ReviewResult {
+  const data = extractJson(text);
+  if (!data) {
     return {
       success: true,
       conclusion: {
-        verdict,
-        blockers,
-        factual_risks: Array.isArray(data.factual_risks) ? (data.factual_risks as string[]) : [],
-        missing_evidence: Array.isArray(data.missing_evidence) ? (data.missing_evidence as string[]) : [],
-        scope_violations: Array.isArray(data.scope_violations) ? (data.scope_violations as string[]) : [],
-        suggested_revisions: Array.isArray(data.suggested_revisions) ? (data.suggested_revisions as string[]) : [],
+        verdict: "pass",
+        blockers: [],
+        factual_risks: [],
+        missing_evidence: [],
+        scope_violations: [],
+        missing_coverage: [],
+        suggested_revisions: [text.slice(0, 200)],
       },
     };
   }
+
+  const blockers = Array.isArray(data.blockers)
+    ? (data.blockers as unknown[]).filter((b): b is string => typeof b === "string")
+    : [];
+
+  const missingCoverage = Array.isArray(data.missing_coverage)
+    ? (data.missing_coverage as unknown[]).filter((x): x is string => typeof x === "string")
+    : [];
+
+  const blockersAug = [...blockers];
+  for (const id of missingCoverage) {
+    const marker = `[coverage:${id}]`;
+    if (!blockersAug.some((b) => b.includes(marker))) {
+      blockersAug.push(`Mechanism ${marker} not covered in draft`);
+    }
+  }
+
+  const verdict =
+    blockersAug.length > 0 || missingCoverage.length > 0 || data.verdict === "revise"
+      ? "revise"
+      : "pass";
+
+  return {
+    success: true,
+    conclusion: {
+      verdict,
+      blockers: blockersAug,
+      factual_risks: Array.isArray(data.factual_risks) ? (data.factual_risks as string[]) : [],
+      missing_evidence: Array.isArray(data.missing_evidence) ? (data.missing_evidence as string[]) : [],
+      scope_violations: Array.isArray(data.scope_violations) ? (data.scope_violations as string[]) : [],
+      missing_coverage: missingCoverage,
+      suggested_revisions: Array.isArray(data.suggested_revisions) ? (data.suggested_revisions as string[]) : [],
+    },
+  };
 }

@@ -1,3 +1,5 @@
+import type { Mechanism } from "../generation/mechanism-list.js";
+
 export type ReviewBriefing = {
   page_title: string;
   section_position: string;
@@ -11,6 +13,12 @@ export type ReviewBriefing = {
   previous_review?: ReviewConclusion;
   /** Human-readable summary of what changed since the previous review. */
   revision_diff_summary?: string;
+  /**
+   * Mechanisms the reviewer must audit for recall-based coverage. Empty
+   * when coverageEnforcement is "off". Pipeline pre-filters out any
+   * mechanism the outline declared out_of_scope.
+   */
+  mechanisms_to_verify?: Mechanism[];
 };
 
 export type ReviewVerdict = "pass" | "revise";

@@ -33,8 +33,14 @@ ${l1StrictnessRule(strictness)}
   "factual_risks": ["claims not backed by evidence"],
   "missing_evidence": ["sections or topics lacking citations"],
   "scope_violations": ["content outside the page plan"],
+  "missing_coverage": ["mechanism ids not present in the draft"],
   "suggested_revisions": ["specific actionable changes"]
 }
+
+When a MECHANISMS_TO_VERIFY block is present, scan the draft text for each mechanism:
+- must_cite: look for [cite:...] containing the target (with or without locator).
+- must_mention: look for the target string or keywords from the description.
+List uncovered ids verbatim in missing_coverage. Non-empty missing_coverage forces verdict="revise". Do NOT invent ids — only use the ones provided.
 
 Be concise. You are a fast gate, not an exhaustive reviewer.`;
 }
@@ -56,6 +62,13 @@ export function buildL1UserPrompt(briefing: ReviewBriefing, draftContent: string
     if (prev.factual_risks.length > 0) {
       sections.push(`**Factual risks:**\n${prev.factual_risks.map((r) => `- ${r}`).join("\n")}`);
     }
+  }
+
+  if (briefing.mechanisms_to_verify && briefing.mechanisms_to_verify.length > 0) {
+    const mechBlock = briefing.mechanisms_to_verify
+      .map((m) => `- [${m.id}] ${m.description} (requirement: ${m.coverageRequirement})`)
+      .join("\n");
+    sections.push(`## MECHANISMS_TO_VERIFY\n${mechBlock}`);
   }
 
   sections.push(`## Draft Content\n\n${draftContent}`);

@@ -62,7 +62,13 @@ Rules:
 4. You may re-read source files to verify citations.
 5. You MUST NOT rewrite the page or produce new content.
 6. **Citation density check**: Scan the draft for \`[cite:...]\` markers. If any \`##\` section has zero citations, add it to \`missing_evidence\` (e.g. "Section '## Foo' has no citations — add evidence from covered files"). Also flag any citation with a locator range spanning an entire file (e.g. \`:1-500\`) — those are too vague to be useful.
-7. Return your conclusion as a single JSON object:
+7. **Mechanism coverage (recall)**: You will receive a MECHANISMS_TO_VERIFY block listing mechanism ids with description + requirement. For every mechanism:
+
+   - requirement=must_cite: The draft must contain a [cite:...] marker that references the mechanism's citation target (and locator if given).
+   - requirement=must_mention: The draft text must mention the target name or obvious keywords from the description.
+
+   List any uncovered mechanism ids verbatim in missing_coverage. If missing_coverage is non-empty, verdict MUST be "revise". Do NOT invent ids — only use the ones provided.
+8. Return your conclusion as a single JSON object:
 
 {
   "verdict": "pass" or "revise",
@@ -70,6 +76,7 @@ Rules:
   "factual_risks": ["claims not backed by evidence"],
   "missing_evidence": ["files or topics that should be cited"],
   "scope_violations": ["content outside the page plan"],
+  "missing_coverage": ["mechanism ids not represented in the draft"],
   "suggested_revisions": ["specific actionable changes"],
   "verified_citations": [
     {
@@ -81,7 +88,7 @@ Rules:
 }
 
 ${strictnessRule(strictness)}
-8. Be specific and actionable — "add error handling section" is better than "needs more detail".${verifyBlock}`;
+9. Be specific and actionable — "add error handling section" is better than "needs more detail".${verifyBlock}`;
 }
 
 export function buildReviewerUserPrompt(briefing: ReviewBriefing): string {
@@ -120,6 +127,13 @@ export function buildReviewerUserPrompt(briefing: ReviewBriefing): string {
   sections.push(`## Review Questions`);
   for (const q of briefing.review_questions) {
     sections.push(`- ${q}`);
+  }
+
+  if (briefing.mechanisms_to_verify && briefing.mechanisms_to_verify.length > 0) {
+    const mechBlock = briefing.mechanisms_to_verify
+      .map((m) => `- [${m.id}] ${m.description} (requirement: ${m.coverageRequirement})`)
+      .join("\n");
+    sections.push(`## MECHANISMS_TO_VERIFY\n${mechBlock}`);
   }
 
   sections.push(

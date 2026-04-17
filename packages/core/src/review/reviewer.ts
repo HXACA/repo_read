@@ -116,98 +116,126 @@ export class FreshReviewer {
   }
 
   private parseOutput(text: string): ReviewResult {
-    const data = extractJson(text);
-    if (!data) {
-      return {
-        success: true,
-        conclusion: {
-          verdict: "pass",
-          blockers: [],
-          factual_risks: [],
-          missing_evidence: [],
-          scope_violations: [],
-          suggested_revisions: [text.slice(0, 200)],
-        },
-      };
-    }
+    return parseFreshReviewerOutput(text);
+  }
+}
 
-    const blockers = Array.isArray(data.blockers)
-      ? (data.blockers as string[]).filter((b) => typeof b === "string")
-      : [];
-
-    // Parse verified_citations, defensively coerce each entry
-    const verified: VerifiedCitation[] = [];
-    if (Array.isArray(data.verified_citations)) {
-      for (const rawEntry of data.verified_citations as unknown[]) {
-        if (!rawEntry || typeof rawEntry !== "object") continue;
-        const e = rawEntry as Record<string, unknown>;
-        const rawCitation =
-          e.citation && typeof e.citation === "object"
-            ? (e.citation as Record<string, unknown>)
-            : null;
-        if (!rawCitation) continue;
-        const kindRaw = rawCitation.kind;
-        const kind: "file" | "page" | "commit" =
-          kindRaw === "page" || kindRaw === "commit" ? kindRaw : "file";
-        const target =
-          typeof rawCitation.target === "string" ? rawCitation.target : "";
-        if (!target) continue;
-        const locator =
-          typeof rawCitation.locator === "string" ? rawCitation.locator : undefined;
-
-        const statusRaw = e.status;
-        const status: VerifiedCitation["status"] =
-          statusRaw === "mismatch" || statusRaw === "not_found"
-            ? statusRaw
-            : "match";
-        const note = typeof e.note === "string" ? e.note : undefined;
-
-        verified.push({ citation: { kind, target, locator }, status, note });
-      }
-    }
-
-    // Defensive: promote any mismatch/not_found to blockers if not already
-    // mentioned. Keeps the review gate honest even if the LLM forgets rule 7.
-    for (const v of verified) {
-      if (v.status === "match") continue;
-      const locator = v.citation.locator ? `:${v.citation.locator}` : "";
-      const marker = `[${v.citation.kind}:${v.citation.target}${locator}]`;
-      const alreadyMentioned = blockers.some((b) => b.includes(marker));
-      if (!alreadyMentioned) {
-        const prefix =
-          v.status === "not_found"
-            ? `Citation ${marker} not found in the repository`
-            : `Citation ${marker} does not match the draft's claim`;
-        blockers.push(v.note ? `${prefix}: ${v.note}` : prefix);
-      }
-    }
-
-    // If any non-match verifications, the verdict must be "revise"
-    const hasVerificationFailure = verified.some((v) => v.status !== "match");
-    const rawVerdict =
-      data.verdict === "revise" ? "revise" : ("pass" as const);
-    const verdict =
-      hasVerificationFailure || blockers.length > 0 ? "revise" : rawVerdict;
-
+/**
+ * Parses a FreshReviewer LLM output string into a ReviewResult. Exported for
+ * unit testing. Defensively coerces every field so malformed JSON never
+ * throws — the pipeline can rely on shape even if the model hallucinates.
+ *
+ * Promotes `missing_coverage` entries into blockers with a `[coverage:<id>]`
+ * marker, and forces `verdict = "revise"` when any coverage gap is reported.
+ */
+export function parseFreshReviewerOutput(text: string): ReviewResult {
+  const data = extractJson(text);
+  if (!data) {
     return {
       success: true,
       conclusion: {
-        verdict,
-        blockers,
-        factual_risks: Array.isArray(data.factual_risks)
-          ? (data.factual_risks as string[])
-          : [],
-        missing_evidence: Array.isArray(data.missing_evidence)
-          ? (data.missing_evidence as string[])
-          : [],
-        scope_violations: Array.isArray(data.scope_violations)
-          ? (data.scope_violations as string[])
-          : [],
-        suggested_revisions: Array.isArray(data.suggested_revisions)
-          ? (data.suggested_revisions as string[])
-          : [],
-        ...(verified.length > 0 ? { verified_citations: verified } : {}),
+        verdict: "pass",
+        blockers: [],
+        factual_risks: [],
+        missing_evidence: [],
+        scope_violations: [],
+        missing_coverage: [],
+        suggested_revisions: [text.slice(0, 200)],
       },
     };
   }
+
+  const blockers = Array.isArray(data.blockers)
+    ? (data.blockers as unknown[]).filter((b): b is string => typeof b === "string")
+    : [];
+
+  const missingCoverage = Array.isArray(data.missing_coverage)
+    ? (data.missing_coverage as unknown[]).filter((x): x is string => typeof x === "string")
+    : [];
+
+  // Promote any missing_coverage entries into blockers (visible to pipeline + revision prompt).
+  for (const id of missingCoverage) {
+    const marker = `[coverage:${id}]`;
+    if (!blockers.some((b) => b.includes(marker))) {
+      blockers.push(`Mechanism ${marker} not covered in draft`);
+    }
+  }
+
+  // Parse verified_citations, defensively coerce each entry
+  const verified: VerifiedCitation[] = [];
+  if (Array.isArray(data.verified_citations)) {
+    for (const rawEntry of data.verified_citations as unknown[]) {
+      if (!rawEntry || typeof rawEntry !== "object") continue;
+      const e = rawEntry as Record<string, unknown>;
+      const rawCitation =
+        e.citation && typeof e.citation === "object"
+          ? (e.citation as Record<string, unknown>)
+          : null;
+      if (!rawCitation) continue;
+      const kindRaw = rawCitation.kind;
+      const kind: "file" | "page" | "commit" =
+        kindRaw === "page" || kindRaw === "commit" ? kindRaw : "file";
+      const target =
+        typeof rawCitation.target === "string" ? rawCitation.target : "";
+      if (!target) continue;
+      const locator =
+        typeof rawCitation.locator === "string" ? rawCitation.locator : undefined;
+
+      const statusRaw = e.status;
+      const status: VerifiedCitation["status"] =
+        statusRaw === "mismatch" || statusRaw === "not_found"
+          ? statusRaw
+          : "match";
+      const note = typeof e.note === "string" ? e.note : undefined;
+
+      verified.push({ citation: { kind, target, locator }, status, note });
+    }
+  }
+
+  // Defensive: promote any mismatch/not_found to blockers if not already
+  // mentioned. Keeps the review gate honest even if the LLM forgets the rule.
+  for (const v of verified) {
+    if (v.status === "match") continue;
+    const locator = v.citation.locator ? `:${v.citation.locator}` : "";
+    const marker = `[${v.citation.kind}:${v.citation.target}${locator}]`;
+    const alreadyMentioned = blockers.some((b) => b.includes(marker));
+    if (!alreadyMentioned) {
+      const prefix =
+        v.status === "not_found"
+          ? `Citation ${marker} not found in the repository`
+          : `Citation ${marker} does not match the draft's claim`;
+      blockers.push(v.note ? `${prefix}: ${v.note}` : prefix);
+    }
+  }
+
+  // If any non-match verifications OR any missing coverage, the verdict must be "revise"
+  const hasVerificationFailure = verified.some((v) => v.status !== "match");
+  const rawVerdict =
+    data.verdict === "revise" ? "revise" : ("pass" as const);
+  const verdict =
+    blockers.length > 0 || hasVerificationFailure || missingCoverage.length > 0
+      ? "revise"
+      : rawVerdict;
+
+  return {
+    success: true,
+    conclusion: {
+      verdict,
+      blockers,
+      factual_risks: Array.isArray(data.factual_risks)
+        ? (data.factual_risks as string[])
+        : [],
+      missing_evidence: Array.isArray(data.missing_evidence)
+        ? (data.missing_evidence as string[])
+        : [],
+      scope_violations: Array.isArray(data.scope_violations)
+        ? (data.scope_violations as string[])
+        : [],
+      missing_coverage: missingCoverage,
+      suggested_revisions: Array.isArray(data.suggested_revisions)
+        ? (data.suggested_revisions as string[])
+        : [],
+      ...(verified.length > 0 ? { verified_citations: verified } : {}),
+    },
+  };
 }
