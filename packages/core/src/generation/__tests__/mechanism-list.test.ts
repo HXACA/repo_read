@@ -33,29 +33,58 @@ describe("deriveMechanismList", () => {
     expect(result.find((m) => m.citation.target === "src/a.ts")!.description).toBe("first note");
   });
 
-  it("assigns must_cite when target is in coveredFiles, must_mention otherwise", () => {
+  it("keeps file entries inside coveredFiles as must_cite", () => {
+    const ledger: LedgerEntry[] = [L("src/covered.ts", "inside scope")];
+    const result = deriveMechanismList(ledger, ["src/covered.ts"]);
+    expect(result).toHaveLength(1);
+    expect(result[0].coverageRequirement).toBe("must_cite");
+  });
+
+  it("drops file entries whose target is outside coveredFiles", () => {
+    // Prevents unrecoverable missing_coverage findings — drafter's Citation
+    // Guard blocks files outside coveredFiles, so reviewers can never see
+    // these mechanisms resolved. Dropping them upstream avoids wasted
+    // revision cycles.
     const ledger: LedgerEntry[] = [
       L("src/covered.ts", "inside scope"),
-      L("src/helper.ts", "worker discovered"),
+      L("src/helper.ts", "worker discovered — out of scope"),
+      L("src/util.ts", "another out-of-scope file"),
     ];
     const result = deriveMechanismList(ledger, ["src/covered.ts"]);
-    expect(result.find((m) => m.citation.target === "src/covered.ts")!.coverageRequirement).toBe("must_cite");
-    expect(result.find((m) => m.citation.target === "src/helper.ts")!.coverageRequirement).toBe("must_mention");
+    expect(result.map((m) => m.citation.target)).toEqual(["src/covered.ts"]);
+  });
+
+  it("keeps page/commit entries regardless of coveredFiles", () => {
+    // Cross-page/commit citations are reference pointers, not scope-bound
+    // source citations, so they are not subject to Citation Guard blocking.
+    const ledger: LedgerEntry[] = [
+      { id: "1", kind: "page", target: "other-page", note: "related page" },
+      { id: "2", kind: "commit", target: "abc1234", note: "background commit" },
+    ];
+    const result = deriveMechanismList(ledger, ["src/something-unrelated.ts"]);
+    expect(result).toHaveLength(2);
+    expect(result.find((m) => m.citation.kind === "page")!.citation.target).toBe("other-page");
+    expect(result.find((m) => m.citation.kind === "commit")!.citation.target).toBe("abc1234");
+    // Both get must_mention because their targets are not file paths
+    expect(result.every((m) => m.coverageRequirement === "must_mention")).toBe(true);
   });
 
   it("caps the list at 30 entries, longest descriptions first", () => {
     const ledger: LedgerEntry[] = [];
+    const covered: string[] = [];
     for (let i = 0; i < 40; i++) {
-      ledger.push(L(`src/file${i}.ts`, `note length ${i} ${"x".repeat(i)}`));
+      const t = `src/file${i}.ts`;
+      ledger.push(L(t, `note length ${i} ${"x".repeat(i)}`));
+      covered.push(t);
     }
-    const result = deriveMechanismList(ledger, []);
+    const result = deriveMechanismList(ledger, covered);
     expect(result).toHaveLength(30);
     expect(result[0].description.length).toBeGreaterThanOrEqual(result[29].description.length);
   });
 
   it("truncates description at 120 chars", () => {
     const ledger: LedgerEntry[] = [L("src/a.ts", "a".repeat(300))];
-    const result = deriveMechanismList(ledger, []);
+    const result = deriveMechanismList(ledger, ["src/a.ts"]);
     expect(result[0].description.length).toBe(120);
   });
 

@@ -47,9 +47,18 @@ export function deriveMechanismList(
     const note = (entry.note ?? "").trim();
     if (!note) continue;
     if (seenTargets.has(entry.target)) continue;
-    seenTargets.add(entry.target);
 
     const kind = normalizeKind(entry.kind);
+    // Drop file-kind entries whose target is outside the page's coveredFiles.
+    // Citation Guard blocks the drafter from citing these, which makes them
+    // unrecoverable missing_coverage findings for the reviewer — triggering
+    // revisions the drafter can never resolve. Page/commit kinds are kept
+    // because they are cross-references, not scope-bound citations.
+    if (kind === "file" && !coveredSet.has(entry.target)) {
+      continue;
+    }
+    seenTargets.add(entry.target);
+
     const id = buildId(kind, entry.target, entry.locator);
     const description = note.length > MAX_DESCRIPTION_LENGTH
       ? note.slice(0, MAX_DESCRIPTION_LENGTH)
