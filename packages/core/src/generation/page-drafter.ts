@@ -158,6 +158,19 @@ export class PageDrafter {
           cachedTokens: result.usage.cachedTokens,
         },
       };
+      // Guard against silent empty output. Some providers return HTTP 200 with
+      // an empty body after many tool-calling rounds — parseOutput then yields
+      // {success: true, markdown: ""}, which the pipeline turns into a generic
+      // "Page X drafting failed" with no diagnostic. Flipping to success=false
+      // here lets the error reach events/logs with actionable detail.
+      if (parsed.success && !parsed.markdown?.trim()) {
+        return {
+          success: false,
+          error: `Drafter produced empty output (finishReason=${finishReason ?? "unknown"}, rawTextLength=${(result.text ?? "").length})`,
+          metrics: parsed.metrics,
+          ...(parsed.truncated ? { truncated: true } : {}),
+        };
+      }
       return parsed;
     } catch (err) {
       return { success: false, error: `Page drafting failed: ${(err as Error).message}` };

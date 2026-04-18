@@ -336,6 +336,65 @@ npm run start
     expect(result.truncated).toBe(true);
   });
 
+  it("returns success=false with diagnostic error when LLM output is empty", async () => {
+    // Observed in trpc-go run: kingxliu provider returned HTTP 200 with
+    // model="" and content="" after several tool-calling rounds. Without this
+    // guard the drafter silently returned {success:true, markdown:""} and the
+    // pipeline failed the page with a generic message.
+    const { generateText } = await import("ai");
+    vi.mocked(generateText).mockResolvedValueOnce({
+      text: "",
+      usage: { inputTokens: 30000, outputTokens: 0 },
+      finishReason: "stop",
+    } as never);
+
+    const drafter = new PageDrafter({
+      model: {} as never,
+      repoRoot: "/tmp/repo",
+    });
+
+    const result = await drafter.draft(mockContext, {
+      slug: "core-engine",
+      title: "Core Engine",
+      order: 1,
+      coveredFiles: ["src/engine.ts"],
+      language: "en",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/empty output/i);
+    expect(result.error).toMatch(/finishReason=stop/);
+    expect(result.error).toMatch(/rawTextLength=0/);
+    // Metrics still captured so throughput accounts for the failed call
+    expect(result.metrics?.llmCalls).toBe(1);
+    expect(result.metrics?.usage.inputTokens).toBe(30000);
+  });
+
+  it("returns success=false when LLM output is only whitespace", async () => {
+    const { generateText } = await import("ai");
+    vi.mocked(generateText).mockResolvedValueOnce({
+      text: "   \n\n  \t  \n",
+      usage: { inputTokens: 500, outputTokens: 3 },
+      finishReason: "stop",
+    } as never);
+
+    const drafter = new PageDrafter({
+      model: {} as never,
+      repoRoot: "/tmp/repo",
+    });
+
+    const result = await drafter.draft(mockContext, {
+      slug: "core-engine",
+      title: "Core Engine",
+      order: 1,
+      coveredFiles: [],
+      language: "en",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/empty output/i);
+  });
+
   it("does not mark as truncated when finishReason is stop", async () => {
     const { generateText } = await import("ai");
     vi.mocked(generateText).mockResolvedValueOnce({
