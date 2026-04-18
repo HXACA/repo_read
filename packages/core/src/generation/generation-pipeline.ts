@@ -10,7 +10,7 @@ import type { RepoProfile } from "../types/project.js";
 import { JobStateManager } from "./job-state.js";
 import { JobEventEmitter } from "./generation-events.js";
 import { profileRepo } from "../project/repo-profiler.js";
-import { PageDrafter } from "./page-drafter.js";
+import { PageDrafter, revisionStepBudget } from "./page-drafter.js";
 import { VerificationLadder, type LadderResult } from "../review/verification-ladder.js";
 import { selectVerificationLevel, type VerificationLevel } from "../review/verification-level.js";
 import { validatePage } from "../validation/page-validator.js";
@@ -866,13 +866,20 @@ export class GenerationPipeline {
         : drafter;
 
       const draftStartedAt = Date.now();
-      draftResult = await activeDrafter.draft(authorContext, {
-        slug: page.slug,
-        title: page.title,
-        order: i + 1,
-        coveredFiles: page.covered_files,
-        language: this.config.language,
-      });
+      // Revisions shrink the drafter tool-calling budget — see revisionStepBudget
+      // for the rationale. Initial drafts still get the full policy budget.
+      const stepBudget = revisionStepBudget(policy.drafterMaxSteps, attempt);
+      draftResult = await activeDrafter.draft(
+        authorContext,
+        {
+          slug: page.slug,
+          title: page.title,
+          order: i + 1,
+          coveredFiles: page.covered_files,
+          language: this.config.language,
+        },
+        { maxSteps: stepBudget },
+      );
       draftMetric.durationMs += Date.now() - draftStartedAt;
       draftMetric.llmCalls += draftResult.metrics?.llmCalls ?? 0;
       addUsageInput(draftMetric.usage, draftResult.metrics?.usage ?? { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0 });

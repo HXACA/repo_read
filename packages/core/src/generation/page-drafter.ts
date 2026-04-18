@@ -48,6 +48,25 @@ export type PageDrafterOptions = {
 };
 
 /**
+ * Compute the tool-calling step budget for a draft attempt.
+ *
+ * Initial drafts (attempt 0) get the full budget. Revisions shrink because the
+ * drafter already has the previous draft and targeted reviewer feedback — it
+ * should be fixing specific issues, not re-exploring the repository from
+ * scratch. Empirical run data showed revision attempts averaging 8 rounds
+ * with outliers to 25+, and the 73% of drafter calls that are revisions
+ * dominate overall token cost.
+ *
+ * Scaling: 100% / 60% / 40% / 40%+ (floored at 4 steps so small presets
+ * like `budget` still complete).
+ */
+export function revisionStepBudget(baseMaxSteps: number, attempt: number): number {
+  if (attempt <= 0) return baseMaxSteps;
+  const factor = attempt === 1 ? 0.6 : 0.4;
+  return Math.max(4, Math.floor(baseMaxSteps * factor));
+}
+
+/**
  * Strip LLM "chain-of-thought" artifacts that sometimes wrap the real
  * page content:
  *
@@ -121,10 +140,17 @@ export class PageDrafter {
   async draft(
     context: MainAuthorContext,
     input: PageDraftPromptInput,
+    /**
+     * Optional per-call overrides. Use `maxSteps` to shrink the tool-calling
+     * budget on revision attempts where the drafter already has the previous
+     * draft and targeted reviewer feedback (no need to re-explore the repo).
+     */
+    overrides?: { maxSteps?: number },
   ): Promise<PageDraftResult> {
     const systemPrompt = buildPageDraftSystemPrompt();
     const userPrompt = buildPageDraftUserPrompt(context, input);
     const tools = createCatalogTools(this.repoRoot, { allowBash: this.allowBash });
+    const effectiveMaxSteps = overrides?.maxSteps ?? this.maxSteps;
 
     try {
       const assembled = this.promptAssembler.assemble({ role: "drafter", language: input.language, systemPrompt, userPrompt });
@@ -135,7 +161,7 @@ export class PageDrafter {
         userPrompt: assembled.user,
         tools: tools as unknown as ToolSet,
         policy: {
-          maxSteps: this.maxSteps,
+          maxSteps: effectiveMaxSteps,
           ...(this.maxOutputTokens ? { maxOutputTokens: this.maxOutputTokens } : {}),
           providerOptions: this.providerCallOptions,
         },

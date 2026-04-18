@@ -3,6 +3,7 @@ import {
   PageDrafter,
   stripDraftOutputWrappers,
   extractMetadataFromMarkdown,
+  revisionStepBudget,
 } from "../page-drafter.js";
 import type { MainAuthorContext } from "../../types/agent.js";
 
@@ -420,6 +421,66 @@ npm run start
   });
 
 
+});
+
+describe("revisionStepBudget", () => {
+  it("returns the full budget for the initial draft", () => {
+    expect(revisionStepBudget(100, 0)).toBe(100);
+    expect(revisionStepBudget(20, 0)).toBe(20);
+  });
+
+  it("shrinks to 60% on the first revision", () => {
+    expect(revisionStepBudget(100, 1)).toBe(60);
+    expect(revisionStepBudget(20, 1)).toBe(12);
+  });
+
+  it("shrinks to 40% from the second revision onward", () => {
+    expect(revisionStepBudget(100, 2)).toBe(40);
+    expect(revisionStepBudget(100, 3)).toBe(40);
+    expect(revisionStepBudget(100, 10)).toBe(40);
+  });
+
+  it("floors at 4 steps so tiny budgets still complete", () => {
+    // budget preset has drafterMaxSteps=12 → 0.4 × 12 = 4.8 → 4
+    expect(revisionStepBudget(12, 2)).toBe(4);
+    // Artificially small budget still respects the floor
+    expect(revisionStepBudget(5, 2)).toBe(4);
+  });
+});
+
+describe("PageDrafter per-call maxSteps override", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("accepts an overrides.maxSteps argument without breaking the draft flow", async () => {
+    const { generateText } = await import("ai");
+    vi.mocked(generateText).mockResolvedValueOnce({
+      text: draftMarkdown,
+      usage: { inputTokens: 100, outputTokens: 100 },
+    } as never);
+
+    const drafter = new PageDrafter({
+      model: {} as never,
+      repoRoot: "/tmp/repo",
+      maxSteps: 100,
+    });
+
+    const result = await drafter.draft(
+      mockContext,
+      {
+        slug: "core-engine",
+        title: "Core Engine",
+        order: 1,
+        coveredFiles: ["src/engine.ts"],
+        language: "en",
+      },
+      { maxSteps: 40 },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.markdown).toContain("# Core Engine");
+  });
 });
 
 describe("stripDraftOutputWrappers", () => {
