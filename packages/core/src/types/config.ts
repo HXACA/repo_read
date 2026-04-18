@@ -53,8 +53,14 @@ export type ProviderModelConfig = {
   /**
    * Per-model rate limit. Gives each model its own token bucket (keyed by
    * `provider:model`), so different models under the same provider can have
-   * independent concurrency/QPS ceilings. Takes precedence over the
-   * provider-level `rateLimit` when both are declared.
+   * independent concurrency/QPS ceilings.
+   *
+   * Stacks with the provider-level `rateLimit` rather than overriding it:
+   * when both are declared, a request must acquire BOTH buckets — the
+   * per-model one AND the account-wide one — before it goes out. This is
+   * what you want for providers where account-wide caps coexist with
+   * per-model quotas. Leave the provider-level unset if you only need
+   * per-model limits.
    */
   rateLimit?: ProviderRateLimitConfig;
 };

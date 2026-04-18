@@ -79,6 +79,104 @@ describe("TokenBucket", () => {
     ]);
     expect(succeeded).toBe("released");
   });
+
+  it("holds the permit until a streaming body is fully consumed", async () => {
+    // Core regression guard: the old rate limiter released on Response return,
+    // so a long SSE stream would free its permit immediately and let other
+    // callers start. With a streaming-aware wrapper, maxConcurrent=1 means
+    // only one stream can be ACTIVELY reading at a time.
+    const bucket = new TokenBucket({ maxConcurrent: 1 });
+    let inFlight = 0;
+    let peak = 0;
+    const openStreams: Array<{ push: (x: string) => void; close: () => void }> = [];
+
+    const fakeFetch = async (): Promise<Response> => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          openStreams.push({
+            push: (chunk: string) => controller.enqueue(new TextEncoder().encode(chunk)),
+            close: () => {
+              inFlight--;
+              controller.close();
+            },
+          });
+        },
+      });
+      return new Response(body, { status: 200 });
+    };
+
+    const wrapped = createRateLimitedFetch(fakeFetch as unknown as typeof fetch, bucket);
+
+    // Kick off two requests. Only the first should actually hit fakeFetch
+    // because permit 1 is held by the (unconsumed) streaming body.
+    const p1 = wrapped("https://a.test").then((r) => r.body!.getReader().read().then(() => r));
+    const p2 = wrapped("https://b.test").then((r) => r.body!.getReader().read().then(() => r));
+
+    // Drain the event loop so p1's fakeFetch runs.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(openStreams).toHaveLength(1);
+    expect(peak).toBe(1);
+
+    // Close stream 1 → permit released → p2 acquires → fakeFetch fires.
+    openStreams[0].push("payload-1");
+    openStreams[0].close();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(openStreams).toHaveLength(2);
+    expect(peak).toBe(1); // never more than one active at a time
+
+    openStreams[1].push("payload-2");
+    openStreams[1].close();
+
+    await p1;
+    await p2;
+  });
+
+  it("releases the permit when a streaming body is cancelled", async () => {
+    const bucket = new TokenBucket({ maxConcurrent: 1 });
+    let cancelled = false;
+    const fakeFetch = async () => {
+      const body = new ReadableStream<Uint8Array>({
+        pull() {
+          // Never enqueue — this stream would run forever if the caller
+          // doesn't cancel it.
+        },
+        cancel() {
+          cancelled = true;
+        },
+      });
+      return new Response(body, { status: 200 });
+    };
+    const wrapped = createRateLimitedFetch(fakeFetch as unknown as typeof fetch, bucket);
+
+    const r1 = await wrapped("https://a.test");
+    // Cancel the consumer side — our wrapper's cancel() should fire and
+    // release the permit so a second call can proceed.
+    await r1.body!.cancel();
+    expect(cancelled).toBe(true);
+
+    const r2 = await Promise.race([
+      wrapped("https://b.test"),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("permit leaked on cancel")), 300)),
+    ]);
+    expect((r2 as Response).status).toBe(200);
+    await (r2 as Response).body?.cancel();
+  });
+
+  it("releases the permit for bodyless responses", async () => {
+    const bucket = new TokenBucket({ maxConcurrent: 1 });
+    const fakeFetch = async () => new Response(null, { status: 204 });
+    const wrapped = createRateLimitedFetch(fakeFetch as unknown as typeof fetch, bucket);
+    await wrapped("https://a.test");
+
+    // If the permit leaked, this second call would hang.
+    const r = await Promise.race([
+      wrapped("https://b.test"),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("permit leaked on null body")), 300)),
+    ]);
+    expect((r as Response).status).toBe(204);
+  });
 });
 
 describe("createRateLimitedFetch", () => {
