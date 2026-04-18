@@ -122,4 +122,64 @@ describe("selectVerificationLevel", () => {
       }),
     ).toBe("L2");
   });
+
+  it("does not trigger L2 from revisionAttempt alone on the terminal attempt", () => {
+    // revisionAttempt=3 == maxRevisionAttempts, so the pipeline has no
+    // further retries. Running L2 would only label the page degraded.
+    expect(
+      selectVerificationLevel({
+        lane: "standard",
+        complexityScore: 5,
+        signals: {},
+        revisionAttempt: 3,
+        maxRevisionAttempts: 3,
+      }),
+    ).toBe("L1");
+  });
+
+  it("still upgrades to L2 on the terminal attempt when genuine signals are present", () => {
+    expect(
+      selectVerificationLevel({
+        lane: "standard",
+        complexityScore: 5,
+        signals: { factualRisksCount: 1 },
+        revisionAttempt: 3,
+        maxRevisionAttempts: 3,
+      }),
+    ).toBe("L2");
+    expect(
+      selectVerificationLevel({
+        lane: "deep",
+        complexityScore: 5,
+        signals: {},
+        revisionAttempt: 3,
+        maxRevisionAttempts: 3,
+      }),
+    ).toBe("L2");
+  });
+
+  it("still triggers revisionAttempt-based L2 before the terminal attempt", () => {
+    // revisionAttempt=2 < maxRevisionAttempts=3 — pipeline can still revise
+    expect(
+      selectVerificationLevel({
+        lane: "standard",
+        complexityScore: 5,
+        signals: {},
+        revisionAttempt: 2,
+        maxRevisionAttempts: 3,
+      }),
+    ).toBe("L2");
+  });
+
+  it("is backward compatible when maxRevisionAttempts is omitted", () => {
+    // Callers without budget awareness see the original revisionAttempt > 1 rule
+    expect(
+      selectVerificationLevel({
+        lane: "standard",
+        complexityScore: 5,
+        signals: {},
+        revisionAttempt: 3,
+      }),
+    ).toBe("L2");
+  });
 });

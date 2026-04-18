@@ -1071,6 +1071,7 @@ export class GenerationPipeline {
           complexityScore: complexity.score,
           signals: runtimeSignals,
           revisionAttempt: attempt,
+          maxRevisionAttempts: policy.maxRevisionAttempts,
         });
 
         const ladderResult = await activeLadder.verify({

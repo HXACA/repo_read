@@ -8,6 +8,15 @@ export type VerificationLevelInput = {
   complexityScore: number;
   signals: RuntimeSignals;
   revisionAttempt: number;
+  /**
+   * Total revision budget for this page. When `revisionAttempt >=
+   * maxRevisionAttempts` the pipeline cannot act on a revise verdict, so we
+   * suppress the "escalate to L2 purely because we're on attempt 2+" rule.
+   * Genuine quality signals (factual risks, missing evidence, truncation,
+   * lowCitationDensity, deep lane, high complexity) still force L2.
+   * Optional for backward compatibility with callers that don't track it.
+   */
+  maxRevisionAttempts?: number;
 };
 
 /**
@@ -21,7 +30,14 @@ export type VerificationLevelInput = {
  * regardless of lane. Then lane determines the baseline level.
  */
 export function selectVerificationLevel(input: VerificationLevelInput): VerificationLevel {
-  const { lane, complexityScore, signals, revisionAttempt } = input;
+  const { lane, complexityScore, signals, revisionAttempt, maxRevisionAttempts } = input;
+
+  // Suppress the "revisionAttempt > 1" escalation on the terminal attempt —
+  // the pipeline cannot revise further based on L2's verdict, so paying for
+  // tool-backed verification only to label the page degraded is wasted cost.
+  const revisionBasedEscalation =
+    revisionAttempt > 1 &&
+    (maxRevisionAttempts === undefined || revisionAttempt < maxRevisionAttempts);
 
   // L2 upgrade conditions — any one triggers expensive review
   const needsL2 =
@@ -30,7 +46,7 @@ export function selectVerificationLevel(input: VerificationLevelInput): Verifica
     (signals.factualRisksCount ?? 0) > 0 ||
     (signals.missingEvidenceCount ?? 0) > 0 ||
     signals.draftTruncated === true ||
-    revisionAttempt > 1 ||
+    revisionBasedEscalation ||
     signals.lowCitationDensity === true;
 
   if (needsL2) return "L2";
