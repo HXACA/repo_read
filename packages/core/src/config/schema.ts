@@ -16,6 +16,11 @@ const ProviderSdkSchema = z.enum([
   "@ai-sdk/openai-compatible",
 ]);
 
+const ProviderRateLimitConfigSchema = z.object({
+  maxConcurrent: z.number().int().min(1).optional(),
+  minIntervalMs: z.number().int().min(0).optional(),
+});
+
 const ProviderModelConfigSchema = z.object({
   name: z.string().optional(),
   npm: ProviderSdkSchema.optional(),
@@ -23,11 +28,7 @@ const ProviderModelConfigSchema = z.object({
   reasoningEffort: z.enum(["none", "minimal", "low", "medium", "high", "xhigh"]).optional(),
   reasoningSummary: z.enum(["auto", "concise", "detailed"]).optional(),
   serviceTier: z.enum(["fast", "flex"]).optional(),
-});
-
-const ProviderRateLimitConfigSchema = z.object({
-  maxConcurrent: z.number().int().min(1).optional(),
-  minIntervalMs: z.number().int().min(0).optional(),
+  rateLimit: ProviderRateLimitConfigSchema.optional(),
 });
 
 const ProviderCredentialConfigSchema = z.object({

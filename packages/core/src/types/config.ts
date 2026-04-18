@@ -28,6 +28,13 @@ export type ProviderSdk =
   | "@ai-sdk/openai"
   | "@ai-sdk/openai-compatible";
 
+export type ProviderRateLimitConfig = {
+  /** Max in-flight requests sharing this bucket. Defaults to 6. */
+  maxConcurrent?: number;
+  /** Minimum milliseconds between request launches (1000/QPS). Defaults to 0. */
+  minIntervalMs?: number;
+};
+
 /** Per-model config declared within a provider. */
 export type ProviderModelConfig = {
   name?: string;
@@ -43,13 +50,13 @@ export type ProviderModelConfig = {
   reasoningSummary?: "auto" | "concise" | "detailed";
   /** OpenAI service tier. "fast" maps to "priority" (faster, costlier), "flex" may queue (cheaper). */
   serviceTier?: "fast" | "flex";
-};
-
-export type ProviderRateLimitConfig = {
-  /** Max in-flight requests to this provider across all roles. Defaults to 6. */
-  maxConcurrent?: number;
-  /** Minimum milliseconds between request launches (1000/QPS). Defaults to 0. */
-  minIntervalMs?: number;
+  /**
+   * Per-model rate limit. Gives each model its own token bucket (keyed by
+   * `provider:model`), so different models under the same provider can have
+   * independent concurrency/QPS ceilings. Takes precedence over the
+   * provider-level `rateLimit` when both are declared.
+   */
+  rateLimit?: ProviderRateLimitConfig;
 };
 
 export type ProviderCredentialConfig = {
@@ -64,9 +71,10 @@ export type ProviderCredentialConfig = {
    *  Key = model ID (e.g. `"glm-5.1"` or `"qwen/qwen3.6-plus"`). */
   models?: Record<string, ProviderModelConfig>;
   /**
-   * Per-provider rate limit. When set, all fetches to this provider pass
-   * through a shared token bucket, preventing HTTP 429 bursts caused by
-   * pc/forkWorkers combining with strict individual-developer plans.
+   * Provider-level fallback rate limit. Applies to every model under this
+   * provider that does NOT declare its own `models[id].rateLimit`. Useful
+   * for account-wide plans (e.g., kingxliu's "Token Plan") where the limit
+   * is shared across all models.
    */
   rateLimit?: ProviderRateLimitConfig;
 };

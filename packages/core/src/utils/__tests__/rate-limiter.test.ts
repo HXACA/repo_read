@@ -127,4 +127,18 @@ describe("getProviderBucket", () => {
     const second = getProviderBucket("x", { maxConcurrent: 10 });
     expect(first).toBe(second);
   });
+
+  it("separates buckets by composite key so different models get distinct limits", () => {
+    // model-factory uses `${provider}:${model}` for per-model rate limits so
+    // kingxliu/gpt-5.4 and kingxliu/MiniMax get independent buckets even
+    // though they share a provider account.
+    const gpt = getProviderBucket("kingxliu:gpt-5.4", { maxConcurrent: 2 });
+    const minimax = getProviderBucket("kingxliu:MiniMax-M2.7-highspeed", {
+      maxConcurrent: 8,
+    });
+    const accountWide = getProviderBucket("kingxliu", { maxConcurrent: 6 });
+    expect(gpt).not.toBe(minimax);
+    expect(gpt).not.toBe(accountWide);
+    expect(minimax).not.toBe(accountWide);
+  });
 });

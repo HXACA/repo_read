@@ -43,17 +43,29 @@ export function createModelForRole(
   //   globalThis.fetch
   //     → debugFetch (when REPOREAD_DEBUG=1) records request/response pairs
   //     → resilientFetch adds SSE-aware timeout protection
-  //     → rateLimitedFetch gates launches on the provider bucket (when configured)
-  // Rate limiting sits outermost so the bucket also throttles retries and
+  //     → rateLimitedFetch(provider bucket) — account-wide cap (if configured)
+  //     → rateLimitedFetch(model bucket)    — per-model cap (if configured)
+  // Rate limiting sits outermost so the buckets also throttle retries and
   // debug-mode replays, not just the original attempt.
+  //
+  // Both levels stack when both are set: the outer (model) bucket acquires
+  // first, then the inner (provider) bucket — so a request is gated by
+  // BOTH its per-model budget AND any account-wide budget the user declares.
   const debugFetchFn = getDebugDir() ? createDebugFetch() : undefined;
   const resilientFetchFn = createResilientFetch(debugFetchFn ?? globalThis.fetch);
-  const fetchFn = providerConfig?.rateLimit
-    ? createRateLimitedFetch(
-        resilientFetchFn,
-        getProviderBucket(resolvedProviderName, providerConfig.rateLimit),
-      )
-    : resilientFetchFn;
+  let fetchFn: typeof globalThis.fetch = resilientFetchFn;
+  if (providerConfig?.rateLimit) {
+    fetchFn = createRateLimitedFetch(
+      fetchFn,
+      getProviderBucket(resolvedProviderName, providerConfig.rateLimit),
+    );
+  }
+  if (modelConfig?.rateLimit) {
+    fetchFn = createRateLimitedFetch(
+      fetchFn,
+      getProviderBucket(`${resolvedProviderName}:${modelName}`, modelConfig.rateLimit),
+    );
+  }
   return createModel(npm, resolvedProviderName, modelName, apiKey, providerConfig?.baseUrl, fetchFn, modelConfig?.variant);
 }
 
