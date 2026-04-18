@@ -7,6 +7,7 @@ import { parseModelId } from "../types/config.js";
 import { AppError } from "../errors.js";
 import { getDebugDir, createDebugFetch } from "../utils/debug-fetch.js";
 import { createResilientFetch } from "../utils/resilient-fetch.js";
+import { createRateLimitedFetch, getProviderBucket } from "../utils/rate-limiter.js";
 
 export type ModelFactoryOptions = {
   apiKeys: Record<string, string>;
@@ -38,9 +39,21 @@ export function createModelForRole(
 
   // npm priority: model-level > provider-level > inferred from provider name
   const npm = modelConfig?.npm ?? providerConfig?.npm ?? inferNpm(resolvedProviderName);
-  // Inject debug fetch when debug mode is active, then wrap with resilient-fetch for SSE timeout protection
+  // Fetch wrapping order (innermost → outermost):
+  //   globalThis.fetch
+  //     → debugFetch (when REPOREAD_DEBUG=1) records request/response pairs
+  //     → resilientFetch adds SSE-aware timeout protection
+  //     → rateLimitedFetch gates launches on the provider bucket (when configured)
+  // Rate limiting sits outermost so the bucket also throttles retries and
+  // debug-mode replays, not just the original attempt.
   const debugFetchFn = getDebugDir() ? createDebugFetch() : undefined;
-  const fetchFn = createResilientFetch(debugFetchFn ?? globalThis.fetch);
+  const resilientFetchFn = createResilientFetch(debugFetchFn ?? globalThis.fetch);
+  const fetchFn = providerConfig?.rateLimit
+    ? createRateLimitedFetch(
+        resilientFetchFn,
+        getProviderBucket(resolvedProviderName, providerConfig.rateLimit),
+      )
+    : resilientFetchFn;
   return createModel(npm, resolvedProviderName, modelName, apiKey, providerConfig?.baseUrl, fetchFn, modelConfig?.variant);
 }
 

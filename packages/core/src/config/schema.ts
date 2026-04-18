@@ -25,6 +25,11 @@ const ProviderModelConfigSchema = z.object({
   serviceTier: z.enum(["fast", "flex"]).optional(),
 });
 
+const ProviderRateLimitConfigSchema = z.object({
+  maxConcurrent: z.number().int().min(1).optional(),
+  minIntervalMs: z.number().int().min(0).optional(),
+});
+
 const ProviderCredentialConfigSchema = z.object({
   provider: z.string().min(1),
   npm: ProviderSdkSchema.optional(),
@@ -33,6 +38,7 @@ const ProviderCredentialConfigSchema = z.object({
   apiKey: z.string().optional(),
   baseUrl: z.string().optional(),
   enabled: z.boolean(),
+  rateLimit: ProviderRateLimitConfigSchema.optional(),
 });
 
 const ProjectRoleConfigSchema = z.object({

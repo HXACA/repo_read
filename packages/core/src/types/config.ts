@@ -45,6 +45,13 @@ export type ProviderModelConfig = {
   serviceTier?: "fast" | "flex";
 };
 
+export type ProviderRateLimitConfig = {
+  /** Max in-flight requests to this provider across all roles. Defaults to 6. */
+  maxConcurrent?: number;
+  /** Minimum milliseconds between request launches (1000/QPS). Defaults to 0. */
+  minIntervalMs?: number;
+};
+
 export type ProviderCredentialConfig = {
   provider: string;
   /** Default AI SDK npm package for all models. Defaults to `"@ai-sdk/openai-compatible"`. */
@@ -56,6 +63,12 @@ export type ProviderCredentialConfig = {
   /** Declared models. Roles can only reference models listed here (when present).
    *  Key = model ID (e.g. `"glm-5.1"` or `"qwen/qwen3.6-plus"`). */
   models?: Record<string, ProviderModelConfig>;
+  /**
+   * Per-provider rate limit. When set, all fetches to this provider pass
+   * through a shared token bucket, preventing HTTP 429 bursts caused by
+   * pc/forkWorkers combining with strict individual-developer plans.
+   */
+  rateLimit?: ProviderRateLimitConfig;
 };
 
 export type UserEditableConfig = {
@@ -96,6 +109,7 @@ export type ResolvedConfig = {
     baseUrl?: string;
     enabled: boolean;
     capabilities: import("./provider.js").ModelCapability[];
+    rateLimit?: ProviderRateLimitConfig;
   }>;
   retrieval: {
     maxParallelReadsPerPage: number;
