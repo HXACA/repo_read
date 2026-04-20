@@ -24,6 +24,10 @@ Thumbs.db
 # RepoRead runtime
 .reporead/
 
+# Development notes (plans, specs, historical reviews) — kept locally for
+# authors' reference, not shipped with the repo
+dev-notes/
+
 # Test
 coverage/
 
