@@ -45,4 +45,36 @@ describe("Semaphore", () => {
     await new Promise((r) => setImmediate(r));
     expect(acquired).toBe(false);
   });
+
+  it("rejects a waiter when its abort signal fires", async () => {
+    const sem = new Semaphore(1);
+    await sem.acquire();
+    const ctrl = new AbortController();
+    const pending = sem.acquire(ctrl.signal);
+    await new Promise((r) => setImmediate(r));
+    ctrl.abort(new Error("wall-clock"));
+    await expect(pending).rejects.toThrow("wall-clock");
+  });
+
+  it("rejects immediately when signal is already aborted", async () => {
+    const sem = new Semaphore(1);
+    const ctrl = new AbortController();
+    ctrl.abort(new Error("pre-aborted"));
+    await expect(sem.acquire(ctrl.signal)).rejects.toThrow("pre-aborted");
+  });
+
+  it("removes aborted waiter from queue so subsequent releases reach live waiters", async () => {
+    const sem = new Semaphore(1);
+    await sem.acquire();
+    const doomed = new AbortController();
+    const p1 = sem.acquire(doomed.signal).catch(() => "aborted");
+    const p2 = sem.acquire();
+    doomed.abort(new Error("gone"));
+    await expect(p1).resolves.toBe("aborted");
+    sem.release();
+    await expect(Promise.race([
+      p2.then(() => "got it"),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("live waiter blocked")), 100)),
+    ])).resolves.toBe("got it");
+  });
 });

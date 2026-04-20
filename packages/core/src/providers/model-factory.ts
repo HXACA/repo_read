@@ -6,7 +6,7 @@ import type { ResolvedConfig, RoleName, ProviderSdk } from "../types/config.js";
 import { parseModelId } from "../types/config.js";
 import { AppError } from "../errors.js";
 import { getDebugDir, createDebugFetch } from "../utils/debug-fetch.js";
-import { createResilientFetch } from "../utils/resilient-fetch.js";
+import { createResilientFetch, createWallClockFetch } from "../utils/resilient-fetch.js";
 import { createRateLimitedFetch, getProviderBucket } from "../utils/rate-limiter.js";
 
 export type ModelFactoryOptions = {
@@ -42,15 +42,19 @@ export function createModelForRole(
   // Fetch wrapping order (innermost → outermost):
   //   globalThis.fetch
   //     → debugFetch (when REPOREAD_DEBUG=1) records request/response pairs
-  //     → resilientFetch adds SSE-aware timeout protection
+  //     → resilientFetch adds SSE-aware inter-chunk timeout
   //     → rateLimitedFetch(provider bucket) — account-wide cap (if configured)
   //     → rateLimitedFetch(model bucket)    — per-model cap (if configured)
-  // Rate limiting sits outermost so the buckets also throttle retries and
-  // debug-mode replays, not just the original attempt.
+  //     → wallClockFetch — OUTERMOST hard ceiling on total request duration
   //
-  // Both levels stack when both are set: the outer (model) bucket acquires
-  // first, then the inner (provider) bucket — so a request is gated by
-  // BOTH its per-model budget AND any account-wide budget the user declares.
+  // The wall-clock wrapper sits outside the rate limiters so its AbortSignal
+  // propagates down through bucket.acquire(): if a permit leaks or an
+  // upstream stream never resolves, the timer unsticks every await in the
+  // chain after `wallClockTimeoutMs` (default 10 minutes).
+  //
+  // Rate limiting still sits outside resilient-fetch so buckets also gate
+  // retries and debug-mode replays. Both rate-limit levels stack — a request
+  // must acquire BOTH its per-model budget AND any account-wide budget.
   const debugFetchFn = getDebugDir() ? createDebugFetch() : undefined;
   const resilientFetchFn = createResilientFetch(debugFetchFn ?? globalThis.fetch);
   let fetchFn: typeof globalThis.fetch = resilientFetchFn;
@@ -66,6 +70,7 @@ export function createModelForRole(
       getProviderBucket(`${resolvedProviderName}:${modelName}`, modelConfig.rateLimit),
     );
   }
+  fetchFn = createWallClockFetch(fetchFn);
   return createModel(npm, resolvedProviderName, modelName, apiKey, providerConfig?.baseUrl, fetchFn, modelConfig?.variant);
 }
 

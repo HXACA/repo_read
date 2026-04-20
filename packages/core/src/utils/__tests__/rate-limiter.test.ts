@@ -177,6 +177,39 @@ describe("TokenBucket", () => {
     ]);
     expect((r as Response).status).toBe(204);
   });
+
+  it("forwards init.signal so a waiter stuck on acquire can be aborted", async () => {
+    // Unsticks the permit-leak class of hang: if an outer wall-clock timeout
+    // fires while the request is still blocked on acquire(), propagating the
+    // signal rejects the waiter rather than parking forever.
+    const bucket = new TokenBucket({ maxConcurrent: 1 });
+    // First request holds the only permit by never-closing stream
+    const stall = () =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull() {
+              // Never enqueue, never close — just like a hanging LLM stream
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+    const wrapped = createRateLimitedFetch(stall as unknown as typeof fetch, bucket);
+    const first = await wrapped("https://stall.test");
+    // Ensure first permit is held
+    expect(first.status).toBe(200);
+
+    // Second request with a signal that aborts after 40ms
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(new Error("wall-clock fired")), 40);
+    await expect(
+      wrapped("https://queued.test", { signal: ctrl.signal }),
+    ).rejects.toThrow("wall-clock fired");
+
+    // Drain the first request so we don't leak in test state
+    await first.body!.cancel();
+  });
 });
 
 describe("createRateLimitedFetch", () => {

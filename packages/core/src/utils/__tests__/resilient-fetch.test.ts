@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
-import { createResilientFetch, SSETimeoutError } from "../resilient-fetch.js";
+import {
+  createResilientFetch,
+  createWallClockFetch,
+  SSETimeoutError,
+  WallClockTimeoutError,
+} from "../resilient-fetch.js";
 
 // Helper: build a ReadableStream from an array of chunks with optional stall at the end.
 function makeStream(chunks: Uint8Array[], stallAfterChunks = false): ReadableStream<Uint8Array> {
@@ -193,5 +198,76 @@ describe("createResilientFetch", () => {
       expect(done).toBe(false);
       expect(new TextDecoder().decode(value)).toBe("binary-data");
     });
+  });
+});
+
+describe("createWallClockFetch", () => {
+  it("returns the response when the body completes before the deadline", async () => {
+    const inner: typeof globalThis.fetch = async () =>
+      new Response("ok", { status: 200, headers: { "content-type": "text/plain" } });
+    const wrapped = createWallClockFetch(inner, { timeoutMs: 5_000 });
+    const res = await wrapped("https://a.test");
+    expect(await res.text()).toBe("ok");
+  });
+
+  it("aborts the underlying fetch when the timeout fires before response", async () => {
+    // Inner fetch hangs forever, then respects abort to reject
+    const inner: typeof globalThis.fetch = (_input, init) =>
+      new Promise<Response>((_, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal!.reason), { once: true });
+      });
+    const wrapped = createWallClockFetch(inner, { timeoutMs: 40 });
+    await expect(wrapped("https://slow.test")).rejects.toBeInstanceOf(WallClockTimeoutError);
+  });
+
+  it("aborts a slow-drip stream that never completes reading", async () => {
+    // Body pull() never enqueues AND never respects abort via close, but we
+    // wire abort on the upstream signal to propagate to the body's pull loop.
+    const inner: typeof globalThis.fetch = (_input, init) => {
+      const body = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          await new Promise<void>((resolve, reject) => {
+            const onAbort = () => reject(init!.signal!.reason);
+            init!.signal!.addEventListener("abort", onAbort, { once: true });
+            // Never resolve naturally — only abort unsticks us
+          });
+          controller.close();
+        },
+      });
+      return Promise.resolve(
+        new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } }),
+      );
+    };
+    const wrapped = createWallClockFetch(inner, { timeoutMs: 40 });
+    const res = await wrapped("https://drip.test");
+    const reader = res.body!.getReader();
+    await expect(reader.read()).rejects.toBeDefined();
+  });
+
+  it("propagates the caller's AbortSignal so external cancel still works", async () => {
+    const inner: typeof globalThis.fetch = (_input, init) =>
+      new Promise<Response>((_, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted by caller")), { once: true });
+      });
+    const wrapped = createWallClockFetch(inner, { timeoutMs: 5_000 });
+    const caller = new AbortController();
+    setTimeout(() => caller.abort(new Error("caller cancel")), 30);
+    await expect(wrapped("https://a.test", { signal: caller.signal })).rejects.toThrow("aborted by caller");
+  });
+
+  it("clears the timer once the body is consumed — no stray abort for later requests", async () => {
+    let lastSignal: AbortSignal | undefined;
+    const inner: typeof globalThis.fetch = (_input, init) => {
+      lastSignal = init?.signal ?? undefined;
+      return Promise.resolve(
+        new Response("done", { status: 200, headers: { "content-type": "text/plain" } }),
+      );
+    };
+    const wrapped = createWallClockFetch(inner, { timeoutMs: 50 });
+    const res = await wrapped("https://a.test");
+    await res.text();
+    // After consumption, waiting past the original timeout should NOT flip aborted
+    await new Promise((r) => setTimeout(r, 80));
+    expect(lastSignal?.aborted).toBe(false);
   });
 });

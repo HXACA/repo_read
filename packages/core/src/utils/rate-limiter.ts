@@ -34,8 +34,8 @@ export class TokenBucket {
     this.minIntervalMs = Math.max(0, options.minIntervalMs ?? 0);
   }
 
-  async acquire(): Promise<void> {
-    await this.sem.acquire();
+  async acquire(signal?: AbortSignal): Promise<void> {
+    await this.sem.acquire(signal);
     if (this.minIntervalMs > 0) {
       const now = Date.now();
       const wait = this.nextAvailableAt - now;
@@ -43,7 +43,7 @@ export class TokenBucket {
       // that already hold a permit queue up rather than racing on the clock.
       this.nextAvailableAt = Math.max(now, this.nextAvailableAt) + this.minIntervalMs;
       if (wait > 0) {
-        await new Promise((r) => setTimeout(r, wait));
+        await abortableDelay(wait, signal);
       }
     }
   }
@@ -72,7 +72,9 @@ export function createRateLimitedFetch(
   bucket: TokenBucket,
 ): typeof globalThis.fetch {
   return async (input, init) => {
-    await bucket.acquire();
+    // Forward the caller's AbortSignal so an outer wall-clock timeout can
+    // unstick an acquire() that would otherwise wait forever if permits leak.
+    await bucket.acquire(init?.signal ?? undefined);
     let released = false;
     const release = () => {
       if (released) return;
@@ -146,4 +148,32 @@ export function getProviderBucket(
 /** Reset the cache — exported for tests. */
 export function resetProviderBucketsForTest(): void {
   providerBuckets.clear();
+}
+
+/** Sleep for `ms` milliseconds, aborting early when `signal` fires. */
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+  if (signal.aborted) {
+    return Promise.reject(signalAbortReason(signal));
+  }
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signalAbortReason(signal));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function signalAbortReason(signal: AbortSignal): Error {
+  const reason = signal.reason;
+  if (reason instanceof Error) return reason;
+  if (reason !== undefined) return new Error(String(reason));
+  return new DOMException("The operation was aborted.", "AbortError");
 }
