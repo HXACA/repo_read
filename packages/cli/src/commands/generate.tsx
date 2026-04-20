@@ -19,6 +19,7 @@ import type {
   PageMeta,
 } from "@reporead/core";
 import { ProgressRenderer } from "../progress-renderer.js";
+import { buildResumePlan } from "./resume-plan.js";
 
 export interface GenerateOptions {
   dir: string;
@@ -143,37 +144,17 @@ export async function runGenerate(options: GenerateOptions): Promise<void> {
       return;
     }
 
-    // Walk the reading order and find pages that already have a validated
-    // meta file. Those are the ones we should skip. Also grab the
-    // commitHash from the first available meta file so subsequent pages
-    // stay consistent with the original run's commit basis.
-    const skipPageSlugs = new Set<string>();
-    let recoveredCommitHash: string | null = null;
-    for (const page of wiki.reading_order) {
-      const meta = await storage.readJson<PageMeta>(
-        storage.paths.draftPageMeta(
-          slug,
-          existing.id,
-          existing.versionId,
-          page.slug,
-        ),
-      );
-      // Consider a page done if its meta file exists and declares
-      // status="validated". Anything else needs to be re-drafted.
-      if (meta && meta.status === "validated") {
-        skipPageSlugs.add(page.slug);
-        if (!recoveredCommitHash && meta.commitHash) {
-          recoveredCommitHash = meta.commitHash;
-        }
-      }
-    }
+    const plan = await buildResumePlan(wiki, (pageSlug) =>
+      storage.readJson<PageMeta>(
+        storage.paths.draftPageMeta(slug, existing.id, existing.versionId, pageSlug),
+      ),
+    );
+    const { skipPageSlugs, recoveredCommitHash, alreadyDone, remaining, publishOnly } = plan;
 
-    const alreadyDone = skipPageSlugs.size;
-    const remaining = wiki.reading_order.length - alreadyDone;
     console.log(
       `Resume plan: ${alreadyDone} pages already validated, ${remaining} remaining`,
     );
-    if (remaining === 0) {
+    if (publishOnly) {
       // Don't bail here — a real recovery case is "every page validated
       // but the process died before Publisher.publish() ran". The
       // pipeline handles that state (it skips all page workflows and
