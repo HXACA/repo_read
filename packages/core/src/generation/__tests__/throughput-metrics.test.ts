@@ -1,11 +1,14 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   ThroughputMetricsCollector,
+  ThroughputReportBuilder,
   zeroUsage,
   cloneUsage,
   addUsage,
   addUsageInput,
+  type PageThroughputRecord,
   type PhaseMetric,
+  type ThroughputReport,
 } from "../throughput-metrics.js";
 import type { UsageBucket } from "../../utils/usage-tracker.js";
 
@@ -204,5 +207,117 @@ describe("PhaseMetric reused flip", () => {
     expect(evidenceMetric.reused).toBe(false);
     expect(evidenceMetric.llmCalls).toBe(2);
     expect(evidenceMetric.usage.inputTokens).toBe(150);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ThroughputReportBuilder — seed / snapshot / dedup (incremental-save path)
+// ---------------------------------------------------------------------------
+
+function makePageRecord(slug: string, input = 100): PageThroughputRecord {
+  return {
+    pageSlug: slug,
+    lane: "standard",
+    totalLatencyMs: 1000,
+    revisionAttempts: 0,
+    escalatedToDeepLane: false,
+    verificationLevel: "L1",
+    phases: {
+      evidence: { llmCalls: 1, durationMs: 500, usage: { inputTokens: input, outputTokens: 10, reasoningTokens: 0, cachedTokens: 0 }, reused: false },
+      outline:  { llmCalls: 1, durationMs: 100, usage: { inputTokens: 0,     outputTokens: 0,  reasoningTokens: 0, cachedTokens: 0 }, reused: false },
+      draft:    { llmCalls: 1, durationMs: 400, usage: { inputTokens: 0,     outputTokens: 0,  reasoningTokens: 0, cachedTokens: 0 } },
+      review:   { llmCalls: 0, durationMs: 0,   usage: { inputTokens: 0,     outputTokens: 0,  reasoningTokens: 0, cachedTokens: 0 } },
+      validate: { llmCalls: 0, durationMs: 0,   usage: { inputTokens: 0,     outputTokens: 0,  reasoningTokens: 0, cachedTokens: 0 } },
+    },
+    usage: { inputTokens: input, outputTokens: 10, reasoningTokens: 0, cachedTokens: 0, requests: 3 },
+  } as PageThroughputRecord;
+}
+
+describe("ThroughputReportBuilder seed + incremental", () => {
+  it("seed hydrates catalog + pages from a prior report", () => {
+    const builder = new ThroughputReportBuilder();
+    const prior: ThroughputReport = {
+      catalog: { llmCalls: 2, durationMs: 2000, usage: { inputTokens: 500, outputTokens: 50, reasoningTokens: 0, cachedTokens: 0 } },
+      pages: [makePageRecord("a"), makePageRecord("b")],
+      totals: { llmCalls: 2, totalLatencyMs: 2000, usage: { inputTokens: 500, outputTokens: 50, reasoningTokens: 0, cachedTokens: 0, requests: 2 } },
+      reviewEscalationRate: 0,
+      prefetchHitRate: 0,
+    };
+    builder.seed(prior);
+
+    const snap = builder.snapshot({ totalLatencyMs: 3000 });
+    expect(snap.pages.map(p => p.pageSlug)).toEqual(["a", "b"]);
+    expect(snap.catalog.llmCalls).toBe(2);
+  });
+
+  it("setCatalog preserves seeded catalog when current session has 0 llmCalls (resume case)", () => {
+    // On resume, runCatalogPhase reads wiki.json from disk — no LLM calls.
+    // Without the guard, setCatalog would erase the original run's catalog cost.
+    const builder = new ThroughputReportBuilder();
+    builder.seed({
+      catalog: { llmCalls: 3, durationMs: 5000, usage: { inputTokens: 1000, outputTokens: 100, reasoningTokens: 0, cachedTokens: 0 } },
+      pages: [],
+      totals: { llmCalls: 3, totalLatencyMs: 5000, usage: { inputTokens: 1000, outputTokens: 100, reasoningTokens: 0, cachedTokens: 0, requests: 3 } },
+      reviewEscalationRate: 0,
+      prefetchHitRate: 0,
+    });
+
+    // Resume session: catalog "ran" but made no LLM calls
+    builder.setCatalog({ llmCalls: 0, durationMs: 10, usage: zeroUsage(), reused: true });
+
+    const snap = builder.snapshot({ totalLatencyMs: 1000 });
+    expect(snap.catalog.llmCalls).toBe(3);
+    expect(snap.catalog.usage.inputTokens).toBe(1000);
+  });
+
+  it("setCatalog overwrites when current session actually ran catalog LLM calls", () => {
+    const builder = new ThroughputReportBuilder();
+    builder.seed({
+      catalog: { llmCalls: 2, durationMs: 2000, usage: { inputTokens: 500, outputTokens: 50, reasoningTokens: 0, cachedTokens: 0 } },
+      pages: [],
+      totals: { llmCalls: 2, totalLatencyMs: 2000, usage: { inputTokens: 500, outputTokens: 50, reasoningTokens: 0, cachedTokens: 0, requests: 2 } },
+      reviewEscalationRate: 0,
+      prefetchHitRate: 0,
+    });
+
+    // Fresh session: real catalog run
+    builder.setCatalog({ llmCalls: 4, durationMs: 8000, usage: { inputTokens: 1500, outputTokens: 200, reasoningTokens: 0, cachedTokens: 0 }, reused: false });
+
+    const snap = builder.snapshot({ totalLatencyMs: 1000 });
+    expect(snap.catalog.llmCalls).toBe(4);
+  });
+
+  it("addPage dedups by slug — resumed page re-run overwrites seeded record", () => {
+    const builder = new ThroughputReportBuilder();
+    builder.seed({
+      catalog: { llmCalls: 0, durationMs: 0, usage: zeroUsage() },
+      pages: [makePageRecord("p1", 100), makePageRecord("p2", 200)],
+      totals: { llmCalls: 0, totalLatencyMs: 0, usage: { ...zeroUsage(), requests: 0 } },
+      reviewEscalationRate: 0,
+      prefetchHitRate: 0,
+    });
+
+    // Resume re-runs p1 with a different input cost
+    builder.addPage(makePageRecord("p1", 999));
+
+    const snap = builder.snapshot({ totalLatencyMs: 1000 });
+    expect(snap.pages).toHaveLength(2);
+    const p1 = snap.pages.find(p => p.pageSlug === "p1")!;
+    expect(p1.phases.evidence.usage.inputTokens).toBe(999);
+  });
+
+  it("snapshot can be called repeatedly without mutating builder state (incremental flush safe)", () => {
+    const builder = new ThroughputReportBuilder();
+    builder.addPage(makePageRecord("a"));
+
+    const snap1 = builder.snapshot({ totalLatencyMs: 500 });
+    const snap2 = builder.snapshot({ totalLatencyMs: 600 });
+
+    expect(snap1.pages).toHaveLength(1);
+    expect(snap2.pages).toHaveLength(1);
+    // Adding more pages after a snapshot still works
+    builder.addPage(makePageRecord("b"));
+    const snap3 = builder.snapshot({ totalLatencyMs: 700 });
+    expect(snap3.pages.map(p => p.pageSlug)).toEqual(["a", "b"]);
   });
 });

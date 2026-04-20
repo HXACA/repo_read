@@ -89,6 +89,15 @@ export class JobEventEmitter {
     await this.emit("job.failed", { error });
   }
 
+  /**
+   * Periodic liveness ping. Updates events.ndjson mtime so external monitors
+   * can distinguish "pipeline is churning quietly inside one page" from
+   * "pipeline has stalled" without scraping the UI renderer.
+   */
+  async jobHeartbeat(tick: number): Promise<void> {
+    await this.emit("job.heartbeat", { tick });
+  }
+
   async catalogWarnings(warnings: string[]): Promise<void> {
     if (warnings.length > 0) {
       await this.emit("catalog.warnings", { warnings, count: warnings.length });

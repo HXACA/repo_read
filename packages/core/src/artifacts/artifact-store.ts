@@ -104,6 +104,16 @@ export class ArtifactStore {
     await fs.writeFile(throughputPath, JSON.stringify(data, null, 2), "utf-8");
   }
 
+  async loadThroughputMetrics<T>(ref: JobRef): Promise<T | null> {
+    const throughputPath = path.join(this.storage.paths.jobDir(ref.projectSlug, ref.jobId), "throughput.json");
+    try {
+      const raw = await fs.readFile(throughputPath, "utf-8");
+      return JSON.parse(raw) as T;
+    } catch {
+      return null;
+    }
+  }
+
   // --- Catalog (wiki.json) ---
 
   async saveWikiJson(ref: JobRef & { versionId: string }, data: unknown): Promise<void> {

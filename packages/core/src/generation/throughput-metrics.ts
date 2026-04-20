@@ -279,15 +279,56 @@ export class ThroughputReportBuilder {
   private orphanedPrefetch: ThroughputReport["orphanedPrefetch"];
 
   setCatalog(metric: PhaseMetric): void {
+    // Preserve a seeded catalog metric (from a prior session loaded via
+    // `seed`) when the current session's catalog phase did no LLM work.
+    // On resume, runCatalogPhase reads wiki.json from disk — llmCalls=0.
+    // Without this guard we'd erase the original run's catalog cost and
+    // under-report the job total.
+    if (this.catalog.llmCalls > 0 && metric.llmCalls === 0) return;
     this.catalog = metric;
   }
 
   addPage(record: PageThroughputRecord): void {
-    this.pageRecords.push(record);
+    // Replace any prior record for the same slug so a page re-run during
+    // resume overwrites the seeded/partial version. First-session pages
+    // that aren't re-run stay intact.
+    const existingIdx = this.pageRecords.findIndex(p => p.pageSlug === record.pageSlug);
+    if (existingIdx >= 0) {
+      this.pageRecords[existingIdx] = record;
+    } else {
+      this.pageRecords.push(record);
+    }
   }
 
   setOrphanedPrefetch(value: ThroughputReport["orphanedPrefetch"]): void {
     this.orphanedPrefetch = value;
+  }
+
+  /**
+   * Hydrate from a previously-persisted report. Used on resume so pages
+   * processed in an earlier session (possibly killed by reboot/crash) are
+   * carried forward into the current builder's state.
+   *
+   * Dedups by pageSlug: if the same page appears in the loaded report AND is
+   * added later in this session, only the later record is kept in the final
+   * output. This matters because a resume may re-run a page that was
+   * mid-draft when the previous session died.
+   */
+  seed(report: ThroughputReport): void {
+    this.catalog = report.catalog;
+    this.pageRecords.length = 0;
+    this.pageRecords.push(...report.pages);
+    this.orphanedPrefetch = report.orphanedPrefetch;
+  }
+
+  /**
+   * Like `finish` but non-destructive — safe to call repeatedly after each
+   * page completes for incremental throughput.json flushes. On reboot or
+   * crash mid-job, whatever pages completed before the interruption remain
+   * on disk instead of being lost.
+   */
+  snapshot(opts: { totalLatencyMs: number }): ThroughputReport {
+    return this.finish(opts);
   }
 
   finish(opts: { totalLatencyMs: number }): ThroughputReport {

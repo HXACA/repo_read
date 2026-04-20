@@ -11,6 +11,7 @@ import { JobStateManager } from "./job-state.js";
 import { JobEventEmitter } from "./generation-events.js";
 import { profileRepo } from "../project/repo-profiler.js";
 import { PageDrafter, revisionStepBudget } from "./page-drafter.js";
+import { Diagnostics } from "../utils/diagnostics.js";
 import { VerificationLadder, type LadderResult } from "../review/verification-ladder.js";
 import { selectVerificationLevel, type VerificationLevel } from "../review/verification-level.js";
 import { validatePage } from "../validation/page-validator.js";
@@ -143,6 +144,46 @@ export class GenerationPipeline {
 
     const pipelineStartedAt = Date.now();
     const throughput = new ThroughputReportBuilder();
+    // On resume, hydrate the builder from any prior throughput.json so pages
+    // completed before the interruption (reboot, crash, kill) remain in the
+    // final report. Without this seed, resume would overwrite throughput.json
+    // with only the pages processed in this session.
+    if (isResume) {
+      const prior = await this.artifactStore.loadThroughputMetrics<ThroughputReport>({
+        projectSlug: slug,
+        jobId,
+      });
+      if (prior) throughput.seed(prior);
+    }
+    // Diagnostics: heartbeat into events.ndjson every 60s so monitors can
+    // distinguish "quietly drafting inside one page" from "stalled". SIGUSR1
+    // dumps a snapshot of active Node resources into the job dir on demand
+    // so the next hang becomes investigable post-mortem.
+    const diagnostics = new Diagnostics({
+      dumpDir: this.storage.paths.jobDir(slug, jobId),
+      label: `${slug}/${jobId}`,
+      onHeartbeat: (tick) => {
+        emitter.jobHeartbeat(tick).catch(() => {
+          // Best-effort — never let the heartbeat surface errors into the
+          // pipeline. A failing emit simply means no heartbeat for this tick.
+        });
+      },
+    });
+    diagnostics.start();
+
+    // Incremental flush helper — called after each page so a hard kill
+    // mid-job preserves what's already done.
+    const flushThroughput = async () => {
+      try {
+        await this.artifactStore.saveThroughputMetrics(
+          { projectSlug: slug, jobId },
+          throughput.snapshot({ totalLatencyMs: Date.now() - pipelineStartedAt }),
+        );
+      } catch {
+        // Non-fatal: throughput flush is best-effort. The next successful
+        // flush (or the final finish-path flush) will recover.
+      }
+    };
     const prefetchRef: { current: PrefetchSlot | null } = { current: null };
 
     try {
@@ -315,6 +356,12 @@ export class GenerationPipeline {
 
           if (!pageResult.success) {
             pipelineFailed = true;
+            // Persist the partial record even on failure so diagnostics
+            // survive a subsequent crash/reboot.
+            if (pageResult.pageMetrics) {
+              throughput.addPage(pageResult.pageMetrics as PageThroughputRecord);
+              await flushThroughput();
+            }
             return {
               success: false,
               error: pageResult.error,
@@ -323,6 +370,14 @@ export class GenerationPipeline {
           }
 
           job = pageResult.job;
+
+          // Incremental flush: record the just-completed page and persist
+          // throughput.json so a reboot or kill leaves validated-page metrics
+          // intact instead of losing them to in-memory-only state.
+          if (pageResult.pageMetrics) {
+            throughput.addPage(pageResult.pageMetrics as PageThroughputRecord);
+            await flushThroughput();
+          }
 
           // Between-page transition is only meaningful in strict-serial mode;
           // at concurrency > 1 multiple pages may finish concurrently and race
@@ -415,6 +470,10 @@ export class GenerationPipeline {
         throughput.finish({ totalLatencyMs: Date.now() - pipelineStartedAt }),
       ).catch(() => {}); // best-effort, never block failure path
       return this.failJob(job, emitter, (err as Error).message);
+    } finally {
+      // Always stop the heartbeat timer + signal handler so the Node event
+      // loop can exit cleanly and the next run doesn't inherit stale hooks.
+      diagnostics.stop();
     }
   }
 
