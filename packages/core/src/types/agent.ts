@@ -13,7 +13,16 @@ export type MainAuthorContext = {
   evidence_ledger: Array<{
     id: string;
     kind: "file" | "page" | "commit";
+    /** Plain file path / page slug / commit hash — no line-range suffix. */
     target: string;
+    /**
+     * Optional line range for file citations (e.g. `"10-20"`, `"42"`).
+     * Absent for page/commit kinds. Ledger consumers that render citation
+     * markers should compose `[cite:kind:target:locator]`; scope checks
+     * (e.g. "is `target` in `page.covered_files`?") should compare the
+     * plain `target` alone.
+     */
+    locator?: string;
     note: string;
   }>;
   /** Page kind from the book plan — controls writing style rules. */

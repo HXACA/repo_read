@@ -1,10 +1,22 @@
 import { describe, it, expect } from "vitest";
 import { deriveMechanismList, type Mechanism } from "../mechanism-list.js";
 
-type LedgerEntry = { id: string; kind: "file" | "page" | "commit"; target: string; note: string };
+type LedgerEntry = {
+  id: string;
+  kind: "file" | "page" | "commit";
+  target: string;
+  locator?: string;
+  note: string;
+};
 
-function L(target: string, note: string, id = target, kind: LedgerEntry["kind"] = "file"): LedgerEntry {
-  return { id, kind, target, note };
+function L(
+  target: string,
+  note: string,
+  id = target,
+  kind: LedgerEntry["kind"] = "file",
+  locator?: string,
+): LedgerEntry {
+  return { id, kind, target, note, ...(locator ? { locator } : {}) };
 }
 
 describe("deriveMechanismList", () => {
@@ -38,6 +50,36 @@ describe("deriveMechanismList", () => {
     const result = deriveMechanismList(ledger, ["src/covered.ts"]);
     expect(result).toHaveLength(1);
     expect(result[0].coverageRequirement).toBe("must_cite");
+  });
+
+  it("scope check uses plain target, unaffected by locator suffix", () => {
+    // Real-world regression: evidence-coordinator now writes locator as a
+    // separate field, so deriveMechanismList compares coveredFiles against
+    // entry.target (the plain path). Previously targets were fused
+    // ("src/covered.ts:10-20") and the check silently failed.
+    const ledger: LedgerEntry[] = [
+      L("src/covered.ts", "first citation", "1", "file", "10-20"),
+      L("src/covered.ts", "second citation", "2", "file", "45-60"),
+    ];
+    const result = deriveMechanismList(ledger, ["src/covered.ts"]);
+    expect(result).toHaveLength(2);
+    expect(result.every((m) => m.coverageRequirement === "must_cite")).toBe(true);
+    // Same target, different locator → both kept as distinct mechanisms.
+    // Output is sorted by description length so compare via set.
+    expect(new Set(result.map((m) => m.citation.locator))).toEqual(new Set(["10-20", "45-60"]));
+  });
+
+  it("still dedups when kind+target+locator are identical", () => {
+    const ledger: LedgerEntry[] = [
+      L("src/covered.ts", "first note", "1", "file", "10-20"),
+      L("src/covered.ts", "duplicate (same loc)", "2", "file", "10-20"),
+      L("src/covered.ts", "distinct range", "3", "file", "30-40"),
+    ];
+    const result = deriveMechanismList(ledger, ["src/covered.ts"]);
+    expect(result).toHaveLength(2);
+    // First-wins dedup keeps the earlier description for the duplicate pair
+    const tenTwenty = result.find((m) => m.citation.locator === "10-20");
+    expect(tenTwenty?.description).toBe("first note");
   });
 
   it("drops file entries whose target is outside coveredFiles", () => {

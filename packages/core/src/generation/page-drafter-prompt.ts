@@ -169,8 +169,9 @@ export function buildPageDraftUserPrompt(
     if (context.evidence_ledger.length > 0) {
       sections.push(`### Evidence Ledger (cite these first)`);
       for (const entry of context.evidence_ledger) {
-        const suffix = entry.note ? `: ${entry.note}` : "";
-        sections.push(`- [${entry.kind}] ${entry.target}${suffix}`);
+        const locatorPart = entry.locator ? `:${entry.locator}` : "";
+        const suffix = entry.note ? ` — ${entry.note}` : "";
+        sections.push(`- [${entry.kind}] ${entry.target}${locatorPart}${suffix}`);
       }
     }
     if (context.evidence_bundle && context.evidence_bundle.open_questions.length > 0) {

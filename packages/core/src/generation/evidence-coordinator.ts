@@ -35,7 +35,7 @@ export type CollectInput = {
   /** Free-form context passed down to each worker (e.g. page plan). */
   workerContext: string;
   /** Existing evidence from previous collection — new results merge into this */
-  existingLedger?: Array<{ id: string; kind: string; target: string; note: string }>;
+  existingLedger?: Array<{ id: string; kind: string; target: string; locator?: string; note: string }>;
   /** Areas the reviewer flagged as needing more evidence */
   focusAreas?: string[];
 };
@@ -120,11 +120,17 @@ export class EvidenceCoordinator {
     const openQuestions: string[] = [];
     const failedTaskIds: string[] = [];
 
-    // Seed with existing ledger when doing incremental re-collection
+    // Seed with existing ledger when doing incremental re-collection.
+    // Old ledgers on disk may still have the legacy "fused" shape
+    // (target="file.ts:10-20" with no separate locator). Normalize those on
+    // load so resume paths converge on the split format.
     if (input.existingLedger?.length) {
-      for (const entry of input.existingLedger) {
-        const key = `${entry.kind}:${entry.target}`;
-        ledgerMap.set(key, entry as MainAuthorContext["evidence_ledger"][number]);
+      for (const raw of input.existingLedger) {
+        const entry = splitLegacyFusedTarget(
+          raw as MainAuthorContext["evidence_ledger"][number],
+        );
+        const key = ledgerKey(entry);
+        ledgerMap.set(key, entry);
       }
     }
 
@@ -165,8 +171,9 @@ export class EvidenceCoordinator {
       }
       for (const c of r.data.citations) {
         const entry = toLedgerEntry(c, String(ledgerAutoId));
-        // Deduplicate by target (which already includes locator via toLedgerEntry)
-        const key = `${entry.kind}:${entry.target}`;
+        // Dedup on kind+target+locator so the same file cited at two
+        // different line ranges counts as two distinct mechanisms.
+        const key = ledgerKey(entry);
         if (!ledgerMap.has(key)) {
           ledgerMap.set(key, entry);
           ledgerAutoId++;
@@ -282,9 +289,29 @@ function toLedgerEntry(
   return {
     id,
     kind: citation.kind,
-    target: citation.locator
-      ? `${citation.target}:${citation.locator}`
-      : citation.target,
+    target: citation.target,
+    ...(citation.locator ? { locator: citation.locator } : {}),
     note: citation.note ?? "",
   };
+}
+
+function ledgerKey(entry: MainAuthorContext["evidence_ledger"][number]): string {
+  return entry.locator
+    ? `${entry.kind}:${entry.target}:${entry.locator}`
+    : `${entry.kind}:${entry.target}`;
+}
+
+/**
+ * Back-compat for ledger artifacts written before target/locator were split.
+ * Old entries stored file citations as `target="path/to/file.ts:10-20"` with
+ * no separate locator. This detects that shape and recovers the split form.
+ * Page/commit kinds are untouched because their targets never had suffixes.
+ */
+function splitLegacyFusedTarget(
+  entry: MainAuthorContext["evidence_ledger"][number],
+): MainAuthorContext["evidence_ledger"][number] {
+  if (entry.locator || entry.kind !== "file") return entry;
+  const m = entry.target.match(/^(.+?):(\d+(?:-\d+)?)$/);
+  if (!m) return entry;
+  return { ...entry, target: m[1], locator: m[2] };
 }

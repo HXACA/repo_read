@@ -332,4 +332,50 @@ describe("EvidenceCoordinator", () => {
     expect(result.openQuestions).not.toContain("[1,2,3]");
     expect(result.openQuestions).not.toContain("undefined");
   });
+
+  it("splits legacy fused targets when seeding from an existingLedger", async () => {
+    // Jobs written before target/locator were split store entries like
+    // {target: "src/foo.ts:10-20"} with no locator. When resume-from-disk
+    // seeds the coordinator, those should be normalized to the split shape
+    // so downstream scope checks and dedup work correctly.
+    mockPlan.mockResolvedValueOnce({
+      success: true,
+      plan: {
+        tasks: [{ id: "t1", directive: "d1", targetFiles: ["src/foo.ts"], rationale: "r1" }],
+      },
+    });
+    mockExecute.mockResolvedValueOnce({
+      success: true,
+      data: {
+        directive: "d1",
+        findings: [],
+        citations: [
+          { kind: "file" as const, target: "src/foo.ts", locator: "30-40", note: "new entry" },
+        ],
+        open_questions: [],
+      },
+    });
+
+    const coordinator = new EvidenceCoordinator({
+      plannerModel: {} as never,
+      workerModel: {} as never,
+      repoRoot: "/tmp",
+      concurrency: 1,
+    });
+
+    const result = await coordinator.collect({
+      ...baseInput,
+      taskCount: 1,
+      existingLedger: [
+        // legacy fused form — this is what old ledger.json looks like on disk
+        { id: "1", kind: "file", target: "src/foo.ts:10-20", note: "legacy entry" },
+      ],
+    });
+
+    expect(result.ledger).toHaveLength(2);
+    const legacy = result.ledger.find((e) => e.note === "legacy entry");
+    expect(legacy).toMatchObject({ target: "src/foo.ts", locator: "10-20" });
+    const fresh = result.ledger.find((e) => e.note === "new entry");
+    expect(fresh).toMatchObject({ target: "src/foo.ts", locator: "30-40" });
+  });
 });

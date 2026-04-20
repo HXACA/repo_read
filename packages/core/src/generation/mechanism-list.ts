@@ -40,13 +40,12 @@ export function deriveMechanismList(
   coveredFiles: ReadonlyArray<string>,
 ): Mechanism[] {
   const coveredSet = new Set(coveredFiles);
-  const seenTargets = new Set<string>();
+  const seenKeys = new Set<string>();
   const out: Mechanism[] = [];
 
   for (const entry of ledger) {
     const note = (entry.note ?? "").trim();
     if (!note) continue;
-    if (seenTargets.has(entry.target)) continue;
 
     const kind = normalizeKind(entry.kind);
     // Drop file-kind entries whose target is outside the page's coveredFiles.
@@ -57,7 +56,15 @@ export function deriveMechanismList(
     if (kind === "file" && !coveredSet.has(entry.target)) {
       continue;
     }
-    seenTargets.add(entry.target);
+
+    // Dedup by the same (kind, target, locator) triple the coordinator used
+    // when assembling the ledger — so two citations to different line ranges
+    // of the same file stay as distinct mechanisms.
+    const dedupKey = entry.locator
+      ? `${kind}:${entry.target}:${entry.locator}`
+      : `${kind}:${entry.target}`;
+    if (seenKeys.has(dedupKey)) continue;
+    seenKeys.add(dedupKey);
 
     const id = buildId(kind, entry.target, entry.locator);
     const description = note.length > MAX_DESCRIPTION_LENGTH

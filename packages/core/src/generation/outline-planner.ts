@@ -17,6 +17,7 @@ export type OutlinePlannerInput = {
     id: string;
     kind: string;
     target: string;
+    locator?: string;
     note: string;
   }>;
   /** Natural-language findings from workers. */
@@ -208,7 +209,8 @@ ${JSON.stringify(retry.previousOutline, null, 2)}
     if (input.ledger.length > 0) {
       parts.push("Evidence ledger:");
       for (const e of input.ledger) {
-        parts.push(`- [${e.kind}] ${e.target}: ${e.note}`);
+        const locatorPart = e.locator ? `:${e.locator}` : "";
+        parts.push(`- [${e.kind}] ${e.target}${locatorPart}: ${e.note}`);
       }
     }
 
