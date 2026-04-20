@@ -27,8 +27,18 @@ import { execBash } from "../tools/bash-tool.js";
  * attacks where a malicious repo plants `docs/secret -> ~/.ssh/id_rsa`:
  * the naive `path.resolve` check would accept `docs/secret` (prefix
  * match) and `fs.readFile` would follow the link out of the checkout.
+ *
+ * Returns both the realpath-normalized root and the realpath-resolved
+ * target. Callers must use the returned `root` rather than the literal
+ * `repoRoot` string when they need to derive paths (e.g. `path.relative`
+ * or re-passing to other tools). On macOS `/tmp` is a symlink to
+ * `/private/tmp`, so using the literal root would produce escape-looking
+ * paths (`../../../private/...`) for perfectly legitimate in-repo dirs.
  */
-async function resolveWithinRoot(repoRoot: string, relPath: string): Promise<string | null> {
+async function resolveWithinRoot(
+  repoRoot: string,
+  relPath: string,
+): Promise<{ root: string; target: string } | null> {
   const resolvedRoot = await fs.realpath(path.resolve(repoRoot)).catch(() => path.resolve(repoRoot));
   const candidate = path.resolve(resolvedRoot, relPath);
 
@@ -46,7 +56,7 @@ async function resolveWithinRoot(repoRoot: string, relPath: string): Promise<str
     if (real !== resolvedRoot && !real.startsWith(resolvedRoot + path.sep)) {
       return null;
     }
-    return real;
+    return { root: resolvedRoot, target: real };
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === "ENOENT") {
@@ -58,7 +68,7 @@ async function resolveWithinRoot(repoRoot: string, relPath: string): Promise<str
         if (parentReal !== resolvedRoot && !parentReal.startsWith(resolvedRoot + path.sep)) {
           return null;
         }
-        return candidate;
+        return { root: resolvedRoot, target: candidate };
       } catch {
         return null;
       }
@@ -83,9 +93,13 @@ export function createCatalogTools(repoRoot: string, options?: { allowBash?: boo
         // Same symlink-escape guard as `read`: realpath of the requested
         // dir must stay inside repoRoot so a symlink like
         // `docs/mount -> /etc` can't enumerate system directories.
+        // Use the realpath-normalized `root` + `target` pair so callers
+        // don't re-compute relative paths against a literal repoRoot that
+        // may itself be a symlink (e.g. macOS /tmp → /private/tmp).
         const resolved = await resolveWithinRoot(repoRoot, dir_path ?? ".");
         if (!resolved) return "Error: Path is outside repository root";
-        const result = await getDirStructure(repoRoot, path.relative(repoRoot, resolved) || ".", max_depth ?? 3);
+        const relative = path.relative(resolved.root, resolved.target) || ".";
+        const result = await getDirStructure(resolved.root, relative, max_depth ?? 3);
         if (!result.success) return `Error: ${result.error}`;
         return result.tree;
       },
@@ -107,7 +121,7 @@ export function createCatalogTools(repoRoot: string, options?: { allowBash?: boo
         // must still land inside repoRoot.
         const resolved = await resolveWithinRoot(repoRoot, filePath);
         if (!resolved) return "Error: Path is outside repository root";
-        const result = await readFile(resolved, { offset, limit });
+        const result = await readFile(resolved.target, { offset, limit });
         if (!result.success) return `Error: ${result.error}`;
         return `File: ${filePath} (${result.totalLines} lines total, showing ${result.linesReturned} from line ${result.offset + 1})\n${result.content}`;
       },
