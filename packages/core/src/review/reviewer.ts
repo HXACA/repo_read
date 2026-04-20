@@ -134,6 +134,16 @@ export class FreshReviewer {
 export function parseFreshReviewerOutput(text: string): ReviewResult {
   const data = extractJson(text);
   if (!data) {
+    // Silent "pass" is the safe default but it means a garbage reviewer
+    // output slips through without the pipeline knowing. Surface the
+    // fallback via debug console + suggested_revisions so strict-mode
+    // triage doesn't have to re-read the raw log.
+    if (process.env.REPOREAD_DEBUG) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[reviewer] extractJson returned null — falling back to verdict=pass; raw text (200): ${text.slice(0, 200)}`,
+      );
+    }
     return {
       success: true,
       conclusion: {
@@ -143,7 +153,9 @@ export function parseFreshReviewerOutput(text: string): ReviewResult {
         missing_evidence: [],
         scope_violations: [],
         missing_coverage: [],
-        suggested_revisions: [text.slice(0, 200)],
+        suggested_revisions: [
+          `[reviewer fallback] extractJson failed; raw head: ${text.slice(0, 200)}`,
+        ],
       },
     };
   }
@@ -172,8 +184,12 @@ export function parseFreshReviewerOutput(text: string): ReviewResult {
           : null;
       if (!rawCitation) continue;
       const kindRaw = rawCitation.kind;
-      const kind: "file" | "page" | "commit" =
-        kindRaw === "page" || kindRaw === "commit" ? kindRaw : "file";
+      // Drop entries with an unknown kind. The old behavior coerced
+      // arbitrary strings ("module", "link", etc.) to "file", which
+      // corrupted downstream match-by-citation checks. Strict acceptance
+      // is safer — reviewers that want these kinds must name them.
+      if (kindRaw !== "file" && kindRaw !== "page" && kindRaw !== "commit") continue;
+      const kind: "file" | "page" | "commit" = kindRaw;
       const target =
         typeof rawCitation.target === "string" ? rawCitation.target : "";
       if (!target) continue;

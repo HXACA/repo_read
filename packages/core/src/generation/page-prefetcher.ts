@@ -65,7 +65,10 @@ export type PrefetchContext = {
   onOutlineStep?: (step: StepInfo) => void;
   /** Quality profile coverage enforcement mode. When undefined or "off",
    *  prefetch does not derive a mechanism list (preserves legacy behavior). */
-  qualityProfile?: { coverageEnforcement: "off" | "warn" | "strict" };
+  qualityProfile?: {
+    coverageEnforcement: "off" | "warn" | "strict";
+    outOfScopeRatio?: number;
+  };
 };
 
 type PageEntry = WikiJson["reading_order"][number];
@@ -186,6 +189,7 @@ export function startPrefetch(
           ledger: evidenceResult.ledger,
           findings: evidenceResult.findings,
           mechanisms,
+          outOfScopeRatio: ctx.qualityProfile?.outOfScopeRatio,
         });
 
         if (outlineResult.outline) {

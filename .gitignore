@@ -28,6 +28,9 @@ Thumbs.db
 # authors' reference, not shipped with the repo
 dev-notes/
 
+# TypeScript incremental build artifacts
+*.tsbuildinfo
+
 # Test
 coverage/
 

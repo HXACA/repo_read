@@ -15,7 +15,7 @@ export type OutlinePlannerInput = {
   /** Flat evidence ledger from EvidenceCoordinator. */
   ledger: Array<{
     id: string;
-    kind: string;
+    kind: "file" | "page" | "commit";
     target: string;
     locator?: string;
     note: string;
@@ -25,6 +25,12 @@ export type OutlinePlannerInput = {
   /** When non-empty, outline MUST allocate each mechanism id to either
    *  `covers_mechanisms` on some section or `out_of_scope_mechanisms`. */
   mechanisms?: Mechanism[];
+  /**
+   * Override for the out-of-scope ratio audit. Falls back to
+   * `MAX_OUT_OF_SCOPE_RATIO` when absent. Wired from `qp.outOfScopeRatio`
+   * so presets can tune aggressiveness.
+   */
+  outOfScopeRatio?: number;
 };
 
 export type OutlinePlannerOptions = {
@@ -72,13 +78,14 @@ export class OutlinePlanner {
     // Legacy path: no mechanism enforcement
     if (mechanisms.length === 0) return firstAttempt;
 
-    const missingAfterFirst = deriveUnresolvedIds(firstAttempt.outline, mechanisms);
+    const ratio = input.outOfScopeRatio ?? MAX_OUT_OF_SCOPE_RATIO;
+    const missingAfterFirst = deriveUnresolvedIds(firstAttempt.outline, mechanisms, ratio);
     if (missingAfterFirst.length === 0) return firstAttempt;
 
     // Before retry, strip out_of_scope entries that failed the ratio audit —
     // otherwise the LLM sees them in the "previous outline" snapshot and may
     // simply re-declare them as out-of-scope again.
-    const prunedFirst = stripExcessOutOfScope(firstAttempt.outline, mechanisms);
+    const prunedFirst = stripExcessOutOfScope(firstAttempt.outline, mechanisms, ratio);
 
     // One-shot retry asking the LLM to amend its previous outline
     const retryAttempt = await this.runLLM(input, {
@@ -90,7 +97,7 @@ export class OutlinePlanner {
       usage: sumUsage(firstAttempt.metrics.usage, retryAttempt.metrics.usage),
     };
 
-    const missingAfterRetry = deriveUnresolvedIds(retryAttempt.outline, mechanisms);
+    const missingAfterRetry = deriveUnresolvedIds(retryAttempt.outline, mechanisms, ratio);
     if (missingAfterRetry.length === 0) {
       return { ...retryAttempt, metrics: combinedMetrics };
     }
@@ -374,7 +381,10 @@ export function excessOutOfScopeIds(
   const total = mechanisms.length;
   if (total === 0) return [];
   const entries = outline.out_of_scope_mechanisms ?? [];
-  const maxAllowed = Math.max(1, Math.floor(total * ratio));
+  // Round instead of floor so a 3-mechanism page at ratio=0.5 allows
+  // `round(1.5) = 2` out-of-scope rather than `floor(1.5) = 1` (which
+  // effectively enforced 33% on small pages, not the advertised 50%).
+  const maxAllowed = Math.max(1, Math.round(total * ratio));
   if (entries.length <= maxAllowed) return [];
   return entries.slice(maxAllowed).map((e) => e.id);
 }
@@ -384,8 +394,12 @@ export function excessOutOfScopeIds(
  * the retry prompt shows the LLM a clean slate. Without this the LLM tends
  * to keep whatever it declared out-of-scope originally.
  */
-function stripExcessOutOfScope(outline: PageOutline, mechanisms: Mechanism[]): PageOutline {
-  const excess = new Set(excessOutOfScopeIds(outline, mechanisms));
+function stripExcessOutOfScope(
+  outline: PageOutline,
+  mechanisms: Mechanism[],
+  ratio: number = MAX_OUT_OF_SCOPE_RATIO,
+): PageOutline {
+  const excess = new Set(excessOutOfScopeIds(outline, mechanisms, ratio));
   if (excess.size === 0) return outline;
   return {
     ...outline,
@@ -400,9 +414,13 @@ function stripExcessOutOfScope(outline: PageOutline, mechanisms: Mechanism[]): P
  * out-of-scope entries beyond the abuse threshold. Feeds both the retry
  * prompt (tells the LLM what to re-allocate) and the force-allocate fallback.
  */
-function deriveUnresolvedIds(outline: PageOutline, mechanisms: Mechanism[]): string[] {
+function deriveUnresolvedIds(
+  outline: PageOutline,
+  mechanisms: Mechanism[],
+  ratio: number = MAX_OUT_OF_SCOPE_RATIO,
+): string[] {
   const missing = findUncoveredMechanismIds(outline, mechanisms);
-  const excess = excessOutOfScopeIds(outline, mechanisms);
+  const excess = excessOutOfScopeIds(outline, mechanisms, ratio);
   if (excess.length === 0) return missing;
   // Dedup — excess ids are claimed by out_of_scope, so they won't appear
   // in `missing`, but guard against future refactors.

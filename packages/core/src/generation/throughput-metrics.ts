@@ -318,7 +318,12 @@ export class ThroughputReportBuilder {
     this.catalog = report.catalog;
     this.pageRecords.length = 0;
     this.pageRecords.push(...report.pages);
-    this.orphanedPrefetch = report.orphanedPrefetch;
+    // Only seed orphanedPrefetch when the prior report actually captured one.
+    // Otherwise we'd overwrite any orphanedPrefetch the current session may
+    // discover during the initial catalog window with `undefined`.
+    if (report.orphanedPrefetch !== undefined) {
+      this.orphanedPrefetch = report.orphanedPrefetch;
+    }
   }
 
   /**

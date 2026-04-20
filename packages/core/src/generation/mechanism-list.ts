@@ -26,7 +26,7 @@ export type Mechanism = {
 
 type LedgerLike = {
   id?: string;
-  kind: "file" | "page" | "commit" | string;
+  kind: "file" | "page" | "commit";
   target: string;
   note: string;
   locator?: string;
@@ -47,7 +47,7 @@ export function deriveMechanismList(
     const note = (entry.note ?? "").trim();
     if (!note) continue;
 
-    const kind = normalizeKind(entry.kind);
+    const kind = entry.kind;
     // Drop file-kind entries whose target is outside the page's coveredFiles.
     // Citation Guard blocks the drafter from citing these, which makes them
     // unrecoverable missing_coverage findings for the reviewer — triggering
@@ -90,10 +90,6 @@ export function deriveMechanismList(
     return out.slice(0, MAX_MECHANISMS);
   }
   return out;
-}
-
-function normalizeKind(kind: string): "file" | "page" | "commit" {
-  return kind === "page" || kind === "commit" ? kind : "file";
 }
 
 function buildId(kind: string, target: string, locator: string | undefined): string {

@@ -55,6 +55,14 @@ export type QualityProfile = {
    *   a re-draft. Never triggers evidence re-collection.
    */
   coverageEnforcement: "off" | "warn" | "strict";
+  /**
+   * Maximum fraction of a page's mechanisms that may be declared
+   * out-of-scope by the outline planner. Higher-fidelity presets tighten
+   * this so the outline can't punt too many hard mechanisms into
+   * `out_of_scope_mechanisms`; budget presets relax it since catalog
+   * planning is looser anyway. `excessOutOfScopeIds` uses this value.
+   */
+  outOfScopeRatio: number;
   drafterMaxSteps: number;
   reviewerMaxSteps: number;
   reviewerVerifyMinCitations: number;
@@ -83,6 +91,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     deepLaneRevisionBonus: 0,
     pageConcurrency: 3,
     coverageEnforcement: "warn",
+    outOfScopeRatio: 0.4,
     workerMaxSteps: 50,
     catalogMaxSteps: 100,
     drafterMaxSteps: 100,
@@ -100,6 +109,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     deepLaneRevisionBonus: 0,
     pageConcurrency: 2,
     coverageEnforcement: "off",
+    outOfScopeRatio: 0.5,
     workerMaxSteps: 6,
     catalogMaxSteps: 30,
     drafterMaxSteps: 20,
@@ -117,6 +127,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     deepLaneRevisionBonus: 0,
     pageConcurrency: 1,
     coverageEnforcement: "off",
+    outOfScopeRatio: 0.6,
     workerMaxSteps: 4,
     catalogMaxSteps: 20,
     drafterMaxSteps: 12,
@@ -134,6 +145,7 @@ export const QUALITY_PROFILES: Readonly<Record<Preset, Readonly<QualityProfile>>
     deepLaneRevisionBonus: 0,
     pageConcurrency: 1,
     coverageEnforcement: "off",
+    outOfScopeRatio: 0.6,
     workerMaxSteps: 4,
     catalogMaxSteps: 20,
     drafterMaxSteps: 12,

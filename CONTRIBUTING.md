@@ -82,6 +82,10 @@ kill -USR1 <pid>    # 会在 <jobDir>/hang-dump-<ts>.json 写一份 active resou
 
 把 dump 粘进 issue。
 
+**SIGUSR1 限制**：
+- Windows 不支持 POSIX 信号；此功能在 Windows 上静默无效。hang 诊断在 Windows 上请附 `events.ndjson` 末尾和 UI 进度
+- 如果进程同时带了 `node --inspect-brk` 之类的调试参数，Node 的 inspector 可能抢占 SIGUSR1（用于唤醒调试器），此时手动 `kill -USR1` 不会写 dump。生产/benchmark 跑不要开 inspector
+
 ## License
 
 所有贡献默认以 [MIT](./LICENSE) 授权。

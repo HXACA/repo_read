@@ -120,8 +120,12 @@ export class JobEventEmitter {
    */
   async jobStalled(stallMs: number, detail?: Record<string, unknown>): Promise<void> {
     if (this.stallNotified) return;
-    this.stallNotified = true;
+    // Emit FIRST, then flip the flag. If emit fails (disk full, EIO, etc.),
+    // the flag stays false so the next tick can retry; without this order
+    // a failed emit would silently lock out future stall notifications until
+    // a meaningful event reset the flag.
     await this.emit("job.stalled", { stallMs, ...detail });
+    this.stallNotified = true;
   }
 
   async catalogWarnings(warnings: string[]): Promise<void> {

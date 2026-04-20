@@ -1,4 +1,5 @@
 import { Semaphore } from "../generation/semaphore.js";
+import { abortableDelay } from "./abort.js";
 
 export type TokenBucketOptions = {
   /** Max in-flight requests. Defaults to 6. */
@@ -160,30 +161,3 @@ export function resetProviderBucketsForTest(): void {
   providerBuckets.clear();
 }
 
-/** Sleep for `ms` milliseconds, aborting early when `signal` fires. */
-function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
-  if (!signal) {
-    return new Promise((r) => setTimeout(r, ms));
-  }
-  if (signal.aborted) {
-    return Promise.reject(signalAbortReason(signal));
-  }
-  return new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      signal.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(signalAbortReason(signal));
-    };
-    signal.addEventListener("abort", onAbort, { once: true });
-  });
-}
-
-function signalAbortReason(signal: AbortSignal): Error {
-  const reason = signal.reason;
-  if (reason instanceof Error) return reason;
-  if (reason !== undefined) return new Error(String(reason));
-  return new DOMException("The operation was aborted.", "AbortError");
-}

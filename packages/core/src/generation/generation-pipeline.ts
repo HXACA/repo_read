@@ -850,10 +850,26 @@ export class GenerationPipeline {
       }
 
       // === OUTLINE PLANNING ===
-      // Plan the outline after evidence is collected. Re-plan when
-      // evidence was just re-collected on a retry (the evidence base
-      // changed, so the outline should reflect the new findings).
-      if (evidenceResult && (outline === null || evidenceJustCollected)) {
+      // Plan the outline after evidence is collected. Re-plan when:
+      //   (a) we don't have one yet (fresh page), OR
+      //   (b) evidence was just re-collected on a retry (the evidence base
+      //       changed, so the outline should reflect the new findings), OR
+      //   (c) a cached outline (from disk / prefetch) disagrees with the
+      //       current mechanism set — prevents drafter/reviewer from
+      //       seeing mismatched mechanism ids when prefetch + main derive
+      //       mechanisms independently.
+      const cachedOutlineStale = (() => {
+        if (!outline || outline === null || evidenceJustCollected) return false;
+        if (mechanisms.length === 0) return false;
+        const claimed = new Set<string>();
+        for (const s of outline.sections) for (const id of s.covers_mechanisms ?? []) claimed.add(id);
+        for (const e of outline.out_of_scope_mechanisms ?? []) claimed.add(e.id);
+        // Stale if any current mechanism id is missing from the outline's
+        // claimed set. (Extra claimed ids are harmless — could be leftover
+        // from a slightly different ledger dedup ordering.)
+        return mechanisms.some((m) => !claimed.has(m.id));
+      })();
+      if (evidenceResult && (outline === null || evidenceJustCollected || cachedOutlineStale)) {
         const outlineStartedAt = Date.now();
         const outlineResult = await outlinePlanner.planWithMetrics({
           pageTitle: page.title,
@@ -863,6 +879,7 @@ export class GenerationPipeline {
           ledger: evidenceResult.ledger,
           findings: evidenceResult.findings,
           mechanisms,
+          outOfScopeRatio: qp.outOfScopeRatio,
         });
         outline = outlineResult.outline;
         outlineMetric.durationMs += Date.now() - outlineStartedAt;
@@ -1107,7 +1124,10 @@ export class GenerationPipeline {
             allowBash,
             onWorkerStep: (step) => this.usageTracker.add("worker", (this.workerModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
             onOutlineStep: (step) => this.usageTracker.add("outline", (this.outlineModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
-            qualityProfile: { coverageEnforcement: qp.coverageEnforcement },
+            qualityProfile: {
+              coverageEnforcement: qp.coverageEnforcement,
+              outOfScopeRatio: qp.outOfScopeRatio,
+            },
           }));
         }
       }
@@ -1354,8 +1374,11 @@ export class GenerationPipeline {
 
     await this.artifactStore.savePageMeta(versionedRef, pageMeta);
 
-    // Track progress
-    knownPages.push(page.slug);
+    // Track progress. Dedup so resume-seeded slugs don't get double-added
+    // when the same page finishes again in the current session.
+    if (!knownPages.includes(page.slug)) {
+      knownPages.push(page.slug);
+    }
     const pageSummary = {
       slug: page.slug,
       title: page.title,

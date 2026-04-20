@@ -35,7 +35,7 @@ export type CollectInput = {
   /** Free-form context passed down to each worker (e.g. page plan). */
   workerContext: string;
   /** Existing evidence from previous collection — new results merge into this */
-  existingLedger?: Array<{ id: string; kind: string; target: string; locator?: string; note: string }>;
+  existingLedger?: Array<{ id: string; kind: "file" | "page" | "commit"; target: string; locator?: string; note: string }>;
   /** Areas the reviewer flagged as needing more evidence */
   focusAreas?: string[];
 };
@@ -306,12 +306,21 @@ function ledgerKey(entry: MainAuthorContext["evidence_ledger"][number]): string 
  * Old entries stored file citations as `target="path/to/file.ts:10-20"` with
  * no separate locator. This detects that shape and recovers the split form.
  * Page/commit kinds are untouched because their targets never had suffixes.
+ *
+ * Accepted locator patterns after the final `:`
+ *   `42`           — single line
+ *   `10-20`        — line range
+ *   `42:5`         — line:col
+ *   `10-20:5-15`   — range:col-range (rare but observed in some editors)
+ *
+ * Anything else is left untouched — better to leave a weird target alone
+ * than to split it incorrectly.
  */
 function splitLegacyFusedTarget(
   entry: MainAuthorContext["evidence_ledger"][number],
 ): MainAuthorContext["evidence_ledger"][number] {
   if (entry.locator || entry.kind !== "file") return entry;
-  const m = entry.target.match(/^(.+?):(\d+(?:-\d+)?)$/);
+  const m = entry.target.match(/^(.+?):(\d+(?:-\d+)?(?::\d+(?:-\d+)?)?)$/);
   if (!m) return entry;
   return { ...entry, target: m[1], locator: m[2] };
 }

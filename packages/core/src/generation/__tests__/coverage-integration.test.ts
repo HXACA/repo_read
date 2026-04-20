@@ -93,7 +93,14 @@ function makeConfig(overrides: Partial<QualityProfile> = {}): ResolvedConfig {
       maxReadWindowLines: 500,
       allowControlledBash: true,
     },
-    qualityProfile: { ...getQualityProfile("budget"), ...overrides },
+    qualityProfile: {
+      ...getQualityProfile("budget"),
+      // Pin pageConcurrency=1 explicitly — the test's mockAi feed order
+      // assumes serial page processing. If someone bumps the budget preset
+      // default, this test would become flaky without this lock.
+      pageConcurrency: 1,
+      ...overrides,
+    },
   };
 }
 

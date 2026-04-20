@@ -1437,7 +1437,7 @@ init -> generate -> interrupt -> resume -> browse -> ask
 **方案**：`packages/core/src/utils/diagnostics.ts` 的 `Diagnostics` 类：
 - **Heartbeat**：每 60s emit `job.heartbeat`，events.ndjson mtime 持续推进
 - **Stall detector**：heartbeat 回调检查 `emitter.millisSinceLastMeaningful()` > 15min 则 emit `job.stalled`（一次 per stall window）
-- **SIGUSR1 dump**：`kill -USR1 <pid>` 写 `<jobDir>/hang-dump-<ts>.json`，含 `process.getActiveResourcesInfo()` + memory + job label
+- **SIGUSR1 dump**：`kill -USR1 <pid>` 写 `<jobDir>/hang-dump-<ts>.json`，含 `process.getActiveResourcesInfo()` + memory + job label。仅 POSIX 平台（macOS / Linux）；Windows 没有 SIGUSR1 信号，Node 在 Windows 上忽略。且 `node --inspect` 会抢占该信号做 debugger 唤醒，不要在待诊断的进程上加 inspector flag
 
 ### 18.9 Drafter 空输出硬化
 

@@ -102,7 +102,9 @@ export function stripDraftOutputWrappers(raw: string): string {
   // appears immediately before the trailing ```json metadata block (if
   // present) or at the very end of the text otherwise.
   if (text.startsWith("```markdown")) {
-    text = text.replace(/^```markdown[^\n]*\n/, "");
+    // Strip the opener; handle both "```markdown\n..." and the edge case
+    // "```markdown<EOF>" (empty fence body, e.g. truncated model output).
+    text = text.replace(/^```markdown[^\n]*(?:\n|$)/, "");
     // Case A: closing ``` sits between the markdown body and the ```json block
     text = text.replace(/\n```(\s*\n+```json)/, "$1");
     // Case B: no ```json block — strip the final ``` at EOF
@@ -189,10 +191,23 @@ export class PageDrafter {
       // {success: true, markdown: ""}, which the pipeline turns into a generic
       // "Page X drafting failed" with no diagnostic. Flipping to success=false
       // here lets the error reach events/logs with actionable detail.
+      //
+      // Also distinguish two empty-output flavors so triage has a clearer
+      // starting point:
+      //   - rawTextLength=0, outputTokens=0  → provider returned nothing
+      //   - rawTextLength=0, outputTokens>0  → provider generated tokens but
+      //     dropped them on the serialization path (vendor-level bug). This
+      //     variant is rarer but harder to diagnose without the hint.
       if (parsed.success && !parsed.markdown?.trim()) {
+        const rawTextLength = (result.text ?? "").length;
+        const outputTokens = result.usage?.outputTokens ?? 0;
+        const tokensWithoutText = rawTextLength === 0 && outputTokens > 0;
+        const flavor = tokensWithoutText
+          ? "tokens produced but not captured (vendor serialization bug suspected)"
+          : "no tokens produced";
         return {
           success: false,
-          error: `Drafter produced empty output (finishReason=${finishReason ?? "unknown"}, rawTextLength=${(result.text ?? "").length})`,
+          error: `Drafter produced empty output (${flavor}; finishReason=${finishReason ?? "unknown"}, rawTextLength=${rawTextLength}, outputTokens=${outputTokens})`,
           metrics: parsed.metrics,
           ...(parsed.truncated ? { truncated: true } : {}),
         };

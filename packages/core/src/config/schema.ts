@@ -62,6 +62,7 @@ const QualityOverridesSchema = z.object({
   reviewerStrictness: z.enum(["lenient", "normal", "strict"]).optional(),
   askMaxSteps: z.number().optional(),
   researchMaxSteps: z.number().optional(),
+  outOfScopeRatio: z.number().min(0).max(1).optional(),
 }).optional();
 
 export const UserEditableConfigSchema = z.object({

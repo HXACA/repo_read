@@ -1,3 +1,5 @@
+import { signalAbortReason } from "../utils/abort.js";
+
 /**
  * Counting semaphore with a FIFO wait queue.
  *
@@ -57,9 +59,3 @@ export class Semaphore {
   }
 }
 
-function signalAbortReason(signal: AbortSignal): Error {
-  const reason = signal.reason;
-  if (reason instanceof Error) return reason;
-  if (reason !== undefined) return new Error(String(reason));
-  return new DOMException("The operation was aborted.", "AbortError");
-}

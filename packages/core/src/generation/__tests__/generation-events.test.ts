@@ -125,7 +125,7 @@ describe("JobEventEmitter", () => {
       expect(just).toBeLessThan(20);
     });
 
-    it("jobStalled emits once per stall window", async () => {
+    it("jobStalled suppresses duplicate emits regardless of stallMs value (order-independent gate)", async () => {
       await emitter.jobStalled(900_000);
       await emitter.jobStalled(910_000);
       await emitter.jobStalled(920_000);

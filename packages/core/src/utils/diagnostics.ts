@@ -18,7 +18,16 @@ import * as path from "node:path";
  *    waiting on at 05:47?" during a hang, without instrumenting every await.
  *
  * Both register on `start()` and clean up on `stop()`. Neither alters
- *  behavior; stop() is idempotent and safe to call from a finally block.
+ * behavior; stop() is idempotent and safe to call from a finally block.
+ *
+ * **Scope limitation**: the heartbeat-driven stall detector catches
+ * async-await hangs (orphan promise, leaked permit, hung SSE stream).
+ * It does NOT catch event-loop blocks — if a synchronous CPU-bound loop
+ * freezes the runtime, the heartbeat timer itself can't fire and no
+ * `job.stalled` event will be emitted. That failure mode is rare in
+ * RepoRead's pipeline (all hot paths are I/O-bound) but worth knowing
+ * when triaging an unresponsive process: if SIGUSR1 also yields nothing,
+ * suspect an event-loop block and attach `node --inspect-brk`.
  */
 
 export type DiagnosticsOptions = {
@@ -83,14 +92,15 @@ export class Diagnostics {
     try {
       // getActiveResourcesInfo is stable on Node 17+ and returns a simple
       // array of resource type names (e.g. ["TCPSocketWrap", "Timeout", ...]).
-      const info = typeof (process as { getActiveResourcesInfo?: () => string[] }).getActiveResourcesInfo === "function"
+      const hasInfo = typeof (process as { getActiveResourcesInfo?: () => string[] }).getActiveResourcesInfo === "function";
+      const info = hasInfo
         ? (process as { getActiveResourcesInfo: () => string[] }).getActiveResourcesInfo()
         : [];
       const counts = info.reduce<Record<string, number>>((acc, name) => {
         acc[name] = (acc[name] ?? 0) + 1;
         return acc;
       }, {});
-      const payload = {
+      const payload: Record<string, unknown> = {
         ts: new Date().toISOString(),
         label: this.opts.label ?? null,
         tick: this.tickCount,
@@ -98,6 +108,11 @@ export class Diagnostics {
         memory: process.memoryUsage(),
         uptime: process.uptime(),
       };
+      // Surface the missing-API case so readers of the dump don't mistake
+      // an empty activeResources for "no active handles" on older Node.
+      if (!hasInfo) {
+        payload.warning = "process.getActiveResourcesInfo unavailable (Node < 17); activeResources is empty";
+      }
       fs.mkdirSync(this.opts.dumpDir, { recursive: true });
       const file = path.join(
         this.opts.dumpDir,

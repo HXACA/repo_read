@@ -1,3 +1,5 @@
+import { asError } from "./abort.js";
+
 const DEFAULT_SSE_TIMEOUT_MS = 120_000; // 2 minutes
 const DEFAULT_WALL_CLOCK_TIMEOUT_MS = 600_000; // 10 minutes — hard ceiling per HTTP call
 
@@ -167,8 +169,3 @@ export function createWallClockFetch(
   };
 }
 
-function asError(reason: unknown): Error {
-  if (reason instanceof Error) return reason;
-  if (reason !== undefined) return new Error(String(reason));
-  return new DOMException("The operation was aborted.", "AbortError");
-}

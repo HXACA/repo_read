@@ -159,6 +159,20 @@ export class VerificationLadder {
       totalMetrics.usage.cachedTokens += l2Result.metrics.usage.cachedTokens;
     }
 
+    // If L2 explicitly failed with no conclusion, propagate the failure
+    // upward so the pipeline's unverified-pass degradation can kick in.
+    // Previously we synthesized a truthy conclusion from l1Conclusion even
+    // when l2Result.success === false, which hid the failure and let pages
+    // silently ship on L1 verdict while reporting L2 as the reached level.
+    if (!l2Result.success && !l2Result.conclusion) {
+      return {
+        success: false,
+        error: l2Result.error ?? "L2 factual review failed",
+        metrics: totalMetrics,
+        levelReached: "L2",
+      };
+    }
+
     const l2Conclusion: ReviewConclusion = l2Result.conclusion ?? l1Conclusion;
 
     // Merge L1 non-blocker findings into L2 conclusion so they don't disappear.

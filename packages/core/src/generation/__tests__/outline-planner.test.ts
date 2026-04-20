@@ -470,9 +470,23 @@ describe("excessOutOfScopeIds (out_of_scope audit)", () => {
   });
 
   it("enforces a floor of 1 so tiny pages aren't over-restricted", () => {
-    // 1 mech, 1 out-of-scope → ratio 100% but maxAllowed=max(1, floor(0.5))=1 → no excess
+    // 1 mech, 1 out-of-scope → ratio 100% but maxAllowed=max(1, round(0.5))=1 → no excess
     const oneMech: Mechanism[] = [mechs[0]];
     expect(excessOutOfScopeIds(outlineWith(1), oneMech)).toEqual([]);
+  });
+
+  it("uses Math.round so 3-mechanism pages get 2 allowed at ratio=0.5 (not 1)", () => {
+    // Prior bug: Math.floor(3 * 0.5) = 1 → 33% effective, despite doc saying 50%
+    const threeMechs = mechs.slice(0, 3);
+    const outline3of3 = {
+      sections: [{ heading: "s", key_points: [], cite_from: [], covers_mechanisms: [] }],
+      out_of_scope_mechanisms: [
+        { id: "m0", reason: "out-of-scope 1 reason" },
+        { id: "m1", reason: "out-of-scope 2 reason" },
+      ],
+    };
+    // 2 declared out-of-scope, maxAllowed=round(3*0.5)=2 → no excess
+    expect(excessOutOfScopeIds(outline3of3, threeMechs)).toEqual([]);
   });
 
   it("respects a custom ratio argument", () => {
