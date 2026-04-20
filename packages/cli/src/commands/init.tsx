@@ -100,6 +100,7 @@ async function createDefaultConfig(
     ...(roles ? { roles } : {}),
     ...(global.language ? { language: global.language } : {}),
     ...(global.preset ? { preset: global.preset } : {}),
+    ...(global.qualityOverrides ? { qualityOverrides: global.qualityOverrides } : {}),
   };
 }
 

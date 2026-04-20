@@ -1378,3 +1378,69 @@ init -> generate -> interrupt -> resume -> browse -> ask
 1. 没有稳定配置中心，后续所有 runtime 都会反复返工。
 2. 没有统一轻量清单和实时本地检索，问答和生成会变成两套系统。
 3. 没有事件和恢复，CLI/Web 工作台都无法成立。
+
+## 18. V8 迭代增量
+
+本节记录 V3 baseline 之后陆续落地、但前面章节尚未覆盖的增量特性。每一项都有自己的 git commit，本节只给 one-paragraph 参考。
+
+### 18.1 Mechanism Coverage Guarantee（recall 保证）
+
+**问题**：drafter 常以"看起来覆盖完整"通过 reviewer，但实际漏掉 ledger 里若干关键机制（缺少 citation 或 mention）。
+
+**方案**：`packages/core/src/generation/mechanism-list.ts` 的 `deriveMechanismList` 从 evidence ledger 派生一份"本页应覆盖的机制"清单；outline planner 必须把每条机制要么分配到某个 section 的 `covers_mechanisms`，要么明确列入 `out_of_scope_mechanisms` 并给出 ≥10 字的理由。reviewer 按模式决定是否 block：
+- `off`：不派生，不检查（preset 默认）
+- `warn`：派生+统计，不触发 revision
+- `strict`：未解析的 `missing_coverage` 视同 `missing_evidence`，触发 re-draft
+
+**Audit**：`excessOutOfScopeIds` 加了一道阈值——`out_of_scope_mechanisms` 数量不得超过总机制数的 50%，超过部分视作 uncovered，回到 retry/force-allocate 链路，防止 outline 用"全部打发走"绕过覆盖要求。
+
+### 18.2 两级 Rate Limiter（per-provider + per-model）
+
+**问题**：`kingxliu` 个人套餐触发 HTTP 429 `Token Plan` 并发限流。ai-sdk 内部 3 次退避后抛到我们的代码，让 page fail。
+
+**方案**：`packages/core/src/utils/rate-limiter.ts` 的 `TokenBucket` + `createRateLimitedFetch`。两级叠加——请求必须同时过模型级桶（`provider:model` key）和 provider 级桶（`provider` key）。配置入口是 `ProviderCredentialConfig.rateLimit` 与 `ProviderModelConfig.rateLimit`，各有 `maxConcurrent` + `minIntervalMs`。Streaming-aware——permit 在 body 真正读完/cancel/error 时才释放，否则长 SSE 会让并发假超限。
+
+### 18.3 Wall-clock Timeout
+
+**问题**：SSE inter-chunk timeout（120s 无数据）无法拦截 "慢速滴 token" 的流；bucket.acquire() 没超时机制，permit 泄漏时死锁。观测到 netpoll resume 1h 无任何 CPU/socket 活动。
+
+**方案**：`createWallClockFetch` 外层 wrap 整个 fetch chain，默认 10min 硬上限。`AbortController` 信号贯穿到 `bucket.acquire(signal?)` 和底层 fetch。`Semaphore.acquire(signal?)` 让 aborted waiter 自己出队，不堵塞后续 waiter。超时触发抛 `WallClockTimeoutError`，页面 fail 而不是 hang 到宇宙热寂。
+
+### 18.4 Adaptive Drafter Step Budget（revision 收紧）
+
+**问题**：drafter 在 revision attempts 里仍花大量 round 做工具调用；初始 draft 100 步够用，第 2 次 revision 也跑 100 步就是浪费。
+
+**方案**：`revisionStepBudget(baseMaxSteps, attempt)` 按 attempt 递减——初始 100%，第一次 revision 60%，第二次及以后 40%（floor 4）。pipeline 在调用 `activeDrafter.draft(...)` 时传 `{ maxSteps }` override。实测 hermes V6→V7 revision token 消耗降约 50%。
+
+### 18.5 Terminal-Attempt L2 Suppression
+
+**问题**：`selectVerificationLevel` 在 `revisionAttempt > 1` 时强制 L2（带工具验证）。但到达 `maxRevisionAttempts` 时已经无法再 revise——L2 verdict=revise 只能把页标 degraded，验证本身是浪费。
+
+**方案**：`VerificationLevelInput` 加 `maxRevisionAttempts?` 字段。到达 terminal attempt 且唯一升级原因是 `revisionAttempt > 1` 时，降级回 L1。真实质量信号（`factualRisksCount > 0` 等）依旧触发 L2，defensible 覆盖不丢。
+
+### 18.6 Evidence Ledger target/locator Split
+
+**问题**：evidence-coordinator 的 `toLedgerEntry` 把 worker 分离输出的 `target` + `locator` 融合成 `"file:line"` 单字符串。mechanism-list 的 scope check `coveredSet.has(entry.target)` 永远匹配不到，V3 导致虚假 895 `unresolvedJob`，V7 P1 filter 把所有机制过滤成 0。
+
+**方案**：`evidence_ledger` 类型加 optional `locator` 字段；`toLedgerEntry` 保持分离；dedup key 用 `kind+target+locator`；`splitLegacyFusedTarget` 兼容老 ledger JSON（resume 路径）。下游 drafter/outline prompt 在渲染时复合 `target:locator`。netpoll V8 实测 `coverageAudit.totalMechanismsJob=85, unresolved=0`，第一次看到真实数据。
+
+### 18.7 Incremental Throughput Save + Resume Seed
+
+**问题**：`throughput.json` 只在 job 结束时写；reboot/kill mid-job 丢所有已完成页的数据；resume 只记录本次 session 的页。
+
+**方案**：`ThroughputReportBuilder.seed(report)` 加载磁盘已有报告；`snapshot()` 非破坏性快照供每页完成后落盘；`addPage` 按 slug dedup；`setCatalog` 在 resume 场景下保护 seeded catalog metric。任何崩溃点 throughput.json 都反映到那一刻。
+
+### 18.8 Diagnostics: Heartbeat + SIGUSR1 + Stall Detector
+
+**问题**：hang 无自愈外看不到（UI 刷新靠 spinner，events.ndjson 只在 transition 落盘，看 mtime 判断不准），无法诊断。
+
+**方案**：`packages/core/src/utils/diagnostics.ts` 的 `Diagnostics` 类：
+- **Heartbeat**：每 60s emit `job.heartbeat`，events.ndjson mtime 持续推进
+- **Stall detector**：heartbeat 回调检查 `emitter.millisSinceLastMeaningful()` > 15min 则 emit `job.stalled`（一次 per stall window）
+- **SIGUSR1 dump**：`kill -USR1 <pid>` 写 `<jobDir>/hang-dump-<ts>.json`，含 `process.getActiveResourcesInfo()` + memory + job label
+
+### 18.9 Drafter 空输出硬化
+
+**问题**：某些 provider（kingxliu）在 tool-calling 多轮后返回 HTTP 200 空 body。drafter 的 `parseOutput` 把空输出当 `{success: true, markdown: ""}` 悄悄放过，pipeline 再以泛化消息判 fail，诊断信息全丢。
+
+**方案**：`page-drafter.ts:draft` 在 `parsed.success && !parsed.markdown?.trim()` 时返回 `{success: false, error: "Drafter produced empty output (finishReason=..., rawTextLength=...)"}`，错误信息直达 event 和 log。

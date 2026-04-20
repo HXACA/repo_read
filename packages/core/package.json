@@ -1,6 +1,18 @@
 {
   "name": "@reporead/core",
   "version": "0.1.0",
+  "description": "Core runtime for RepoRead — agents, pipeline, providers, tools. See the CLI package @reporead/cli for the user-facing entry point.",
+  "license": "MIT",
+  "homepage": "https://github.com/YOUR_ORG/repo_read#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YOUR_ORG/repo_read.git",
+    "directory": "packages/core"
+  },
+  "bugs": {
+    "url": "https://github.com/YOUR_ORG/repo_read/issues"
+  },
+  "keywords": ["reporead", "wiki", "code-reading", "agent", "documentation"],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -10,12 +22,15 @@
       "types": "./dist/index.d.ts"
     }
   },
+  "files": ["dist", "README.md", "LICENSE"],
   "scripts": {
     "build": "tsc",
+    "build:publish": "rm -rf dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "pnpm run build:publish && pnpm run test"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.68",

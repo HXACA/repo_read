@@ -72,12 +72,17 @@ export class OutlinePlanner {
     // Legacy path: no mechanism enforcement
     if (mechanisms.length === 0) return firstAttempt;
 
-    const missingAfterFirst = findUncoveredMechanismIds(firstAttempt.outline, mechanisms);
+    const missingAfterFirst = deriveUnresolvedIds(firstAttempt.outline, mechanisms);
     if (missingAfterFirst.length === 0) return firstAttempt;
+
+    // Before retry, strip out_of_scope entries that failed the ratio audit —
+    // otherwise the LLM sees them in the "previous outline" snapshot and may
+    // simply re-declare them as out-of-scope again.
+    const prunedFirst = stripExcessOutOfScope(firstAttempt.outline, mechanisms);
 
     // One-shot retry asking the LLM to amend its previous outline
     const retryAttempt = await this.runLLM(input, {
-      previousOutline: firstAttempt.outline,
+      previousOutline: prunedFirst,
       missingIds: missingAfterFirst,
     });
     const combinedMetrics = {
@@ -85,7 +90,7 @@ export class OutlinePlanner {
       usage: sumUsage(firstAttempt.metrics.usage, retryAttempt.metrics.usage),
     };
 
-    const missingAfterRetry = findUncoveredMechanismIds(retryAttempt.outline, mechanisms);
+    const missingAfterRetry = deriveUnresolvedIds(retryAttempt.outline, mechanisms);
     if (missingAfterRetry.length === 0) {
       return { ...retryAttempt, metrics: combinedMetrics };
     }
@@ -340,6 +345,69 @@ function findUncoveredMechanismIds(outline: PageOutline, mechanisms: Mechanism[]
   }
   for (const item of outline.out_of_scope_mechanisms ?? []) claimed.add(item.id);
   return mechanisms.map((m) => m.id).filter((id) => !claimed.has(id));
+}
+
+/**
+ * Ceiling on what fraction of a page's mechanisms may be declared
+ * out-of-scope. Without this cap the outline can trivially dodge coverage
+ * enforcement by punting hard mechanisms into `out_of_scope_mechanisms`
+ * with a boilerplate reason. 0.5 = at most half may be declared
+ * out-of-scope; the rest MUST map to a section.
+ */
+export const MAX_OUT_OF_SCOPE_RATIO = 0.5;
+
+/**
+ * When the outline declares more than `MAX_OUT_OF_SCOPE_RATIO * total`
+ * mechanisms as out-of-scope, treat the excess as uncovered. Retains the
+ * first `floor(total * ratio)` out-of-scope entries (they are probably
+ * legitimate cross-page references), demotes the rest to uncovered so the
+ * existing retry + force-allocate loop pulls them back into a section.
+ * This is an audit, not a hard rejection — it preserves forward progress
+ * while preventing the outline from silently dropping half the coverage
+ * chain.
+ */
+export function excessOutOfScopeIds(
+  outline: PageOutline,
+  mechanisms: Mechanism[],
+  ratio: number = MAX_OUT_OF_SCOPE_RATIO,
+): string[] {
+  const total = mechanisms.length;
+  if (total === 0) return [];
+  const entries = outline.out_of_scope_mechanisms ?? [];
+  const maxAllowed = Math.max(1, Math.floor(total * ratio));
+  if (entries.length <= maxAllowed) return [];
+  return entries.slice(maxAllowed).map((e) => e.id);
+}
+
+/**
+ * Drop excess out_of_scope entries (those flagged by the ratio audit) so
+ * the retry prompt shows the LLM a clean slate. Without this the LLM tends
+ * to keep whatever it declared out-of-scope originally.
+ */
+function stripExcessOutOfScope(outline: PageOutline, mechanisms: Mechanism[]): PageOutline {
+  const excess = new Set(excessOutOfScopeIds(outline, mechanisms));
+  if (excess.size === 0) return outline;
+  return {
+    ...outline,
+    out_of_scope_mechanisms: (outline.out_of_scope_mechanisms ?? []).filter(
+      (e) => !excess.has(e.id),
+    ),
+  };
+}
+
+/**
+ * Unified "unresolved mechanism ids" — missing from coverage PLUS excess
+ * out-of-scope entries beyond the abuse threshold. Feeds both the retry
+ * prompt (tells the LLM what to re-allocate) and the force-allocate fallback.
+ */
+function deriveUnresolvedIds(outline: PageOutline, mechanisms: Mechanism[]): string[] {
+  const missing = findUncoveredMechanismIds(outline, mechanisms);
+  const excess = excessOutOfScopeIds(outline, mechanisms);
+  if (excess.length === 0) return missing;
+  // Dedup — excess ids are claimed by out_of_scope, so they won't appear
+  // in `missing`, but guard against future refactors.
+  const combined = new Set<string>([...missing, ...excess]);
+  return [...combined];
 }
 
 function forceAllocateMechanisms(outline: PageOutline, missingIds: string[]): PageOutline {

@@ -15,6 +15,12 @@
 | 文档 | 用途 |
 | --- | --- |
 | [architecture.md](./architecture.md) | 运行时 Agent 拓扑、委派原语、工具协议、四个 loop 的权威描述 |
-| [design.md](./design.md) | 工程整体设计：模块边界、数据流、落盘格式、状态机 |
+| [design.md](./design.md) | 工程整体设计：模块边界、数据流、落盘格式、状态机；§18 为 V8 增量 |
 | [design-rationale.md](./design-rationale.md) | 关键设计决策的取舍记录：为什么这么做、否决了哪些替代方案 |
 | [prd.md](./prd.md) | 产品需求与主线定位，回答"RepoRead 要解决什么问题" |
+
+## 给维护者
+
+| 文档 | 用途 |
+| --- | --- |
+| [releasing.md](./releasing.md) | 把 @reporead/core + @reporead/cli 发到 npm 的完整流程 |

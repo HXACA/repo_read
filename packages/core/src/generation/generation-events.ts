@@ -10,6 +10,8 @@ export type PipelineEventCallback = (event: AppEvent) => void;
 export class JobEventEmitter {
   private readonly writer: EventWriter;
   private readonly listener?: PipelineEventCallback;
+  private lastMeaningfulAt: number = Date.now();
+  private stallNotified = false;
 
   constructor(
     storage: StorageAdapter,
@@ -22,6 +24,17 @@ export class JobEventEmitter {
       storage.paths.eventsNdjson(projectSlug, jobId),
     );
     this.listener = listener;
+  }
+
+  /**
+   * Milliseconds since the last state-transition event (anything that moves
+   * a page through catalog/evidence/outline/draft/review/validate/publish).
+   * Heartbeat and stall events are excluded so they don't reset the clock.
+   * Used by the pipeline's heartbeat tick to decide whether to emit a
+   * `job.stalled` event.
+   */
+  millisSinceLastMeaningful(): number {
+    return Date.now() - this.lastMeaningfulAt;
   }
 
   async jobStarted(): Promise<void> {
@@ -98,6 +111,19 @@ export class JobEventEmitter {
     await this.emit("job.heartbeat", { tick });
   }
 
+  /**
+   * Fires when the pipeline has gone `stallMs` milliseconds without any
+   * state-transition event. Emitted at most once per stall window — the
+   * flag resets as soon as a meaningful event fires again, so a recovered-
+   * then-re-stalled job produces one event per stall period rather than one
+   * per heartbeat.
+   */
+  async jobStalled(stallMs: number, detail?: Record<string, unknown>): Promise<void> {
+    if (this.stallNotified) return;
+    this.stallNotified = true;
+    await this.emit("job.stalled", { stallMs, ...detail });
+  }
+
   async catalogWarnings(warnings: string[]): Promise<void> {
     if (warnings.length > 0) {
       await this.emit("catalog.warnings", { warnings, count: warnings.length });
@@ -120,5 +146,12 @@ export class JobEventEmitter {
     });
     await this.writer.write(event);
     this.listener?.(event);
+    // Track meaningful progress for stall detection. Heartbeats and stall
+    // notices are diagnostic signals about the state of the pipeline itself
+    // and must not reset the "last meaningful" clock.
+    if (type !== "job.heartbeat" && type !== "job.stalled") {
+      this.lastMeaningfulAt = Date.now();
+      this.stallNotified = false;
+    }
   }
 }

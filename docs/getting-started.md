@@ -28,14 +28,26 @@ pnpm --filter @reporead/web  run build
 - `packages/core/dist/` — 核心运行时
 - `packages/web/.next/` — Wiki 阅读器前端
 
-把 CLI 链接到 PATH（可选）：
+把 CLI 链接到 PATH（推荐，后文所有 `repo-read ...` 命令都假设你已经 link 过）：
 
 ```bash
-pnpm --filter @reporead/cli exec npm link
-# 之后就能直接 `repo-read --help`
+cd packages/cli
+npm link
+# 之后 `repo-read --help` 可以在任意目录调用；实际指向当前仓库的 dist/
+cd ../..
 ```
 
-如果不 link，也可以直接用 `pnpm --filter @reporead/cli exec repo-read ...` 调用。
+如果不想全局 link，下面所有 `repo-read` 命令都可以替换成：
+
+```bash
+node /absolute/path/to/repo_read/packages/cli/dist/index.js ...
+```
+
+或者起个 shell alias：
+
+```bash
+alias repo-read="node $PWD/packages/cli/dist/index.js"
+```
 
 ## 一次配置：写全局配置文件
 

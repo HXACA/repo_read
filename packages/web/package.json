@@ -1,6 +1,8 @@
 {
   "name": "@reporead/web",
   "version": "0.1.0",
+  "private": true,
+  "description": "RepoRead web reader — Next.js app served by `repo-read browse`. Not published to npm; lives inside the monorepo.",
   "type": "module",
   "scripts": {
     "dev": "next dev",

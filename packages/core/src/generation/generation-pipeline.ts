@@ -31,6 +31,7 @@ import {
   addUsageInput,
   type PhaseMetric,
   type PageThroughputRecord,
+  type ThroughputReport,
 } from "./throughput-metrics.js";
 import type { PageRef, VersionedPageRef } from "../artifacts/types.js";
 import { computeComplexity } from "./complexity-scorer.js";
@@ -158,7 +159,12 @@ export class GenerationPipeline {
     // Diagnostics: heartbeat into events.ndjson every 60s so monitors can
     // distinguish "quietly drafting inside one page" from "stalled". SIGUSR1
     // dumps a snapshot of active Node resources into the job dir on demand
-    // so the next hang becomes investigable post-mortem.
+    // so the next hang becomes investigable post-mortem. The heartbeat also
+    // runs stall detection — if no state-transition event has fired in
+    // STALL_THRESHOLD_MS, emit a `job.stalled` event (once per stall window)
+    // so external monitors get a clean signal instead of inferring from
+    // event mtime deltas.
+    const STALL_THRESHOLD_MS = 15 * 60 * 1000; // 15 min
     const diagnostics = new Diagnostics({
       dumpDir: this.storage.paths.jobDir(slug, jobId),
       label: `${slug}/${jobId}`,
@@ -167,6 +173,17 @@ export class GenerationPipeline {
           // Best-effort — never let the heartbeat surface errors into the
           // pipeline. A failing emit simply means no heartbeat for this tick.
         });
+        const stallMs = emitter.millisSinceLastMeaningful();
+        if (stallMs >= STALL_THRESHOLD_MS) {
+          // Try to attach whatever page the pipeline's state machine believes
+          // is the current page — best-effort, fails silently on resume paths
+          // where `job` may not have a currentPageSlug yet.
+          emitter
+            .jobStalled(stallMs, {
+              currentPageSlug: (job as GenerationJob | undefined)?.currentPageSlug,
+            })
+            .catch(() => {});
+        }
       },
     });
     diagnostics.start();

@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { OutlinePlanner } from "../outline-planner.js";
+import { OutlinePlanner, excessOutOfScopeIds, MAX_OUT_OF_SCOPE_RATIO } from "../outline-planner.js";
 import type { OutlinePlannerInput } from "../outline-planner.js";
 import type { Mechanism } from "../mechanism-list.js";
+import type { PageOutline } from "../../types/agent.js";
 
 vi.mock("ai", () => {
   const generateText = vi.fn();
@@ -431,5 +432,57 @@ describe("OutlinePlanner mechanism coverage", () => {
 
     expect(mockGenerateText).toHaveBeenCalledTimes(1);
     expect(result.outline.sections[0].heading).toBe("A");
+  });
+});
+
+describe("excessOutOfScopeIds (out_of_scope audit)", () => {
+  const mechs: Mechanism[] = Array.from({ length: 10 }, (_, i) => ({
+    id: `m${i}`,
+    citation: { kind: "file", target: `f${i}.ts` },
+    description: `mech ${i}`,
+    coverageRequirement: "must_cite",
+  }));
+
+  function outlineWith(oosCount: number): PageOutline {
+    return {
+      sections: [{ heading: "s", key_points: [], cite_from: [], covers_mechanisms: [] }],
+      out_of_scope_mechanisms: Array.from({ length: oosCount }, (_, i) => ({
+        id: `m${i}`,
+        reason: "covered in other-page" + i,
+      })),
+    };
+  }
+
+  it("returns empty when total mechanisms is 0", () => {
+    expect(excessOutOfScopeIds(outlineWith(5), [])).toEqual([]);
+  });
+
+  it("returns empty when out-of-scope count is at or below the ratio cap", () => {
+    // 10 mechanisms × 0.5 = 5 allowed
+    expect(excessOutOfScopeIds(outlineWith(5), mechs)).toEqual([]);
+    expect(excessOutOfScopeIds(outlineWith(3), mechs)).toEqual([]);
+  });
+
+  it("flags ids beyond the cap as excess", () => {
+    // 10 mechs × 0.5 = 5 allowed; 7 declared → 2 excess (the last two)
+    const excess = excessOutOfScopeIds(outlineWith(7), mechs);
+    expect(excess).toEqual(["m5", "m6"]);
+  });
+
+  it("enforces a floor of 1 so tiny pages aren't over-restricted", () => {
+    // 1 mech, 1 out-of-scope → ratio 100% but maxAllowed=max(1, floor(0.5))=1 → no excess
+    const oneMech: Mechanism[] = [mechs[0]];
+    expect(excessOutOfScopeIds(outlineWith(1), oneMech)).toEqual([]);
+  });
+
+  it("respects a custom ratio argument", () => {
+    // With ratio 0.2, only 2/10 allowed → 5 excess
+    const excess = excessOutOfScopeIds(outlineWith(7), mechs, 0.2);
+    expect(excess).toHaveLength(5);
+  });
+
+  it("exports a sane default ratio", () => {
+    expect(MAX_OUT_OF_SCOPE_RATIO).toBeGreaterThan(0);
+    expect(MAX_OUT_OF_SCOPE_RATIO).toBeLessThanOrEqual(1);
   });
 });

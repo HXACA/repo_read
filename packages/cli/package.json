@@ -1,17 +1,32 @@
 {
   "name": "@reporead/cli",
   "version": "0.1.0",
+  "description": "Command-line interface for RepoRead — generate, browse, ask, and research against any git repo locally.",
+  "license": "MIT",
+  "homepage": "https://github.com/YOUR_ORG/repo_read#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YOUR_ORG/repo_read.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/YOUR_ORG/repo_read/issues"
+  },
+  "keywords": ["reporead", "cli", "wiki", "code-reading", "agent", "documentation"],
   "type": "module",
   "bin": {
     "repo-read": "./dist/index.js"
   },
+  "files": ["dist", "README.md", "LICENSE"],
   "scripts": {
     "build": "tsc",
+    "build:publish": "rm -rf dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "pnpm run build:publish"
   },
   "dependencies": {
     "@reporead/core": "workspace:*",

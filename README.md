@@ -56,8 +56,8 @@ Main Control Loop
 
 ## Contributing
 
-欢迎 PR。动手之前建议先读 [docs/design.md](./docs/design.md) 了解模块边界，再看 [docs/design-rationale.md](./docs/design-rationale.md) 了解为什么这么设计，避免提出已被评估过的替代方案。
+欢迎 PR。完整流程、commit 规范、测试要求见 [CONTRIBUTING.md](./CONTRIBUTING.md)。动手之前建议先读 [docs/design.md](./docs/design.md) 了解模块边界，再看 [docs/design-rationale.md](./docs/design-rationale.md) 了解为什么这么设计，避免提出已被评估过的替代方案。
 
 ## License
 
-MIT (TODO: add LICENSE file)
+MIT — see [LICENSE](./LICENSE).

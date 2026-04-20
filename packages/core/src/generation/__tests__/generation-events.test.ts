@@ -101,4 +101,60 @@ describe("JobEventEmitter", () => {
       "page.drafting",
     ]);
   });
+
+  describe("stall detection tracker", () => {
+    it("heartbeat does not reset millisSinceLastMeaningful", async () => {
+      await emitter.pageDrafting("p1");
+      await new Promise((r) => setTimeout(r, 30));
+      const before = emitter.millisSinceLastMeaningful();
+
+      await emitter.jobHeartbeat(1);
+      await emitter.jobHeartbeat(2);
+
+      const after = emitter.millisSinceLastMeaningful();
+      // Heartbeats should not have reset the "last meaningful" clock —
+      // it must continue advancing with wall time.
+      expect(after).toBeGreaterThanOrEqual(before);
+    });
+
+    it("meaningful events reset the clock", async () => {
+      await emitter.pageDrafting("p1");
+      await new Promise((r) => setTimeout(r, 30));
+      await emitter.pageDrafted("p1");
+      const just = emitter.millisSinceLastMeaningful();
+      expect(just).toBeLessThan(20);
+    });
+
+    it("jobStalled emits once per stall window", async () => {
+      await emitter.jobStalled(900_000);
+      await emitter.jobStalled(910_000);
+      await emitter.jobStalled(920_000);
+
+      const events = (await reader.readAll()).filter((e) => e.type === "job.stalled");
+      expect(events).toHaveLength(1);
+      expect((events[0].payload as { stallMs: number }).stallMs).toBe(900_000);
+    });
+
+    it("jobStalled re-arms after a meaningful event fires", async () => {
+      await emitter.jobStalled(900_000);
+      await emitter.jobStalled(920_000); // suppressed
+
+      await emitter.pageDrafted("p1"); // meaningful → clears flag
+
+      await emitter.jobStalled(910_000); // should fire again
+
+      const stalls = (await reader.readAll()).filter((e) => e.type === "job.stalled");
+      expect(stalls).toHaveLength(2);
+    });
+
+    it("job.stalled includes supplied detail fields", async () => {
+      await emitter.jobStalled(900_000, { currentPageSlug: "stuck-page", phase: "drafting" });
+      const stall = (await reader.readAll()).find((e) => e.type === "job.stalled")!;
+      expect(stall.payload).toEqual({
+        stallMs: 900_000,
+        currentPageSlug: "stuck-page",
+        phase: "drafting",
+      });
+    });
+  });
 });
