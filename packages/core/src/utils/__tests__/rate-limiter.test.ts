@@ -178,6 +178,37 @@ describe("TokenBucket", () => {
     expect((r as Response).status).toBe(204);
   });
 
+  it("releases the semaphore permit when the min-interval delay is aborted (H1 regression)", async () => {
+    // Bug: bucket.acquire(signal) takes a permit via sem.acquire(), then
+    // waits on the minIntervalMs spacing delay. If `signal` aborts the
+    // delay, the permit was NEVER released — the bucket ends up one permit
+    // short forever, which over time defeats the whole wall-clock recovery
+    // story (the very thing the abort signal exists for).
+    const bucket = new TokenBucket({ maxConcurrent: 1, minIntervalMs: 500 });
+
+    // Warm the nextAvailableAt so the next acquire has real spacing to wait on.
+    await bucket.acquire();
+    bucket.release();
+
+    const doomed = new AbortController();
+    setTimeout(() => doomed.abort(new Error("signal fired mid-delay")), 30);
+    await expect(bucket.acquire(doomed.signal)).rejects.toThrow("signal fired mid-delay");
+
+    // The permit MUST be available again. If not, this second acquire hangs
+    // past the timeout and the test fails.
+    const start = Date.now();
+    await Promise.race([
+      bucket.acquire(),
+      new Promise((_, rej) =>
+        setTimeout(() => rej(new Error("permit leaked after aborted delay")), 1200),
+      ),
+    ]);
+    // Sanity check: the second acquire itself had to wait for nextAvailableAt
+    // to elapse, but must complete well under the leak-guard timeout.
+    expect(Date.now() - start).toBeLessThan(1100);
+    bucket.release();
+  });
+
   it("forwards init.signal so a waiter stuck on acquire can be aborted", async () => {
     // Unsticks the permit-leak class of hang: if an outer wall-clock timeout
     // fires while the request is still blocked on acquire(), propagating the

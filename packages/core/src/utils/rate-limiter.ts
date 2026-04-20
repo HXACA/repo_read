@@ -43,7 +43,17 @@ export class TokenBucket {
       // that already hold a permit queue up rather than racing on the clock.
       this.nextAvailableAt = Math.max(now, this.nextAvailableAt) + this.minIntervalMs;
       if (wait > 0) {
-        await abortableDelay(wait, signal);
+        // Leak guard: if the signal fires while we're sleeping on the spacing
+        // delay, we've already taken a semaphore permit above. Release it
+        // before rethrowing — otherwise an aborted acquire leaves the bucket
+        // permanently one-permit short, which defeats the wall-clock timeout
+        // the signal was built to enforce.
+        try {
+          await abortableDelay(wait, signal);
+        } catch (err) {
+          this.sem.release();
+          throw err;
+        }
       }
     }
   }

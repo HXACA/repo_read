@@ -55,8 +55,11 @@ export function createResilientFetch(
           controller.enqueue(result.value);
         }
       },
-      cancel() {
-        reader.cancel();
+      cancel(reason) {
+        // Propagate the caller's cancel reason so upstream consumers get the
+        // real AbortError (e.g., `WallClockTimeoutError`) instead of an
+        // opaque cancel. Critical for post-mortem diagnostics.
+        reader.cancel(reason);
       },
     });
 
