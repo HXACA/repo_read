@@ -174,11 +174,13 @@ export async function runGenerate(options: GenerateOptions): Promise<void> {
       `Resume plan: ${alreadyDone} pages already validated, ${remaining} remaining`,
     );
     if (remaining === 0) {
-      console.error(
-        `All pages are already validated for job "${existing.id}". Nothing to do — consider running without --resume to publish.`,
+      // Don't bail here — a real recovery case is "every page validated
+      // but the process died before Publisher.publish() ran". The
+      // pipeline handles that state (it skips all page workflows and
+      // drops straight into publishing) so we forward and let it finish.
+      console.log(
+        `All pages validated; resuming to drive the publish + finalize step.`,
       );
-      process.exitCode = 1;
-      return;
     }
 
     // Reuse the recovered commit hash to keep citations consistent with

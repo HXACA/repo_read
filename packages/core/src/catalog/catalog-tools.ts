@@ -10,6 +10,7 @@
  * - bash → run_bash (read-only shell commands)
  */
 import * as path from "node:path";
+import * as fs from "node:fs/promises";
 import { jsonSchema } from "ai";
 import { readFile } from "../tools/read-tool.js";
 import { grepSearch } from "../tools/grep-tool.js";
@@ -17,6 +18,54 @@ import { findFiles } from "../tools/find-tool.js";
 import { gitLog } from "../tools/git-tool.js";
 import { getDirStructure } from "../tools/dir-structure-tool.js";
 import { execBash } from "../tools/bash-tool.js";
+
+/**
+ * Resolve a user-supplied relative path to an absolute path that is
+ * provably inside `repoRoot`, following symlinks. Returns `null` when
+ * the path escapes the root either via `..` / absolute segments or via
+ * symlinks that point outside. This closes a class of exfiltration
+ * attacks where a malicious repo plants `docs/secret -> ~/.ssh/id_rsa`:
+ * the naive `path.resolve` check would accept `docs/secret` (prefix
+ * match) and `fs.readFile` would follow the link out of the checkout.
+ */
+async function resolveWithinRoot(repoRoot: string, relPath: string): Promise<string | null> {
+  const resolvedRoot = await fs.realpath(path.resolve(repoRoot)).catch(() => path.resolve(repoRoot));
+  const candidate = path.resolve(resolvedRoot, relPath);
+
+  // Cheap prefix check first (catches `..` escapes even if realpath would
+  // have resolved to something inside — here we just haven't resolved yet).
+  if (candidate !== resolvedRoot && !candidate.startsWith(resolvedRoot + path.sep)) {
+    return null;
+  }
+
+  // realpath() resolves symlinks — the true target must still live under
+  // the real root. `ENOENT` means the file doesn't exist yet (fine for
+  // negative cases); any other error is treated as "can't prove safe".
+  try {
+    const real = await fs.realpath(candidate);
+    if (real !== resolvedRoot && !real.startsWith(resolvedRoot + path.sep)) {
+      return null;
+    }
+    return real;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      // File missing — let the tool itself surface a "not found" error,
+      // but only if the parent directory resolves inside the root.
+      const parent = path.dirname(candidate);
+      try {
+        const parentReal = await fs.realpath(parent);
+        if (parentReal !== resolvedRoot && !parentReal.startsWith(resolvedRoot + path.sep)) {
+          return null;
+        }
+        return candidate;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+}
 
 export function createCatalogTools(repoRoot: string, options?: { allowBash?: boolean }) {
   const tools: Record<string, unknown> = {
@@ -31,7 +80,12 @@ export function createCatalogTools(repoRoot: string, options?: { allowBash?: boo
         },
       }),
       execute: async ({ dir_path, max_depth }: { dir_path?: string; max_depth?: number }) => {
-        const result = await getDirStructure(repoRoot, dir_path ?? ".", max_depth ?? 3);
+        // Same symlink-escape guard as `read`: realpath of the requested
+        // dir must stay inside repoRoot so a symlink like
+        // `docs/mount -> /etc` can't enumerate system directories.
+        const resolved = await resolveWithinRoot(repoRoot, dir_path ?? ".");
+        if (!resolved) return "Error: Path is outside repository root";
+        const result = await getDirStructure(repoRoot, path.relative(repoRoot, resolved) || ".", max_depth ?? 3);
         if (!result.success) return `Error: ${result.error}`;
         return result.tree;
       },
@@ -49,12 +103,10 @@ export function createCatalogTools(repoRoot: string, options?: { allowBash?: boo
         required: ["path"],
       }),
       execute: async ({ path: filePath, offset, limit }: { path: string; offset?: number; limit?: number }) => {
-        // Path traversal protection: resolved path must stay within repoRoot
-        const resolved = path.resolve(repoRoot, filePath);
-        const resolvedRoot = path.resolve(repoRoot);
-        if (resolved !== resolvedRoot && !resolved.startsWith(resolvedRoot + path.sep)) {
-          return "Error: Path is outside repository root";
-        }
+        // Path traversal + symlink-escape protection: realpath resolution
+        // must still land inside repoRoot.
+        const resolved = await resolveWithinRoot(repoRoot, filePath);
+        if (!resolved) return "Error: Path is outside repository root";
         const result = await readFile(resolved, { offset, limit });
         if (!result.success) return `Error: ${result.error}`;
         return `File: ${filePath} (${result.totalLines} lines total, showing ${result.linesReturned} from line ${result.offset + 1})\n${result.content}`;

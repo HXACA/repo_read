@@ -3,6 +3,7 @@ import {
   ParallelPageScheduler,
   createGate,
   type PageRunResult,
+  type PublishedSummary,
 } from "../parallel-scheduler.js";
 
 type TestPage = { slug: string; title: string };
@@ -154,5 +155,29 @@ describe("ParallelPageScheduler", () => {
     expect(results[1].error).toContain("crash");
     expect(results[0].success).toBe(true);
     expect(results[2].success).toBe(true);
+  });
+
+  it("publishedSummaries stay in reading order even when pages finish out of order", async () => {
+    // Regression: at pageConcurrency > 1, pages naturally finish out of
+    // order. A faster later page must NOT appear before an earlier page
+    // in publishedSummaries — downstream review/evidence prompts key on
+    // reading_order and wrong order silently corrupts the "previously
+    // published" context passed to later pages.
+    const runPage = vi.fn(async (ctx: { page: TestPage; reviewGate: Promise<void> }) => {
+      await ctx.reviewGate;
+      // page-0 sleeps longest, page-2 sleeps shortest — completion order
+      // becomes (page-1, page-2, page-0) but scheduler must still emit
+      // publishedSummaries as (page-0, page-1, page-2).
+      const delays: Record<string, number> = { "page-0": 60, "page-1": 20, "page-2": 10 };
+      await new Promise((r) => setTimeout(r, delays[ctx.page.slug] ?? 0));
+      return {
+        success: true,
+        summary: { slug: ctx.page.slug, title: ctx.page.title, summary: ctx.page.slug },
+      } as PageRunResult;
+    });
+    const scheduler = new ParallelPageScheduler<TestPage>({ concurrency: 3, runPage });
+    const summaries: PublishedSummary[] = [];
+    await scheduler.runAll(mockPages(3), summaries);
+    expect(summaries.map((s) => s.slug)).toEqual(["page-0", "page-1", "page-2"]);
   });
 });

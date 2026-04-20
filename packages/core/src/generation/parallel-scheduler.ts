@@ -66,6 +66,34 @@ export class ParallelPageScheduler<Page> {
     const gates = pages.map(() => createGate());
     const semaphore = new Semaphore(concurrency);
     const results: PageRunResult[] = new Array(pages.length);
+    // Out-of-order in, in-order out. At pageConcurrency > 1 pages finish in
+    // completion order, but publishedSummaries + the persisted
+    // published-index.json must match the wiki's reading_order so downstream
+    // evidence / review prompts reference the right neighbors. We collect
+    // into indexed slots and drain the leading in-order prefix each time a
+    // new page completes. Semantically a page is only "published" once its
+    // predecessor has also published — matches the reading-order invariant.
+    const summarySlots: Array<PublishedSummary | undefined> = new Array(pages.length);
+    const failedSlots: boolean[] = new Array(pages.length).fill(false);
+    let nextToPublish = 0;
+
+    const drainConsecutive = () => {
+      while (nextToPublish < pages.length) {
+        if (summarySlots[nextToPublish]) {
+          publishedSummaries.push(summarySlots[nextToPublish]!);
+          nextToPublish++;
+          continue;
+        }
+        if (failedSlots[nextToPublish]) {
+          // Skip failed pages — their gate still resolves, but they have
+          // no summary to publish. Advance the pointer so later successful
+          // pages can drain through.
+          nextToPublish++;
+          continue;
+        }
+        break;
+      }
+    };
 
     await Promise.all(
       pages.map(async (page, i) => {
@@ -86,15 +114,23 @@ export class ParallelPageScheduler<Page> {
             };
           }
           if (result.success && result.summary) {
-            publishedSummaries.push(result.summary);
+            summarySlots[i] = result.summary;
+          } else {
+            failedSlots[i] = true;
           }
           results[i] = result;
+          drainConsecutive();
         } finally {
           gates[i].resolve(); // ALWAYS resolve — even on failure
           semaphore.release();
         }
       }),
     );
+
+    // Final drain catches any trailing slots the in-flight drains missed
+    // (can happen if the last page in reading order was also the last to
+    // finish, depending on timing).
+    drainConsecutive();
 
     return results;
   }
