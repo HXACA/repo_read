@@ -90,9 +90,22 @@ export function createResilientFetch(
  */
 export function createWallClockFetch(
   inner: typeof globalThis.fetch,
-  options?: { timeoutMs?: number },
+  options?: {
+    timeoutMs?: number;
+    /**
+     * Source of a wake-from-sleep `AbortSignal`. Called once per fetch so
+     * callers that rotate their controller on every wake event (see
+     * `Diagnostics.wakeSignal`) deliver a fresh signal to every new
+     * request. Provided to unstick in-flight fetches that were paused
+     * with the process during macOS Idle Sleep — `setTimeout` counts
+     * runtime not wall-clock, so the `timeoutMs` ceiling above doesn't
+     * help for a 7-hour system sleep.
+     */
+    wakeSignal?: () => AbortSignal;
+  },
 ): typeof globalThis.fetch {
   const timeoutMs = options?.timeoutMs ?? DEFAULT_WALL_CLOCK_TIMEOUT_MS;
+  const getWakeSignal = options?.wakeSignal;
 
   return async (input, init) => {
     const controller = new AbortController();
@@ -113,6 +126,20 @@ export function createWallClockFetch(
       }
     }
 
+    // Chain the wake signal the same way. Re-read the getter per call
+    // because the upstream controller rotates on every wake event.
+    let unlinkWake: (() => void) | undefined;
+    if (getWakeSignal) {
+      const wakeSignal = getWakeSignal();
+      if (wakeSignal.aborted) {
+        abortWith(asError(wakeSignal.reason));
+      } else {
+        const onWakeAbort = () => abortWith(asError(wakeSignal.reason));
+        wakeSignal.addEventListener("abort", onWakeAbort, { once: true });
+        unlinkWake = () => wakeSignal.removeEventListener("abort", onWakeAbort);
+      }
+    }
+
     const timer = setTimeout(
       () => abortWith(new WallClockTimeoutError(timeoutMs)),
       timeoutMs,
@@ -120,7 +147,18 @@ export function createWallClockFetch(
     const finish = () => {
       clearTimeout(timer);
       if (unlinkCaller) unlinkCaller();
+      if (unlinkWake) unlinkWake();
     };
+
+    // If any source signal was already aborted above (caller cancel or a
+    // stale wake signal), short-circuit before invoking the real fetch.
+    // Real HTTP fetch honors an already-aborted signal, but thin test
+    // doubles and some minimal clients don't — either way, issuing the
+    // request is wasted work once the controller is done.
+    if (controller.signal.aborted) {
+      finish();
+      throw asError(controller.signal.reason);
+    }
 
     const mergedInit = { ...init, signal: controller.signal };
 

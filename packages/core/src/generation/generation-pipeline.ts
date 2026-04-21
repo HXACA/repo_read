@@ -11,7 +11,7 @@ import { JobStateManager } from "./job-state.js";
 import { JobEventEmitter } from "./generation-events.js";
 import { profileRepo } from "../project/repo-profiler.js";
 import { PageDrafter, revisionStepBudget } from "./page-drafter.js";
-import { Diagnostics } from "../utils/diagnostics.js";
+import { Diagnostics, type WakeSource } from "../utils/diagnostics.js";
 import { VerificationLadder, type LadderResult } from "../review/verification-ladder.js";
 import { selectVerificationLevel, type VerificationLevel } from "../review/verification-level.js";
 import { validatePage } from "../validation/page-validator.js";
@@ -54,6 +54,14 @@ export type GenerationPipelineOptions = {
   repoRoot: string;
   commitHash: string;
   usageTracker?: UsageTracker;
+  /**
+   * Optional wake-from-sleep signal source shared with model fetches.
+   * When supplied, the pipeline attaches its `Diagnostics.wakeSignal`
+   * getter once `run()` starts, so every in-flight fetch observes the
+   * same rotating signal. Models were given the source holder at CLI
+   * startup; this completes the wiring.
+   */
+  wakeSource?: WakeSource;
 };
 
 export type PipelineResult = {
@@ -111,6 +119,7 @@ export class GenerationPipeline {
   private readonly commitHash: string;
   private readonly usageTracker: UsageTracker;
   private readonly artifactStore: ArtifactStore;
+  private readonly wakeSource: WakeSource | undefined;
 
   constructor(options: GenerationPipelineOptions) {
     this.storage = options.storage;
@@ -125,6 +134,7 @@ export class GenerationPipeline {
     this.commitHash = options.commitHash;
     this.usageTracker = options.usageTracker ?? new UsageTracker();
     this.artifactStore = new ArtifactStore(this.storage);
+    this.wakeSource = options.wakeSource;
   }
 
   async run(
@@ -185,8 +195,25 @@ export class GenerationPipeline {
             .catch(() => {});
         }
       },
+      // Wake-from-sleep: fires when Date.now() drift exceeds the 30s
+      // threshold — typically a macOS Idle Sleep resume. Diagnostics has
+      // already aborted the previous `wakeSignal` by the time this hook
+      // runs; we just record the event for post-mortem. `wakeSignal` is
+      // threaded into the model fetch stack below so in-flight fetches
+      // that were paused on dead TCP sockets unstick and the outer
+      // retryOnTransient layer rebuilds connections.
+      onWake: (driftMs, expectedMs, actualMs, tick) => {
+        emitter
+          .jobWokeFromSleep({ driftMs, expectedMs, actualMs, tick })
+          .catch(() => {});
+      },
     });
     diagnostics.start();
+    // Attach the live Diagnostics signal to the shared WakeSource so every
+    // pre-built model's fetch chain sees this job's wake events. The getter
+    // is re-read per fetch in createWallClockFetch, so signal rotation on
+    // wake just works.
+    this.wakeSource?.attach(() => diagnostics.wakeSignal);
 
     // Incremental flush helper — called after each page so a hard kill
     // mid-job preserves what's already done.

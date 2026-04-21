@@ -41,10 +41,78 @@ export type DiagnosticsOptions = {
   label?: string;
   /** Opt out of the SIGUSR1 handler (e.g. in tests that own the signal). */
   enableSignalHandler?: boolean;
+  /**
+   * Wake-from-sleep callback. Called when the measured `Date.now()` delta
+   * between consecutive internal checks exceeds `wakeDriftThresholdMs`.
+   *
+   * The reference case is macOS Idle Sleep: the Node event loop pauses
+   * for minutes/hours while the kernel continues TCP keepalive. On resume
+   * the process holds references to sockets the remote has long since
+   * closed; every in-flight fetch hangs until `WallClockTimeoutError`
+   * fires — except `setTimeout` counts process-runtime, not wall-clock,
+   * so even that timer has most of its budget still left to burn.
+   *
+   * Providing `onWake` arms a second `setInterval(wakeCheckMs)` that
+   * compares `Date.now()` against the previous tick. When drift exceeds
+   * the threshold:
+   *   1. The internal `wakeController` is swapped for a fresh one.
+   *   2. The OLD controller aborts, propagating to any fetch that
+   *      subscribed via `createWallClockFetch({ wakeSignal: ... })`.
+   *   3. `onWake(...)` fires so the pipeline can emit a
+   *      `job.woke_from_sleep` event for post-mortem.
+   *
+   * Not providing `onWake` leaves the wake detector disarmed. The
+   * `wakeSignal` getter still returns a stable never-aborted signal so
+   * consumers don't need to branch on detector presence.
+   */
+  onWake?: (driftMs: number, expectedMs: number, actualMs: number, tick: number) => void;
+  /** Drift threshold above which we declare a wake. Defaults to 30_000 (30s). */
+  wakeDriftThresholdMs?: number;
+  /** Interval at which we sample `Date.now()`. Defaults to 1_000 (1s). */
+  wakeCheckMs?: number;
+  /**
+   * Test-only override for `Date.now`. Production callers leave this
+   * undefined so wake detection runs against the real wall clock.
+   */
+  now?: () => number;
 };
+
+/**
+ * Deferred wake-signal source. The CLI creates one at startup, hands it to
+ * every `createModelForRole` (so their fetch chains can subscribe), and to
+ * the `GenerationPipeline` — which at `run()` time attaches the live
+ * `Diagnostics.wakeSignal` getter. Until then, `getSignal()` returns a
+ * never-aborting stub so model construction works without a pipeline.
+ *
+ * The indirection matters because models are built at program start (API
+ * keys, per-role config) and Diagnostics is created per job (needs jobId
+ * for the dump dir). This holder bridges the two lifetimes.
+ */
+export type WakeSource = {
+  /** Called once per fetch by `createWallClockFetch`. Never throws. */
+  getSignal: () => AbortSignal;
+  /** Pipeline attaches its live Diagnostics after `start()`. */
+  attach: (source: () => AbortSignal) => void;
+};
+
+export function createWakeSource(): WakeSource {
+  // Default: a stable never-aborted signal so pre-pipeline fetches (e.g.
+  // the CLI's `git rev-parse` doesn't matter — but model construction
+  // itself may not fetch, yet we keep the contract: always return a valid
+  // signal) always see a live signal.
+  const inert = new AbortController().signal;
+  let source: () => AbortSignal = () => inert;
+  return {
+    getSignal: () => source(),
+    attach: (fn) => { source = fn; },
+  };
+}
 
 export class Diagnostics {
   private timer: NodeJS.Timeout | null = null;
+  private wakeTimer: NodeJS.Timeout | null = null;
+  private wakeController: AbortController = new AbortController();
+  private lastWakeSampleAt = 0;
   private tickCount = 0;
   private sigHandler: NodeJS.SignalsListener | null = null;
   private readonly opts: DiagnosticsOptions;
@@ -53,7 +121,18 @@ export class Diagnostics {
     this.opts = opts;
   }
 
+  /**
+   * Fresh per-wake `AbortSignal`. Read this getter each time a new
+   * subscription is needed (e.g. inside `createWallClockFetch` per call)
+   * — the controller rotates every time the wake detector fires, so a
+   * cached reference would be stale after the first wake event.
+   */
+  get wakeSignal(): AbortSignal {
+    return this.wakeController.signal;
+  }
+
   start(): void {
+    const now = this.opts.now ?? (() => Date.now());
     const heartbeatMs = this.opts.heartbeatMs ?? 60_000;
     if (this.opts.onHeartbeat) {
       const cb = this.opts.onHeartbeat;
@@ -63,6 +142,30 @@ export class Diagnostics {
       }, heartbeatMs);
       // Let the event loop exit naturally if nothing else is pending.
       if (typeof this.timer.unref === "function") this.timer.unref();
+    }
+
+    if (this.opts.onWake) {
+      const wakeCheckMs = this.opts.wakeCheckMs ?? 1_000;
+      const threshold = this.opts.wakeDriftThresholdMs ?? 30_000;
+      const onWake = this.opts.onWake;
+      this.lastWakeSampleAt = now();
+      this.wakeTimer = setInterval(() => {
+        const actual = now();
+        const actualDelta = actual - this.lastWakeSampleAt;
+        this.lastWakeSampleAt = actual;
+        const drift = actualDelta - wakeCheckMs;
+        if (drift > threshold) {
+          const old = this.wakeController;
+          this.wakeController = new AbortController();
+          try {
+            old.abort(new Error(`wake-from-sleep: ${drift}ms drift`));
+          } catch {
+            // abort() throws only if the reason was already set; ignore.
+          }
+          try { onWake(drift, wakeCheckMs, actualDelta, this.tickCount); } catch { /* best-effort */ }
+        }
+      }, wakeCheckMs);
+      if (typeof this.wakeTimer.unref === "function") this.wakeTimer.unref();
     }
 
     if (this.opts.enableSignalHandler !== false) {
@@ -80,6 +183,10 @@ export class Diagnostics {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
+    }
+    if (this.wakeTimer) {
+      clearInterval(this.wakeTimer);
+      this.wakeTimer = null;
     }
     if (this.sigHandler) {
       try { process.off("SIGUSR1", this.sigHandler); } catch { /* ignore */ }

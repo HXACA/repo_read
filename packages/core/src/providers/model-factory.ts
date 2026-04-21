@@ -8,9 +8,17 @@ import { AppError } from "../errors.js";
 import { getDebugDir, createDebugFetch } from "../utils/debug-fetch.js";
 import { createResilientFetch, createWallClockFetch } from "../utils/resilient-fetch.js";
 import { createRateLimitedFetch, getProviderBucket } from "../utils/rate-limiter.js";
+import type { WakeSource } from "../utils/diagnostics.js";
 
 export type ModelFactoryOptions = {
   apiKeys: Record<string, string>;
+  /**
+   * Optional wake-from-sleep signal source. When provided, every fetch
+   * this model issues subscribes to the live signal so a laptop-sleep
+   * wake aborts in-flight requests. See `createWakeSource` in
+   * `utils/diagnostics.ts` for the lifecycle.
+   */
+  wakeSource?: WakeSource;
 };
 
 export function createModelForRole(
@@ -70,7 +78,9 @@ export function createModelForRole(
       getProviderBucket(`${resolvedProviderName}:${modelName}`, modelConfig.rateLimit),
     );
   }
-  fetchFn = createWallClockFetch(fetchFn);
+  fetchFn = createWallClockFetch(fetchFn, {
+    ...(options.wakeSource ? { wakeSignal: options.wakeSource.getSignal } : {}),
+  });
   return createModel(npm, resolvedProviderName, modelName, apiKey, providerConfig?.baseUrl, fetchFn, modelConfig?.variant);
 }
 

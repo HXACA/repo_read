@@ -10,6 +10,7 @@ import {
   GenerationPipeline,
   JobStateManager,
   createModelForRole,
+  createWakeSource,
   setDebugDir,
   UsageTracker,
 } from "@reporead/core";
@@ -87,14 +88,19 @@ export async function runGenerate(options: GenerateOptions): Promise<void> {
   const isDebug = process.env.REPOREAD_DEBUG === "1" || process.env.REPOREAD_DEBUG === "true";
   if (isDebug) setDebugDir(path.join(storage.paths.projectDir(slug), "debug"));
 
+  // Shared wake-from-sleep signal source. Models read the getter per fetch,
+  // so once the pipeline attaches its Diagnostics.wakeSignal, every model's
+  // in-flight call unsticks when the laptop wakes from Idle Sleep.
+  const wakeSource = createWakeSource();
+
   // 4. Create models for all five roles
   let catalogModel, outlineModel, drafterModel, workerModel, reviewerModel;
   try {
-    catalogModel = createModelForRole(resolvedConfig, "catalog", { apiKeys });
-    outlineModel = createModelForRole(resolvedConfig, "outline", { apiKeys });
-    drafterModel = createModelForRole(resolvedConfig, "drafter", { apiKeys });
-    workerModel = createModelForRole(resolvedConfig, "worker", { apiKeys });
-    reviewerModel = createModelForRole(resolvedConfig, "reviewer", { apiKeys });
+    catalogModel = createModelForRole(resolvedConfig, "catalog", { apiKeys, wakeSource });
+    outlineModel = createModelForRole(resolvedConfig, "outline", { apiKeys, wakeSource });
+    drafterModel = createModelForRole(resolvedConfig, "drafter", { apiKeys, wakeSource });
+    workerModel = createModelForRole(resolvedConfig, "worker", { apiKeys, wakeSource });
+    reviewerModel = createModelForRole(resolvedConfig, "reviewer", { apiKeys, wakeSource });
   } catch (err) {
     console.error(`Failed to create models: ${(err as Error).message}`);
     console.error("Ensure API keys are set via environment variables or keychain.");
@@ -221,6 +227,7 @@ export async function runGenerate(options: GenerateOptions): Promise<void> {
     repoRoot,
     commitHash,
     usageTracker,
+    wakeSource,
   });
 
   const progress = new ProgressRenderer();

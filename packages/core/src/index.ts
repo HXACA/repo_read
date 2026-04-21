@@ -28,6 +28,8 @@ export type {
 } from "./generation/index.js";
 export { PathPolicy, validateBashCommand } from "./policy/index.js";
 export { setDebugDir } from "./utils/debug-fetch.js";
+export { createWakeSource } from "./utils/diagnostics.js";
+export type { WakeSource } from "./utils/diagnostics.js";
 // buildResponsesProviderOptions is internal — not re-exported
 export type { BashValidationResult } from "./policy/index.js";
 export {

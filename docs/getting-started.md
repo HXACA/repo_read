@@ -113,6 +113,18 @@ repo-read browse -d .
 
 如果中途失败或想重跑，用 `repo-read jobs -d .` 查历史 job，再 `repo-read generate --resume <jobId>` 续跑。
 
+> **长跑建议**：50+ 页的大仓会跑数小时。macOS 默认 Idle Sleep 会暂停 Node 事件循环，
+> 醒来时流式连接已被上游关掉但本地不知情（典型症状：events.ndjson 夜里卡住不动）。
+> 管线现在内置 wake-from-sleep 检测（drift >30s 自动 abort 在飞请求 + emit
+> `job.woke_from_sleep` 事件），但最稳妥的做法还是：
+>
+> ```sh
+> caffeinate -s repo-read generate -d .              # 新跑
+> caffeinate -s repo-read generate -d . --resume <id>  # 续跑
+> ```
+>
+> `caffeinate -s` 仅在 AC 供电时阻止 Idle Sleep；电池供电仍然会睡。
+
 ## 接下来
 
 - 调 preset / 模型 / rateLimit → 看 [configuration.md](./configuration.md)

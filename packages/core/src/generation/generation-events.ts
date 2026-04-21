@@ -128,6 +128,25 @@ export class JobEventEmitter {
     this.stallNotified = true;
   }
 
+  /**
+   * Wall-clock drift exceeded the wake threshold — typically a macOS Idle
+   * Sleep resume. The pipeline's shared `wakeSignal` has already aborted
+   * in-flight fetches by the time this fires; the event is the audit-trail
+   * record for post-mortems ("did we wake last night?").
+   *
+   * Each detected wake gets its own event — there is no once-per-job
+   * dedup, because overnight laptops typically sleep dozens of times and
+   * every cycle is worth recording.
+   */
+  async jobWokeFromSleep(detail: {
+    driftMs: number;
+    expectedMs: number;
+    actualMs: number;
+    tick: number;
+  }): Promise<void> {
+    await this.emit("job.woke_from_sleep", detail);
+  }
+
   async catalogWarnings(warnings: string[]): Promise<void> {
     if (warnings.length > 0) {
       await this.emit("catalog.warnings", { warnings, count: warnings.length });
@@ -150,10 +169,11 @@ export class JobEventEmitter {
     });
     await this.writer.write(event);
     this.listener?.(event);
-    // Track meaningful progress for stall detection. Heartbeats and stall
-    // notices are diagnostic signals about the state of the pipeline itself
-    // and must not reset the "last meaningful" clock.
-    if (type !== "job.heartbeat" && type !== "job.stalled") {
+    // Track meaningful progress for stall detection. Heartbeats, stall
+    // notices, and wake-from-sleep events are diagnostic signals about
+    // the state of the pipeline itself and must not reset the "last
+    // meaningful" clock.
+    if (type !== "job.heartbeat" && type !== "job.stalled" && type !== "job.woke_from_sleep") {
       this.lastMeaningfulAt = Date.now();
       this.stallNotified = false;
     }

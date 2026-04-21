@@ -270,4 +270,57 @@ describe("createWallClockFetch", () => {
     await new Promise((r) => setTimeout(r, 80));
     expect(lastSignal?.aborted).toBe(false);
   });
+
+  describe("wakeSignal integration", () => {
+    it("aborts an in-flight fetch when the wakeSignal fires", async () => {
+      const inner: typeof globalThis.fetch = (_input, init) =>
+        new Promise<Response>((_, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal!.reason), { once: true });
+        });
+      const wakeController = new AbortController();
+      const wrapped = createWallClockFetch(inner, {
+        timeoutMs: 60_000, // long — wakeSignal fires first
+        wakeSignal: () => wakeController.signal,
+      });
+      setTimeout(() => wakeController.abort(new Error("woke up")), 30);
+      await expect(wrapped("https://hang.test")).rejects.toThrow(/woke up/);
+    });
+
+    it("reads wakeSignal per-call so rotated signals are picked up", async () => {
+      // Simulates Diagnostics rotating its controller after each wake event:
+      // first call subscribes to v1 (which is pre-aborted), second call must
+      // see the fresh v2 signal (not-aborted).
+      const v1 = new AbortController();
+      v1.abort(new Error("stale"));
+      const v2 = new AbortController();
+      let callIdx = 0;
+      const signals = [v1.signal, v2.signal];
+      const inner: typeof globalThis.fetch = async () =>
+        new Response("ok", { status: 200, headers: { "content-type": "text/plain" } });
+      const wrapped = createWallClockFetch(inner, {
+        timeoutMs: 5_000,
+        wakeSignal: () => signals[callIdx++]!,
+      });
+      // First call picks signals[0] (already aborted) → should reject
+      await expect(wrapped("https://a.test")).rejects.toThrow(/stale/);
+      // Second call picks signals[1] (clean) → must succeed
+      const res = await wrapped("https://a.test");
+      expect(await res.text()).toBe("ok");
+    });
+
+    it("does not affect fetches that completed before the wake fires", async () => {
+      const wakeController = new AbortController();
+      const inner: typeof globalThis.fetch = async () =>
+        new Response("ok", { status: 200, headers: { "content-type": "text/plain" } });
+      const wrapped = createWallClockFetch(inner, {
+        timeoutMs: 5_000,
+        wakeSignal: () => wakeController.signal,
+      });
+      const res = await wrapped("https://fast.test");
+      const body = await res.text();
+      expect(body).toBe("ok");
+      // Wake AFTER the fetch already finished — must not throw.
+      wakeController.abort(new Error("late wake"));
+    });
+  });
 });
