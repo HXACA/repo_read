@@ -8,6 +8,7 @@
 | --- | --- |
 | [getting-started.md](./getting-started.md) | 从 clone 到生成第一份 wiki 的完整上手路径 |
 | [configuration.md](./configuration.md) | 全局 / 项目配置文件字段参考，preset 与 rateLimit 语义 |
+| [roles-and-model-choice.md](./roles-and-model-choice.md) | 5 个 role 的职责、I/O 规模、推理依赖；三种推荐模型组合 |
 | [cli-reference.md](./cli-reference.md) | 所有 `repo-read` 子命令的 flags 与示例 |
 
 ## 给贡献者（Contributors）
