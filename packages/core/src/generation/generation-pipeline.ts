@@ -558,6 +558,12 @@ export class GenerationPipeline {
       allowBash: this.config.retrieval.allowControlledBash,
       providerCallOptions: buildProviderOpts(getModelOptionsForRole(this.config, "catalog"), jobId),
       onStep: (step) => this.usageTracker.add("catalog", (this.catalogModel as unknown as { modelId?: string }).modelId ?? "unknown", step),
+      // Surface per-attempt failures so the UI + events.ndjson don't stay
+      // silent while the planner retries. Emits one `catalog.attempt_failed`
+      // per failed attempt; a downstream success still lets the job proceed.
+      onAttemptFailed: (attempt, maxRetries, error) => {
+        emitter.catalogAttemptFailed(attempt, maxRetries, error).catch(() => {});
+      },
     });
     const profileResult =
       options.repoProfile ?? (await profileRepo(this.repoRoot, slug));

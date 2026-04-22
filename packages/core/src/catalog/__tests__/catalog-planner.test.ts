@@ -91,4 +91,79 @@ describe("CatalogPlanner", () => {
     expect(result.success).toBe(false);
     expect(result.error).toBeDefined();
   });
+
+  it("fires onAttemptFailed for each failed attempt so pipeline can emit observable events", async () => {
+    const { generateText } = await import("ai");
+    const mockGenerateText = vi.mocked(generateText);
+    // All 3 attempts return unparseable text → all should fail and onAttemptFailed
+    // must be called once per attempt with the correct attempt index.
+    for (let i = 0; i < 3; i++) {
+      mockGenerateText.mockResolvedValueOnce({
+        text: `attempt ${i + 1} garbage`,
+        toolCalls: [], toolResults: [], finishReason: "stop",
+        usage: { promptTokens: 10, completionTokens: 10, totalTokens: 20 },
+      } as never);
+    }
+    const fails: Array<{ attempt: number; maxRetries: number; error: string }> = [];
+    const planner = new CatalogPlanner({
+      model: {} as never,
+      language: "en",
+      onAttemptFailed: (attempt, maxRetries, error) => {
+        fails.push({ attempt, maxRetries, error });
+      },
+    });
+    const result = await planner.plan(mockProfile);
+    expect(result.success).toBe(false);
+    expect(fails).toHaveLength(3);
+    expect(fails[0].attempt).toBe(1);
+    expect(fails[0].maxRetries).toBe(3);
+    expect(fails[1].attempt).toBe(2);
+    expect(fails[2].attempt).toBe(3);
+    // All should carry a non-empty error string
+    for (const f of fails) {
+      expect(f.error).toMatch(/./);
+    }
+  });
+
+  it("does not fire onAttemptFailed on a successful first attempt", async () => {
+    const { generateText } = await import("ai");
+    const mockGenerateText = vi.mocked(generateText);
+    mockGenerateText.mockResolvedValueOnce({
+      text: JSON.stringify(validWikiJson),
+      toolCalls: [], toolResults: [], finishReason: "stop",
+      usage: { promptTokens: 10, completionTokens: 10, totalTokens: 20 },
+    } as never);
+    const fails: unknown[] = [];
+    const planner = new CatalogPlanner({
+      model: {} as never,
+      language: "en",
+      onAttemptFailed: (...args) => fails.push(args),
+    });
+    const result = await planner.plan(mockProfile);
+    expect(result.success).toBe(true);
+    expect(fails).toHaveLength(0);
+  });
+
+  it("fires onAttemptFailed then succeeds when a mid-attempt recovers", async () => {
+    const { generateText } = await import("ai");
+    const mockGenerateText = vi.mocked(generateText);
+    // First attempt fails, second succeeds.
+    mockGenerateText.mockResolvedValueOnce({
+      text: "garbage", toolCalls: [], toolResults: [], finishReason: "stop",
+      usage: { promptTokens: 10, completionTokens: 10, totalTokens: 20 },
+    } as never);
+    mockGenerateText.mockResolvedValueOnce({
+      text: JSON.stringify(validWikiJson), toolCalls: [], toolResults: [], finishReason: "stop",
+      usage: { promptTokens: 10, completionTokens: 10, totalTokens: 20 },
+    } as never);
+    const fails: number[] = [];
+    const planner = new CatalogPlanner({
+      model: {} as never,
+      language: "en",
+      onAttemptFailed: (attempt) => fails.push(attempt),
+    });
+    const result = await planner.plan(mockProfile);
+    expect(result.success).toBe(true);
+    expect(fails).toEqual([1]); // only the first attempt failed
+  });
 });

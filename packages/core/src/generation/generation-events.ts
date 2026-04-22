@@ -153,6 +153,23 @@ export class JobEventEmitter {
     }
   }
 
+  /**
+   * Fires for every failed catalog attempt BEFORE the retry kicks in. Makes
+   * the retry loop observable in events.ndjson / UI renderer; without this
+   * event, a silent retry (e.g. from an aborted fetch after a macOS App Nap)
+   * leaves the user staring at a "cataloging..." spinner with no progress.
+   *
+   * Meaningful for stall detection: resets the "last meaningful" clock so the
+   * stall detector doesn't fire while retries are actively churning.
+   */
+  async catalogAttemptFailed(
+    attempt: number,
+    maxRetries: number,
+    error: string,
+  ): Promise<void> {
+    await this.emit("catalog.attempt_failed", { attempt, maxRetries, error });
+  }
+
   async pageComplexityScored(pageSlug: string, payload: { score: number; fileCount: number; dirSpread: number; crossLanguage: boolean }): Promise<void> {
     await this.emit("page.complexity_scored", payload, pageSlug);
   }

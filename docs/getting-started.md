@@ -111,17 +111,22 @@ repo-read browse -d .
 
 如果中途失败或想重跑，用 `repo-read jobs -d .` 查历史 job，再 `repo-read generate --resume <jobId>` 续跑。
 
-> **长跑建议**：50+ 页的大仓会跑数小时。macOS 默认 Idle Sleep 会暂停 Node 事件循环，
-> 醒来时流式连接已被上游关掉但本地不知情（典型症状：events.ndjson 夜里卡住不动）。
-> 管线现在内置 wake-from-sleep 检测（drift >30s 自动 abort 在飞请求 + emit
-> `job.woke_from_sleep` 事件），但最稳妥的做法还是：
+> **长跑建议**：50+ 页的大仓会跑数小时。macOS 有两种会暂停 Node 的机制：
+>
+> - **Idle Sleep**：机器空闲到阈值会整机睡眠，网络连接被上游关但本地不知情
+> - **App Nap**：终端窗口不活跃（比如切到后台）也会 throttle 进程，表现成"每分钟跑几秒钟"
+>
+> 管线内置 wake-from-sleep 检测（drift >30s 自动 abort 在飞请求 + emit `job.woke_from_sleep`
+> 事件），catalog 重试每次失败也会 emit `catalog.attempt_failed` 事件，所以不会再出现
+> 夜里彻底沉默的 UX。但**最稳妥**还是从根上不让它睡：
 >
 > ```sh
-> caffeinate -s repo-read generate -d .              # 新跑
-> caffeinate -s repo-read generate -d . --resume <id>  # 续跑
+> caffeinate -di repo-read generate -d .              # 新跑
+> caffeinate -di repo-read generate -d . --resume <id>  # 续跑
 > ```
 >
-> `caffeinate -s` 仅在 AC 供电时阻止 Idle Sleep；电池供电仍然会睡。
+> `-d` 防显示器睡眠 · `-i` 防 idle system sleep · 两个一起挡住 App Nap。
+> `caffeinate -s` 只挡 AC 供电的 idle sleep，**不挡 App Nap**，长跑别用。
 
 ## 接下来
 
