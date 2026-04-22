@@ -19,8 +19,8 @@
   },
   "files": ["dist", "README.md", "LICENSE"],
   "scripts": {
-    "build": "tsc",
-    "build:publish": "rm -rf dist && tsc -p tsconfig.build.json",
+    "build": "tsc && chmod +x dist/index.js",
+    "build:publish": "rm -rf dist && tsc -p tsconfig.build.json && chmod +x dist/index.js",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
     "dev": "tsx src/index.ts",

@@ -14,27 +14,25 @@
 ## 安装
 
 ```bash
-git clone https://github.com/YOUR_ORG/repo_read.git
+git clone https://github.com/HXACA/repo_read.git
 cd repo_read
 pnpm install
-pnpm --filter @reporead/core run build
-pnpm --filter @reporead/cli  run build
-pnpm --filter @reporead/web  run build
+pnpm -r build          # 一次性 build 所有 package（core + cli + web）
+cd packages/cli && npm link && cd ../..
 ```
 
-构建产物：
+之后 `repo-read --help` 可以在任意目录调用；实际指向当前仓库的 `packages/cli/dist/index.js`。
 
-- `packages/cli/dist/` — CLI 入口（`repo-read` 可执行脚本）
-- `packages/core/dist/` — 核心运行时
-- `packages/web/.next/` — Wiki 阅读器前端
+> ⚠️ **如果提示 `permission denied: repo-read`**：你可能用的是 v0.1.0 初版，那时 `build` 没自动 `chmod +x`。解决：
+> ```bash
+> git pull && pnpm -r build          # 或手动：chmod +x packages/cli/dist/index.js
+> ```
+> v0.1.1+ 的 build 脚本已自动加执行权限，这个问题不会再出现。
 
-把 CLI 链接到 PATH（推荐，后文所有 `repo-read ...` 命令都假设你已经 link 过）：
+**不想 link**：所有 `repo-read ...` 替换成 `node /absolute/path/to/repo_read/packages/cli/dist/index.js ...`，或者：
 
 ```bash
-cd packages/cli
-npm link
-# 之后 `repo-read --help` 可以在任意目录调用；实际指向当前仓库的 dist/
-cd ../..
+alias repo-read="node $PWD/packages/cli/dist/index.js"
 ```
 
 如果不想全局 link，下面所有 `repo-read` 命令都可以替换成：
