@@ -177,19 +177,52 @@ export function createWallClockFetch(
 
     // Clear the timer when the body finishes streaming — mirror resilient-fetch's
     // passthrough but with the additional finish() hook on close/cancel/error.
+    //
+    // The pull() below races `reader.read()` against `controller.signal`.
+    // Racing is required because `controller.abort()` on an in-flight body
+    // stream does NOT propagate to `reader.read()` at the WHATWG Streams
+    // level — it only affects the request/headers phase. Real-world bug
+    // reproduced 2026-04-22 (CubeSandbox): the remote TCP peer sent FIN
+    // (socket went to CLOSE_WAIT), but Node's undici-backed fetch never
+    // noticed because no keepalive read was pending. `reader.read()` hung
+    // forever; our timer fired `controller.abort()` but the read promise
+    // was unaffected. Racing against the signal's abort event breaks
+    // `reader.read()` with the AbortError (or WallClockTimeoutError) reason.
     const reader = response.body.getReader();
     const wrappedBody = new ReadableStream<Uint8Array>({
       async pull(ctrl) {
         try {
-          const { done, value } = await reader.read();
-          if (done) {
+          const result = await new Promise<Awaited<ReturnType<typeof reader.read>>>(
+            (resolve, reject) => {
+              if (controller.signal.aborted) {
+                reject(asError(controller.signal.reason));
+                return;
+              }
+              const onAbort = () => reject(asError(controller.signal.reason));
+              controller.signal.addEventListener("abort", onAbort, { once: true });
+              reader.read().then(
+                (r) => {
+                  controller.signal.removeEventListener("abort", onAbort);
+                  resolve(r);
+                },
+                (e) => {
+                  controller.signal.removeEventListener("abort", onAbort);
+                  reject(e);
+                },
+              );
+            },
+          );
+          if (result.done) {
             finish();
             ctrl.close();
           } else {
-            ctrl.enqueue(value);
+            ctrl.enqueue(result.value);
           }
         } catch (err) {
           finish();
+          // Best-effort cancel of the underlying reader so its socket is
+          // torn down rather than left dangling on CLOSE_WAIT.
+          reader.cancel(err as Error).catch(() => {});
           ctrl.error(err);
         }
       },

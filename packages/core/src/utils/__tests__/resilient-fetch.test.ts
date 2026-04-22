@@ -323,4 +323,56 @@ describe("createWallClockFetch", () => {
       wakeController.abort(new Error("late wake"));
     });
   });
+
+  describe("dead-socket reader.read() hangs", () => {
+    // Reproduces the CubeSandbox 2026-04-22 wedge: inner fetch returns a
+    // streaming Response, but the remote TCP side closes and the local
+    // reader.read() never resolves (the real-world Node fetch behavior
+    // on a CLOSE_WAIT socket without intermediate keepalive). The bug:
+    // createWallClockFetch's timer fires `controller.abort()`, which
+    // breaks request/headers abort but does NOT break an already-opened
+    // body stream reader. Fix must cancel the reader on timer fire.
+    it("wall-clock timer must break reader.read() stuck on a dead socket", async () => {
+      // Simulate a body whose pull() doesn't listen to any signal — reader
+      // is just stuck on a Promise that never resolves. This mimics a real
+      // CLOSE_WAIT TCP socket: Node has no automatic read timeout.
+      const inner: typeof globalThis.fetch = () => {
+        const body = new ReadableStream<Uint8Array>({
+          pull() {
+            // NEVER resolve. NEVER listen to abort. Just hang.
+            return new Promise<void>(() => {});
+          },
+        });
+        return Promise.resolve(
+          new Response(body, { status: 200, headers: { "content-type": "text/plain" } }),
+        );
+      };
+      const wrapped = createWallClockFetch(inner, { timeoutMs: 40 });
+      const res = await wrapped("https://dead.test");
+      const reader = res.body!.getReader();
+      // Without the fix, this would hang forever. With the fix, the wall-
+      // clock timer cancels the reader on fire.
+      await expect(reader.read()).rejects.toBeInstanceOf(WallClockTimeoutError);
+    });
+
+    it("wakeSignal abort must break reader.read() stuck on a dead socket", async () => {
+      const inner: typeof globalThis.fetch = () => {
+        const body = new ReadableStream<Uint8Array>({
+          pull() { return new Promise<void>(() => {}); },
+        });
+        return Promise.resolve(
+          new Response(body, { status: 200, headers: { "content-type": "text/plain" } }),
+        );
+      };
+      const wakeController = new AbortController();
+      const wrapped = createWallClockFetch(inner, {
+        timeoutMs: 60_000, // long, shouldn't fire
+        wakeSignal: () => wakeController.signal,
+      });
+      const res = await wrapped("https://dead.test");
+      const reader = res.body!.getReader();
+      setTimeout(() => wakeController.abort(new Error("woke up")), 30);
+      await expect(reader.read()).rejects.toThrow(/woke up/);
+    });
+  });
 });
