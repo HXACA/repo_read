@@ -337,19 +337,20 @@ export class GenerationPipeline {
       // qp.pageConcurrency === 1 the scheduler preserves strict serial
       // ordering (gates and semaphore reduce to pass-through). For higher
       // concurrency, pages overlap via per-page reviewGate synchronization.
-      // A shared `failed` flag short-circuits subsequent pages once any
-      // page has failed — this keeps the fail-fast semantics of the legacy
-      // for-loop while still letting in-flight pages finish cleanly.
-      let pipelineFailed = false;
+      // Continue-on-page-failure semantics (changed from fail-fast in v0.1.4):
+      // one bad page shouldn't lose the other N-1. The scheduler keeps
+      // running every scheduled page; per-page failures are recorded and
+      // surfaced via `page.failed` events. After runAll, if at least one
+      // page succeeded we still publish the partial wiki (filtered to the
+      // successful pages); only an all-pages-failed outcome fails the job.
+      //
+      // Reproduced 2026-04-22 on CubeSandbox: 8/21 pages succeeded, page 7
+      // hit a MiniMax serialization bug (empty output after 20k+ tokens),
+      // and the legacy fail-fast threw away the 8 completed pages.
       const scheduler = new ParallelPageScheduler<WikiJson["reading_order"][number]>({
         concurrency: qp.pageConcurrency,
         runPage: async ({ page, pageIndex, reviewGate, onFirstReviewStart }) => {
           if (skipSlugs.has(page.slug)) {
-            return { success: true };
-          }
-          if (pipelineFailed) {
-            // A prior page already failed — skip downstream pages to match
-            // the legacy serial fail-fast behavior.
             return { success: true };
           }
 
@@ -399,9 +400,14 @@ export class GenerationPipeline {
           const pageResult = await this.runPageWorkflow(workflowCtx);
 
           if (!pageResult.success) {
-            pipelineFailed = true;
-            // Persist the partial record even on failure so diagnostics
-            // survive a subsequent crash/reboot.
+            // Continue-on-failure: record this page as failed, emit an
+            // observable event, and return the failure result so the
+            // outer loop can count it — but do NOT cascade-abort sibling
+            // or downstream pages. They may still succeed and the job
+            // will publish whatever good pages exist.
+            await emitter
+              .pageFailed(page.slug, pageResult.error ?? "page failed")
+              .catch(() => {});
             if (pageResult.pageMetrics) {
               throughput.addPage(pageResult.pageMetrics as PageThroughputRecord);
               await flushThroughput();
@@ -457,23 +463,23 @@ export class GenerationPipeline {
         }
       }
 
-      const firstFailure = pageResults.find((r) => !r.success);
-      if (firstFailure) {
-        if (prefetchRef.current) {
-          await prefetchRef.current.promise.catch(() => {});
-          if (prefetchRef.current.phases.evidence || prefetchRef.current.phases.outline) {
-            throughput.setOrphanedPrefetch({ phases: { ...prefetchRef.current.phases } });
-          }
-          prefetchRef.current = null;
-        }
-        await this.artifactStore.saveThroughputMetrics(
-          { projectSlug: slug, jobId },
-          throughput.finish({ totalLatencyMs: Date.now() - pipelineStartedAt }),
-        ).catch(() => {});
-        return this.failJob(job, emitter, firstFailure.error ?? "page failed");
-      }
+      // Count failures and successes. If nothing succeeded there's nothing
+      // to publish → fail the job. Otherwise keep going with the partial
+      // wiki. The wiki passed to the publisher is filtered to drop failed
+      // pages from `reading_order`; the underlying draft/.meta files still
+      // exist on disk for post-mortem inspection but aren't referenced by
+      // the published `version.json`.
+      const failedSlugs = new Set(
+        pageResults
+          .filter((r) => !r.success)
+          .map((r) => (r as { pageMetrics?: { slug?: string } }).pageMetrics?.slug)
+          .filter((s): s is string => typeof s === "string"),
+      );
+      const allFailed =
+        pageResults.length > 0 && pageResults.every((r) => !r.success);
 
-      // Drain any remaining unused prefetch (success path)
+      // Drain any remaining unused prefetch (runs in both success and
+      // partial-failure paths — throughput.json always closes cleanly).
       if (prefetchRef.current) {
         await prefetchRef.current.promise.catch(() => {});
         if (prefetchRef.current.phases.evidence || prefetchRef.current.phases.outline) {
@@ -482,11 +488,30 @@ export class GenerationPipeline {
         prefetchRef.current = null;
       }
 
-      // === PUBLISH ===
+      if (allFailed) {
+        await this.artifactStore.saveThroughputMetrics(
+          { projectSlug: slug, jobId },
+          throughput.finish({ totalLatencyMs: Date.now() - pipelineStartedAt }),
+        ).catch(() => {});
+        const firstError =
+          pageResults.find((r) => !r.success)?.error ?? "all pages failed";
+        return this.failJob(job, emitter, firstError);
+      }
+
+      // === PUBLISH (partial wiki: failed pages excluded) ===
+      const publishableWiki: WikiJson = failedSlugs.size === 0
+        ? wiki
+        : {
+            ...wiki,
+            reading_order: wiki.reading_order.filter(
+              (p) => !failedSlugs.has(p.slug),
+            ),
+          };
+
       job = await this.jobManager.transition(slug, jobId, "publishing");
 
       const publisher = new Publisher(this.storage);
-      await publisher.publish(slug, jobId, versionId, wiki, this.commitHash);
+      await publisher.publish(slug, jobId, versionId, publishableWiki, this.commitHash);
 
       job = await this.jobManager.transition(slug, jobId, "completed");
       await emitter.jobCompleted(

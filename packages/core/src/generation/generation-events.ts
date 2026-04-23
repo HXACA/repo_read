@@ -147,6 +147,20 @@ export class JobEventEmitter {
     await this.emit("job.woke_from_sleep", detail);
   }
 
+  /**
+   * Fires when a page has exhausted its drafter/reviewer retry budget and
+   * cannot be produced. With `continueOnPageFailure` (default), the pipeline
+   * records this event and keeps scheduling later pages, rather than
+   * collapsing the whole job. The UI renderer and post-run analytics can
+   * count these to decide whether to resume or abandon.
+   *
+   * Counts as meaningful for stall detection — a failed page is still real
+   * pipeline progress.
+   */
+  async pageFailed(pageSlug: string, error: string, attempt?: number): Promise<void> {
+    await this.emit("page.failed", { error, ...(attempt != null ? { attempt } : {}) }, pageSlug);
+  }
+
   async catalogWarnings(warnings: string[]): Promise<void> {
     if (warnings.length > 0) {
       await this.emit("catalog.warnings", { warnings, count: warnings.length });

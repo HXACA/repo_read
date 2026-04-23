@@ -90,6 +90,28 @@ describe("JobEventEmitter", () => {
     expect(events[0].payload).toEqual({ totalPages: 5, succeededPages: 5, failedPages: 0 });
   });
 
+  it("emits page.failed event with slug and error", async () => {
+    await emitter.pageFailed("busted-page", "drafter produced empty output", 4);
+    const events = await reader.readAll();
+    expect(events[0].type).toBe("page.failed");
+    expect(events[0].pageSlug).toBe("busted-page");
+    expect(events[0].payload).toEqual({
+      error: "drafter produced empty output",
+      attempt: 4,
+    });
+  });
+
+  it("page.failed counts as meaningful progress for stall detection", async () => {
+    // After a page.failed event fires, the "last meaningful" clock should
+    // reset — we don't want the stall detector to fire just because some
+    // pages failed; retry churn on subsequent pages is real work.
+    await emitter.pageDrafting("overview");
+    await new Promise((r) => setTimeout(r, 30));
+    await emitter.pageFailed("overview", "boom");
+    const after = emitter.millisSinceLastMeaningful();
+    expect(after).toBeLessThan(20);
+  });
+
   it("preserves event order across multiple emissions", async () => {
     await emitter.jobStarted();
     await emitter.catalogCompleted(2);
