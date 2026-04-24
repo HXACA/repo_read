@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   PageDrafter,
   stripDraftOutputWrappers,
+  detectMetaCommentary,
   extractMetadataFromMarkdown,
   revisionStepBudget,
 } from "../page-drafter.js";
@@ -520,6 +521,105 @@ describe("stripDraftOutputWrappers", () => {
     expect(out).toContain("print('hi')");
     // Inner fence opener should still be there
     expect(out.match(/```python/g)).toHaveLength(1);
+  });
+});
+
+describe("detectMetaCommentary", () => {
+  it("returns null for a clean page with no meta phrases", () => {
+    const md = `# Title\n\nThis is the real opening paragraph of the page. It explains the topic directly.\n\n## Section One\n\nHere is substantive technical content about how the module works. See [cite:file:a.ts:1-10] for the entry point. The function initializes three subsystems.\n\n## Section Two\n\nMore substantive prose about the second aspect of the system, with specific technical detail and references.`;
+    expect(detectMetaCommentary(md)).toBeNull();
+  });
+
+  it("returns null when a single casual phrase appears inside normal prose", () => {
+    // Isolated appearances like "Let me know if..." in a reader-facing
+    // aside shouldn't trip the guard — only multi-paragraph meta runs.
+    const md = `# Title\n\nThis page covers three patterns that recur throughout the codebase. Let me walk through them one by one.\n\n## First pattern\n\nThe adapter layer translates between protocol and internal representation [cite:file:adapter.go:1-20].`;
+    expect(detectMetaCommentary(md)).toBeNull();
+  });
+
+  it("flags the CubeSandbox Cubelet failure pattern (LLM thinking leaked as body)", () => {
+    // Actual observed output from CubeSandbox page 7 third attempt — LLM
+    // returned its internal planning stream instead of markdown. Before
+    // the guard this page published with ~35 meta phrases and reviewer
+    // couldn't catch it.
+    const md = `# Cubelet：节点守护进程
+\`\`\`
+
+Then the summary paragraph.
+
+Then the sections.
+
+OK, I'm confident. Let me write.
+
+Actually, I realize I should also check the config/config.toml file.
+
+Let me read the config.toml now.
+
+From evidence entry 17: \`Cubelet/config/config.toml:1-176\` - TOML config file example.
+
+Actually, I have enough context. Let me just write the page.
+
+OK, writing now. For real this time.
+
+Let me also think about how to handle the mount namespace rationale.
+
+The reviewer said this makes a specific behavior claim without citation. I should either:
+1. Cite the code
+2. Hedge it as inference
+
+Let me write: [some draft here]
+
+This is verifiable from the code.
+
+OK, writing now.
+`;
+    const result = detectMetaCommentary(md);
+    expect(result).not.toBeNull();
+    expect(result!.matchedPhrases).toBeGreaterThanOrEqual(5);
+    expect(result!.totalParagraphs).toBeGreaterThan(3);
+    // At least half the text should have been flagged.
+    expect(result!.matchedRatio).toBeGreaterThanOrEqual(0.4);
+  });
+
+  it("flags body with many meta-phrase openers even if interleaved with real sentences", () => {
+    const md = `# Title
+
+Let me think about this page.
+
+Here is one real sentence with technical content [cite:file:x.go:1-10].
+
+Actually, I realize the structure should be different.
+
+OK, let me write the first section now.
+
+Another real sentence with concrete detail.
+
+Wait, I should double-check the evidence first.
+
+Hmm, I need to cite this more carefully.
+
+Let me also check the imports.`;
+    const result = detectMetaCommentary(md);
+    expect(result).not.toBeNull();
+    expect(result!.matchedPhrases).toBeGreaterThanOrEqual(5);
+  });
+
+  it("does not flag legitimate imperative prose starting with 'Let's' or 'Note that'", () => {
+    // A good technical writer does use "Let's look at the trade-offs" —
+    // one or two such phrases shouldn't flag the page. Threshold is
+    // about DENSITY, not any single occurrence.
+    const md = `# Architecture
+
+This page introduces the core architecture of the system. Let's start with the call graph.
+
+## Request lifecycle
+
+A request enters through the gateway [cite:file:gateway.go:100-200] and is dispatched to one of three handlers. Note that the dispatch is deterministic — the same request always routes to the same handler.
+
+## Storage layer
+
+The storage layer persists state to disk. It supports three formats: JSON for configuration, SQLite for logs, and flat files for raw dumps [cite:file:storage.go:50-100].`;
+    expect(detectMetaCommentary(md)).toBeNull();
   });
 });
 

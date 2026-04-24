@@ -1360,6 +1360,11 @@ export class GenerationPipeline {
       knownFiles: page.covered_files,
       knownPages,
       pageSlug: page.slug,
+      // Disk-existence check: repoRoot enables the validator to rule out
+      // hallucinated file paths that slipped past the glob-based scope
+      // check (e.g. catalog lists `pkg/log/*.go`, drafter cites
+      // `pkg/log/context.go`, real file is `pkg/log/logger.go`).
+      repoRoot: this.repoRoot,
     });
     const validateMetric: PhaseMetric = {
       durationMs: Date.now() - validateStartedAt,

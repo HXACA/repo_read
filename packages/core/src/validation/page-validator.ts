@@ -11,6 +11,12 @@ export type PageValidationInput = {
   knownFiles: string[];
   knownPages: string[];
   pageSlug: string;
+  /**
+   * When provided, the citation validator will additionally check that
+   * each `file` citation target actually resolves on disk. Catches
+   * hallucinated paths that pass the glob-based scope check.
+   */
+  repoRoot?: string;
 };
 
 /**
@@ -45,7 +51,13 @@ function checkCitationDensity(markdown: string, pageSlug: string): string[] {
 export function validatePage(input: PageValidationInput): ValidationReport {
   const reports = [
     validateStructure(input.markdown, input.pageSlug),
-    validateCitations(input.citations, input.knownFiles, input.knownPages, input.pageSlug),
+    validateCitations(
+      input.citations,
+      input.knownFiles,
+      input.knownPages,
+      input.pageSlug,
+      input.repoRoot ? { repoRoot: input.repoRoot } : undefined,
+    ),
     validateMermaid(input.markdown, input.pageSlug),
     validateLinks(input.markdown, input.knownPages, input.pageSlug),
   ];

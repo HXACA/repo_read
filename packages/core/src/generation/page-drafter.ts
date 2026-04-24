@@ -81,6 +81,99 @@ export function revisionStepBudget(baseMaxSteps: number, attempt: number): numbe
  *
  * Exported for unit testing.
  */
+/**
+ * Detect LLM-thinking-stream contamination in a drafted page.
+ *
+ * Reference case: CubeSandbox 2026-04-22 page 7 (Cubelet). After two failures
+ * to the MiniMax empty-output bug, the third attempt returned ~20k tokens
+ * that weren't the actual page content — they were the model's internal
+ * planning stream ("OK, let me think...", "Actually, I realize...", "Let me
+ * write now. For real this time."). `stripDraftOutputWrappers` left it
+ * alone (structurally valid: it started with a `#` heading). The reviewer
+ * accepted it because citation format and section count matched. It
+ * published as a broken page.
+ *
+ * Heuristic: count how many paragraphs start with "thinking-out-loud"
+ * meta phrases. Paragraphs here means newline-separated chunks. One or
+ * two such phrases ("Let's look at..." in a legitimate page intro) is
+ * fine; a run of 5+ or a ratio above 40% means the model handed us its
+ * scratchpad.
+ *
+ * Returns null when the page looks clean, or diagnostic fields when it
+ * looks contaminated. The pipeline treats a non-null result as a draft
+ * failure and triggers a fresh revision.
+ */
+export function detectMetaCommentary(
+  body: string,
+): { matchedPhrases: number; matchedRatio: number; totalParagraphs: number } | null {
+  // Regex anchored to start-of-paragraph. Each entry is a distinct
+  // meta-commentary opener I've seen leak from reasoning models — mostly
+  // English since LLMs tend to think in English even when asked for zh.
+  const META_OPENERS = [
+    /^Let me (think|write|also|check|verify|plan|read|look|trace|re-?read|walk|make)/i,
+    /^Let's (think|write|also|start|look|plan|do)/i,
+    /^OK,? (I|let|writing|that|so|for|now)/i,
+    /^Okay,? (I|let|writing|that|so|for|now)/i,
+    /^Actually,?\s+I\b/i,
+    /^I realize\b/i,
+    /^I should\b/i,
+    /^I need to\b/i,
+    /^I'll (write|use|cite|plan|structure|include|add|mention)/i,
+    /^Wait,?\s+/i,
+    /^Hmm,?\s+/i,
+    /^Writing now\b/i,
+    /^Then the\b/i, // "Then the summary paragraph." "Then the sections."
+    /^Now let me\b/i,
+    /^So let me\b/i,
+    /^But wait\b/i,
+    /^Of course\b/i,
+    /^From evidence entry\b/i, // internal scratchpad reference to retrieved context
+    /^Looking at\b.+, (I|the evidence|the code)/i,
+    /^Based on (the|my)\b.+,?\s+(I|let)/i,
+  ];
+
+  // Remove balanced fenced code blocks as a preprocessing step. An
+  // unbalanced leading ``` (from corrupted LLM output) won't consume the
+  // rest of the body — we just drop its noise marker and keep parsing
+  // paragraphs. A balanced pair drops cleanly.
+  const stripped = body.replace(/^```[^\n]*\n[\s\S]*?\n```\s*$/gm, "");
+  // Remove any remaining lone ``` markers (unbalanced orphans).
+  const noFences = stripped.replace(/^```[^\n]*$/gm, "");
+
+  const blocks = noFences
+    .split(/\r?\n\s*\r?\n/)
+    .map((b) => b.trim())
+    .filter((b) => b.length > 0);
+
+  const proseParagraphs = blocks.filter((b) => {
+    if (/^#{1,6}\s/.test(b)) return false; // heading
+    if (/^[-*+]\s/.test(b)) return false; // list item
+    if (/^\|/.test(b)) return false; // table row
+    return true;
+  });
+
+  if (proseParagraphs.length === 0) return null;
+
+  let matched = 0;
+  for (const p of proseParagraphs) {
+    const first = p.trim().split(/\n/)[0];
+    if (META_OPENERS.some((re) => re.test(first))) matched += 1;
+  }
+
+  const ratio = matched / proseParagraphs.length;
+  // Two conditions trigger the guard:
+  //   (a) absolute count ≥ 5 (catches long contaminated pages with some
+  //       real prose mixed in),
+  //   (b) ratio ≥ 0.4 on a small page (catches short-but-mostly-meta pages).
+  // Neither alone is sufficient — one or two casual openers in a long page
+  // is fine, and a single suspicious line in a three-paragraph page is not
+  // enough signal.
+  if (matched >= 5 || (matched >= 3 && ratio >= 0.4)) {
+    return { matchedPhrases: matched, matchedRatio: ratio, totalParagraphs: proseParagraphs.length };
+  }
+  return null;
+}
+
 export function stripDraftOutputWrappers(raw: string): string {
   let text = raw;
 
@@ -211,6 +304,25 @@ export class PageDrafter {
           metrics: parsed.metrics,
           ...(parsed.truncated ? { truncated: true } : {}),
         };
+      }
+      // Guard against LLM-thinking-stream contamination. Reference case:
+      // CubeSandbox 2026-04-22 page 7, MiniMax returned ~20k tokens of the
+      // model's internal planning stream instead of the page body. The
+      // output passed stripDraftOutputWrappers (it started with a real
+      // heading), passed structural validation (citation format was
+      // correct), passed the reviewer (verdict=pass because the citations
+      // lined up), and published as a broken page. Flagging here forces
+      // a fresh draft attempt via the revision loop.
+      if (parsed.success && parsed.markdown) {
+        const meta = detectMetaCommentary(parsed.markdown);
+        if (meta) {
+          return {
+            success: false,
+            error: `Drafter produced LLM-thinking-stream contamination (${meta.matchedPhrases} meta-commentary paragraphs out of ${meta.totalParagraphs}, ratio ${meta.matchedRatio.toFixed(2)}). The model returned its planning scratchpad instead of the page body.`,
+            metrics: parsed.metrics,
+            ...(parsed.truncated ? { truncated: true } : {}),
+          };
+        }
       }
       return parsed;
     } catch (err) {
